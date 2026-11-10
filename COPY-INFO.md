@@ -1,0 +1,1 @@
+Copia independiente de SENE VENTAS desde 1JAVS1/sene-pv, rama fix/ventas-compile-approved-knowledge. Esta copia conserva el proyecto y sus ajustes de compilación al momento de la copia.
