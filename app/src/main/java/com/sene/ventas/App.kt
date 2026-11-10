@@ -581,22 +581,54 @@ class MainActivity:Activity(){
    .setItems(reasons){_,index->
     val reason=reasons[index]
     val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
-    val lines=items.joinToString("\n"){it.optString("code")+" · "+it.optString("name")+" · "+it.optInt("qty")+" pzas · "+Store.money(it.optDouble("price"))}
-    val detail=input("Describe el código/producto, cantidad registrada y cómo debe quedar").apply{minLines=3;maxLines=5;setSingleLine(false)}
+    val lineLabels=items.map{it.optString("code")+" · "+it.optString("name")+" · "+it.optInt("qty")+" pzas · "+Store.money(it.optDouble("price"))}
+    val linePicker=Spinner(this).apply{adapter=android.widget.ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,lineLabels)}
+    val newCode=input("Código correcto del producto")
+    val newQty=input("Cantidad correcta (0 para eliminar)",true)
+    val newPrice=input("Precio correcto por pieza",true)
+    val description=input("Explica brevemente qué ocurrió").apply{minLines=2;maxLines=4;setSingleLine(false)}
     val cash=CheckBox(this).apply{text="Esta corrección cambia el efectivo de caja"}
     val cashReasons=arrayOf("Devolución al cliente","Diferencia por precio vigente","Cantidad corregida","Producto eliminado o incorrecto","Producto omitido","Otro")
     val cashReason=Spinner(this).apply{adapter=android.widget.ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,cashReasons)}
-    form.addView(txt("Renglones de la venta seleccionada:\n"+lines,13f))
-    form.addView(detail);form.addView(cash);form.addView(cashReason)
+    fun loadLine(index:Int){
+     val item=items.getOrNull(index)?:return
+     newCode.setText(item.optString("code"))
+     newQty.setText(item.optInt("qty").toString())
+     newPrice.setText(item.optDouble("price").toString())
+    }
+    linePicker.onItemSelectedListener=object:android.widget.AdapterView.OnItemSelectedListener{
+     override fun onNothingSelected(parent:android.widget.AdapterView<*>?){}
+     override fun onItemSelected(parent:android.widget.AdapterView<*>?,view:View?,position:Int,id:Long){loadLine(position)}
+    }
+    form.addView(txt("Renglón que se corregirá",13f));form.addView(linePicker)
+    form.addView(newCode);form.addView(newQty);form.addView(newPrice);form.addView(description)
+    form.addView(cash);form.addView(cashReason)
+    loadLine(0)
     AlertDialog.Builder(this).setTitle("DETALLE LOCAL DE CORRECCIÓN")
-     .setMessage("Este detalle no se envía al servidor. Se comparte al patrón por WhatsApp para que pueda revisar la solicitud. El servidor solo conserva motivo, hash y permiso de un solo uso.")
+     .setMessage("Elige el renglón y captura cómo debe quedar. Estos datos no se envían al servidor; se comparten por WhatsApp con el patrón para revisión.")
      .setView(form).setPositiveButton("SOLICITAR AUTORIZACIÓN"){_,_->
-      val description=detail.text.toString().trim()
-      if(description.length !in 10..1200){msg("Describe con claridad qué producto y cantidad deben corregirse");return@setPositiveButton}
+      val target=items.getOrNull(linePicker.selectedItemPosition)
+      val code=newCode.text.toString().trim()
+      val qty=newQty.text.toString().toIntOrNull()
+      val price=parseAmount(newPrice.text.toString())
+      val detail=description.text.toString().trim()
       val cashImpact=cash.isChecked
       val cashWhy=if(cashImpact)cashReasons[cashReason.selectedItemPosition] else ""
+      if(target==null||code.isBlank()||qty==null||qty !in 0..100000||price==null||price<0.0||detail.length<4||detail.length>1000){
+       msg("Revisa producto, cantidad, precio y explicación");return@setPositiveButton
+      }
+      val products=Store.products(this)
+      var newProduct:JSONObject?=null
+      for(i in 0 until products.length()){
+       val p=products.optJSONObject(i)?:continue
+       if(p.optString("code")==code){newProduct=p;break}
+      }
+      if(qty>0&&newProduct==null){msg("El código correcto debe existir en el inventario");return@setPositiveButton}
       val plan=JSONObject().put("saleId",saleId).put("reason",reason)
-       .put("description",description).put("cashImpact",cashImpact).put("cashReason",cashWhy)
+       .put("targetCode",target.optString("code")).put("targetTs",target.optLong("ts",0L))
+       .put("oldQty",target.optInt("qty")).put("oldPrice",target.optDouble("price"))
+       .put("newCode",code).put("newQty",qty).put("newPrice",price)
+       .put("description",detail).put("cashImpact",cashImpact).put("cashReason",cashWhy)
        .put("createdAt",System.currentTimeMillis())
       val hash=java.security.MessageDigest.getInstance("SHA-256")
        .digest(plan.toString().toByteArray(Charsets.UTF_8))
@@ -604,12 +636,15 @@ class MainActivity:Activity(){
       Thread{try{
        val result=payrollApi().requestSaleCorrection(saleId,reason,listOf(reason),hash,cashImpact,cashWhy)
        val requestId=result.optString("requestId")
+       plan.put("requestId",requestId).put("planHash",hash)
        getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE).edit()
         .putString("plan_"+requestId,plan.toString()).apply()
        val message="SENE VENTAS · SOLICITUD DE CORRECCIÓN\nVenta: "+saleId+
-        "\nMotivo: "+reason+"\nDetalle: "+description+
-        "\nCambio de caja: "+(if(cashImpact)"Sí · "+cashWhy else "No")+
-        "\n\nEl permiso se aplica solo en SENE VENTAS después de la autorización."
+        "\nMotivo: "+reason+"\nProducto actual: "+target.optString("code")+" · "+target.optString("name")+
+        "\nCantidad actual: "+target.optInt("qty")+" · Precio actual: "+Store.money(target.optDouble("price"))+
+        "\nDebe quedar: "+code+" · "+qty+" pzas · "+Store.money(price)+
+        "\nDetalle: "+detail+"\nCambio de caja: "+(if(cashImpact)"Sí · "+cashWhy else "No")+
+        "\n\nEl permiso se aplica una sola vez en SENE VENTAS después de la autorización."
        runOnUiThread{
         msg("Solicitud registrada. Abriendo WhatsApp para enviar el detalle al patrón…")
         if(!openWhatsAppText(this,message))msg("La solicitud quedó en SENE, pero no se pudo abrir WhatsApp para compartir el detalle.")
