@@ -102,6 +102,11 @@ class SeneVentasApiClient(context: Context, baseUrl: String) {
         return deviceSigned("VENTAS_REQUEST", "/v1/ventas/requests", body.toString())
     }
 
+    /** Historial propio de solicitudes, incluidos pendientes y respuestas del patrón. */
+    fun requestHistory(): JSONObject = deviceSigned(
+        "VENTAS_REQUEST_HISTORY", "/v1/ventas/requests/history", "{}"
+    )
+
     fun requestUpdates(since: Long = 0L): JSONObject {
         val body = JSONObject().put("since", since.coerceAtLeast(0L))
         return deviceSigned(
