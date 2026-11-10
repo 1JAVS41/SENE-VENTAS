@@ -527,7 +527,7 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN")
+  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
    override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
     val row=super.getView(position,convertView,parent) as TextView
@@ -547,8 +547,134 @@ class MainActivity:Activity(){
     5->AlertDialog.Builder(this).setTitle("Cerrar turno").setMessage("¿Enviar reporte final y cerrar turno?").setPositiveButton("Enviar y cerrar"){_,_->sendReport(true)}.setNegativeButton("Cancelar",null).show()
     6->saveReportToPhone()
     7->showSeneCloudConnection()
+    8->showPayrollTools()
    }
   }.setNegativeButton("Volver",null).show()
+ }
+ private fun showPayrollTools(){
+  val options=arrayOf("CONSULTAR HISTORIAL DE SOLICITUDES Y RESPUESTAS","GENERAR / CONSULTAR REPORTE DE NÓMINA")
+  AlertDialog.Builder(this).setTitle("DÍA DE PAGO").setItems(options){_,which->
+   if(which==0)loadWorkHistory() else generatePayrollReport()
+  }.setNegativeButton("CERRAR",null).show()
+ }
+ private fun payrollApi():SeneVentasApiClient{
+  val prefs=getSharedPreferences("sene_ventas_server",MODE_PRIVATE)
+  val base=prefs.getString("server_base_url",null)
+   ?:throw IllegalStateException("Primero conecta SENE VENTAS con SENE PATRÓN")
+  if(prefs.getString("device_id",null).isNullOrBlank())throw IllegalStateException("Este equipo aún no está vinculado")
+  return SeneVentasApiClient(this,base)
+ }
+ private fun loadWorkHistory(){
+  Thread{try{
+   val result=payrollApi().requestHistory()
+   val items=result.optJSONArray("items")?:JSONArray()
+   val corrections=result.optJSONArray("corrections")?:JSONArray()
+   val lines=StringBuilder()
+   for(i in 0 until items.length()){
+    val item=items.optJSONObject(i)?:continue
+    lines.append("• ").append(item.optString("type")).append(" · ").append(item.optString("status").uppercase(Locale.ROOT))
+     .append("\n  ").append(item.optJSONObject("details")?.optString("description").orEmpty())
+    val decision=item.optJSONObject("decisionDetails")?:JSONObject()
+    if(decision.length()>0)lines.append("\n  Respuesta del patrón: ").append(decision.toString())
+    lines.append("\n\n")
+   }
+   for(i in 0 until corrections.length()){
+    val item=corrections.optJSONObject(i)?:continue
+    lines.append("• CORRECCIÓN DE VENTA · ").append(item.optString("status").uppercase(Locale.ROOT))
+     .append("\n  Venta: ").append(item.optString("saleId"))
+     .append("\n  Motivo: ").append(item.optJSONArray("reasons")?.let{arr->(0 until arr.length()).joinToString(", "){arr.optString(it)}}?:item.optString("reason"))
+     .append("\n\n")
+   }
+   val message=if(lines.isEmpty())"Todavía no hay solicitudes ni respuestas registradas." else lines.toString()
+   runOnUiThread{AlertDialog.Builder(this).setTitle("HISTORIAL · SOLICITUDES Y RESPUESTAS")
+    .setMessage(message).setPositiveButton("CERRAR",null).show()}
+  }catch(e:Exception){runOnUiThread{msg("No se pudo consultar el historial: "+(e.message?:"Error"))}}}.start()
+ }
+ private fun generatePayrollReport(){
+  msg("Consultando configuración de nómina y movimientos…")
+  Thread{try{
+   val api=payrollApi()
+   val session=api.session()
+   val payrollState=session.optJSONObject("payroll")?:JSONObject()
+   val settingsResult=api.payrollSettings()
+   if(!settingsResult.optBoolean("configured",false)){
+    runOnUiThread{msg("El patrón todavía no configuró sueldo y fecha de pago para este equipo.")}
+    return@Thread
+   }
+   val settings=settingsResult.optJSONObject("settings")?:JSONObject()
+   val history=api.requestHistory()
+   val items=history.optJSONArray("items")?:JSONArray()
+   val corrections=history.optJSONArray("corrections")?:JSONArray()
+   val prefs=getSharedPreferences("sene_ventas_payroll",MODE_PRIVATE)
+   val periodStart=prefs.getLong("last_reported_at",0L)
+   val sales=Store.sales(this)
+   var total=0.0;var units=0;val tickets=mutableSetOf<Long>()
+   for(i in 0 until sales.length()){
+    val sale=sales.optJSONObject(i)?:continue
+    val ts=sale.optLong("ts",0L)
+    if(periodStart>0L&&ts<periodStart)continue
+    total+=sale.optDouble("subtotal",0.0);units+=sale.optInt("qty",1)
+    tickets.add(if(ts>0L)ts else sale.optString("time").hashCode().toLong())
+   }
+   var deductions=0L;var approved=0
+   val deductionLines=StringBuilder()
+   for(i in 0 until items.length()){
+    val item=items.optJSONObject(i)?:continue
+    if(item.optString("status")!="approved")continue
+    val deduction=item.optJSONObject("decisionDetails")?.optJSONObject("deduction")?:continue
+    if(!deduction.optBoolean("authorized",false))continue
+    val cents=deduction.optLong("amountCents",0L)
+    if(cents<=0L)continue
+    deductions+=cents;approved++
+    deductionLines.append("\n• ").append(item.optString("type")).append(": $")
+     .append(String.format(Locale.US,"%.2f",cents/100.0))
+   }
+   val salary=settings.optLong("salaryCents",0L)
+   val net=(salary-deductions).coerceAtLeast(0L)
+   val date=payrollState.optString("mexicoDate",SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date()))
+   val report=JSONObject()
+    .put("worker",Store.shift(this)?.optString("worker")?:"")
+    .put("slot",session.optString("slot"))
+    .put("periodStartTs",periodStart)
+    .put("periodEndDate",date)
+    .put("salaryCents",salary)
+    .put("salesTotalCents",Math.round(total*100.0))
+    .put("salesCount",tickets.size)
+    .put("unitsSold",units)
+    .put("approvedDeductionsCents",deductions)
+    .put("approvedDeductionsCount",approved)
+    .put("netPayCents",net)
+    .put("requestHistory",items)
+    .put("correctionHistory",corrections)
+   val due=payrollState.optBoolean("dueToday",false)
+   val dueLabel=if(due)"SÍ · hoy está habilitado el envío" else "NO · el envío por WhatsApp está bloqueado hasta el día configurado"
+   val body=StringBuilder("SENE VENTAS · REPORTE DE DÍA DE PAGO")
+    .append("\nEmpresa: ").append(session.optString("businessName"))
+    .append("\nEquipo: ").append(session.optString("slot"))
+    .append("\nFecha de corte: ").append(date)
+    .append("\nSueldo configurado: $").append(String.format(Locale.US,"%.2f",salary/100.0))
+    .append("\nVentas del periodo: $").append(String.format(Locale.US,"%.2f",total))
+    .append("\nTickets: ").append(tickets.size).append(" · Unidades: ").append(units)
+    .append("\nDescuentos autorizados: $").append(String.format(Locale.US,"%.2f",deductions))
+    .append(deductionLines)
+    .append("\nNETO PRELIMINAR: $").append(String.format(Locale.US,"%.2f",net/100.0))
+    .append("\n\nFecha de pago: ").append(dueLabel)
+    .append("\n\nEl cálculo es preliminar; el patrón valida los movimientos y autorizaciones.")
+   runOnUiThread{
+    val builder=AlertDialog.Builder(this).setTitle("REPORTE DE NÓMINA")
+     .setMessage(body.toString()).setNegativeButton("CERRAR",null)
+    if(due)builder.setPositiveButton("ENVIAR A PATRÓN POR WHATSAPP"){_,_->
+     Thread{try{
+      api.savePayrollReport(date,report)
+      prefs.edit().putLong("last_reported_at",System.currentTimeMillis()).apply()
+      runOnUiThread{
+       if(!openWhatsAppText(this,body.toString()))msg("El reporte quedó guardado en SENE, pero no se pudo abrir WhatsApp.")
+      }
+     }catch(e:Exception){runOnUiThread{msg("No se pudo registrar el reporte de nómina: "+(e.message?:"Error"))}}}.start()
+    }
+    builder.show()
+   }
+  }catch(e:Exception){runOnUiThread{msg("No se pudo generar el reporte: "+(e.message?:"Error"))}}}.start()
  }
  private fun showSeneCloudConnection(){
   val prefs=getSharedPreferences("sene_ventas_server",MODE_PRIVATE)
