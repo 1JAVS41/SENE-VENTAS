@@ -752,6 +752,51 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   completeReport(final,Uri.parse(saved))
  }
  private var pendingReportText:String?=null
+ private fun uploadShiftReportToServer(shift:JSONObject,file:java.io.File,final:Boolean){
+  val prefs=getSharedPreferences("sene_ventas_server",MODE_PRIVATE)
+  val base=prefs.getString("server_base_url",null)
+  val device=prefs.getString("device_id",null)
+  if(base.isNullOrBlank()||device.isNullOrBlank())return
+  val sales=Store.sales(this)
+  val start=shift.optLong("startTs",0L)
+  var total=0.0
+  var units=0
+  var tickets=0
+  val seen=mutableSetOf<Long>()
+  for(i in 0 until sales.length()){
+   val item=sales.optJSONObject(i)?:continue
+   val ts=item.optLong("ts",0L)
+   if(ts<start)continue
+   total+=item.optDouble("subtotal",0.0)
+   units+=item.optInt("qty",1)
+   if(seen.add(if(ts>0L)ts else item.optString("time").hashCode().toLong()))tickets++
+  }
+  val expenses=Store.providerExpenses(this,start)
+  val opening=shift.optDouble("cash",0.0)
+  val report=JSONObject()
+   .put("worker",shift.optString("worker"))
+   .put("workerPhone",shift.optString("phone"))
+   .put("shiftStarted",shift.optString("started"))
+   .put("shiftStartTs",start)
+   .put("shiftClosed",final)
+   .put("shiftEndTs",if(final)System.currentTimeMillis() else 0L)
+   .put("salesTotalCents",Math.round(total*100.0))
+   .put("salesCount",tickets)
+   .put("unitsSold",units)
+   .put("providerExpensesCents",Math.round(expenses*100.0))
+   .put("openingCashCents",Math.round(opening*100.0))
+   .put("estimatedCashCents",Math.round((opening+total-expenses)*100.0))
+   .put("localReportFile",file.name)
+   .put("localReportUpdatedAt",file.lastModified())
+  val shiftKey=start.toString()+":"+file.lastModified().toString()
+  Thread{
+   try{
+    SeneVentasApiClient(this,base).saveShiftReport(shiftKey,report)
+   }catch(e:Exception){
+    runOnUiThread{Toast.makeText(this,"El TXT se guardó, pero no se pudo sincronizar el reporte con SENE PATRÓN: "+(e.message?:"sin conexión"),Toast.LENGTH_LONG).show()}
+   }
+  }.start()
+ }
  private fun completeReport(final:Boolean,tree:Uri){
   val s=Store.shift(this)?:return
   try{
@@ -760,6 +805,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file)
+   uploadShiftReportToServer(s,file,final)
    pendingShareUri=dailyUri
    pendingReportText=body
    pendingFinalShare=final
