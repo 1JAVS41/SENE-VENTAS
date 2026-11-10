@@ -328,6 +328,10 @@ private object InventoryReader {
 private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
 
 class InicioTurnoActivity:Activity(){
+ private val pairScanRequest=7419
+ private var pendingPairBaseUrl=""
+ private var pairingStatusView:TextView?=null
+
  private var internet="Consultando internet…"
  private lateinit var internetLabel:TextView
  private var internetBaseMillis=0L
@@ -349,6 +353,52 @@ class InicioTurnoActivity:Activity(){
  override fun onResume(){super.onResume();if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
  private fun continueAfterAuthorization(){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return};draw();consultInternetTime()}
+ private fun pairingPrefs()=getSharedPreferences("sene_ventas_server",MODE_PRIVATE)
+ private fun showPairingSetup(){
+  val saved=pairingPrefs().getString("server_base_url","")?: ""
+  val url=input("Dirección HTTPS del servidor SENE")
+  url.setText(saved)
+  val state=pairingPrefs().getString("device_slot",null)
+  val device=pairingPrefs().getString("device_id",null)
+  val status=if(!device.isNullOrBlank())"Este equipo está vinculado como ${state?: "VENTAS"}." else "Este equipo todavía no está vinculado."
+  AlertDialog.Builder(this).setTitle("Conectar con SENE PATRÓN")
+   .setMessage(status+"\n\nCaptura la dirección HTTPS oficial del servidor. Después escanea el QR de vinculación generado desde SENE PATRÓN.")
+   .setView(url)
+   .setNeutralButton("VERIFICAR") { _, _ ->
+    val base=url.text.toString().trim().trimEnd('/')
+    if(!base.startsWith("https://")||Uri.parse(base).host.isNullOrBlank()){msg("Escribe una dirección HTTPS válida");return@setNeutralButton}
+    pairingPrefs().edit().putString("server_base_url",base).apply()
+    Thread{try{
+     val client=SeneVentasApiClient(this,base)
+     val result=if(client.storedDeviceId()!=null)client.session() else throw IllegalStateException("Este equipo aún no está vinculado")
+     runOnUiThread{msg("Conexión correcta · "+result.optString("slot")+" · "+result.optString("licenseStatus"))}
+    }catch(e:Exception){runOnUiThread{msg("No se pudo verificar: "+(e.message?:"Error de conexión"))}}}.start()
+   }
+   .setPositiveButton("GUARDAR Y ESCANEAR QR") { _, _ ->
+    val base=url.text.toString().trim().trimEnd('/')
+    if(!base.startsWith("https://")||Uri.parse(base).host.isNullOrBlank()){msg("Escribe una dirección HTTPS válida");return@setPositiveButton}
+    pairingPrefs().edit().putString("server_base_url",base).apply()
+    pendingPairBaseUrl=base
+    startActivityForResult(Intent(this,ScanActivity::class.java),pairScanRequest)
+   }.setNegativeButton("CANCELAR",null).show()
+ }
+ private fun completePairingFromQr(values:ArrayList<String>){
+  val token=values.lastOrNull{it.matches(Regex("^[a-fA-F0-9]{64}$"))}
+  if(token.isNullOrBlank()){msg("No se encontró un QR de vinculación SENE válido");return}
+  val base=pendingPairBaseUrl.ifBlank{pairingPrefs().getString("server_base_url","")?:""}
+  if(base.isBlank()){msg("Primero configura el servidor SENE");return}
+  msg("Validando QR con SENE PATRÓN…")
+  Thread{try{
+   val result=SeneVentasApiClient(this,base).pairFromQr(token)
+   runOnUiThread{
+    val slot=result.optString("slot")
+    msg("Equipo vinculado correctamente: "+slot+" · "+result.optString("businessName"))
+    draw()
+   }
+  }catch(e:Exception){
+   runOnUiThread{msg("No se pudo vincular: "+(e.message?:"Error de conexión"))}
+  }}.start()
+ }
  private fun consultInternetTime(){
   internet="Consultando hora de Internet…"
   if(::internetLabel.isInitialized)internetLabel.text="Internet: "+internet
@@ -417,8 +467,8 @@ class InicioTurnoActivity:Activity(){
    if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado y el respaldo TXT está guardado en el teléfono, en SENE VENTAS / INVENTARIO SENE. Revisa el número de WhatsApp del patrón.")
   }catch(e:Exception){AlertDialog.Builder(this).setTitle("No se pudo iniciar el turno").setMessage("No se pudo guardar el respaldo en INVENTARIO SENE. Verifica que la carpeta esté disponible y tenga permisos de escritura.\n\nDetalle: "+(e.message?:"Error desconocido.")).setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}.setNegativeButton("Cerrar",null).show()}
  }
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
- private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==pairScanRequest){if(c==RESULT_OK){val values=d?.getStringArrayListExtra(SCAN_CODES)?:arrayListOf();completePairingFromQr(values)};return};if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
+ private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()});val savedSlot=pairingPrefs().getString("device_slot",null);val savedDevice=pairingPrefs().getString("device_id",null);val linkLabel=if(!savedDevice.isNullOrBlank())"SENE PATRÓN: VINCULADO · ${savedSlot?: "VENTAS"}" else "SENE PATRÓN: AÚN NO VINCULADO";pairingStatusView=txt(linkLabel,14f);v.addView(pairingStatusView!!);v.addView(button("VINCULAR / VERIFICAR SENE PATRÓN",false){showPairingSetup()})
  val n=input("Nombre del trabajador");val p=input("Número de celular del trabajador",true);val cash=input("¿Con cuánto inicia caja chica? $",true);v.addView(n);v.addView(p);v.addView(cash)
  v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton};startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())})
  v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
