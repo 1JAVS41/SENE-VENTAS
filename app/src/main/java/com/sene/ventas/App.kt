@@ -529,7 +529,7 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte","Restaurar SENE VENTAS · mismo teléfono","Enviar solicitud al patrón","Solicitar corrección de venta")
+  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte","Restaurar SENE VENTAS · mismo teléfono","Enviar solicitud al patrón","Solicitar corrección de venta","Aplicar corrección autorizada")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
    override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
     val row=super.getView(position,convertView,parent) as TextView
@@ -553,8 +553,117 @@ class MainActivity:Activity(){
     9->showVentasSamePhoneRestoreDialog()
     10->showWorkRequestDialog()
     11->showSaleCorrectionPicker()
+    12->showApprovedCorrections()
    }
   }.setNegativeButton("Volver",null).show()
+ }
+ private fun showApprovedCorrections(){
+  msg("Consultando permisos de corrección autorizados…")
+  Thread{try{
+   val result=payrollApi().requestHistory()
+   val corrections=result.optJSONArray("corrections")?:JSONArray()
+   val prefs=getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE)
+   val ready=mutableListOf<Pair<JSONObject,JSONObject>>()
+   for(i in 0 until corrections.length()){
+    val item=corrections.optJSONObject(i)?:continue
+    if(item.optString("status") !in setOf("approved","consumed"))continue
+    val requestId=item.optString("requestId")
+    val raw=prefs.getString("plan_"+requestId,null)?:continue
+    val plan=try{JSONObject(raw)}catch(_:Exception){continue}
+    if(!plan.optBoolean("applied",false))ready.add(item to plan)
+   }
+   runOnUiThread{
+    if(ready.isEmpty()){msg("No hay correcciones autorizadas pendientes de aplicar en este teléfono.");return@runOnUiThread}
+    val labels=ready.map{(item,plan)->item.optString("saleId")+" · "+plan.optString("reason")+" · "+item.optString("status")}.toTypedArray()
+    AlertDialog.Builder(this).setTitle("CORRECCIONES AUTORIZADAS")
+     .setItems(labels){_,index->confirmApplyCorrection(ready[index].first,ready[index].second)}
+     .setNegativeButton("CERRAR",null).show()
+   }
+  }catch(e:Exception){runOnUiThread{msg("No se pudieron consultar los permisos: "+(e.message?:"Error"))}}}.start()
+ }
+ private fun confirmApplyCorrection(item:JSONObject,plan:JSONObject){
+  val text="Venta: "+plan.optString("saleId")+
+   "\nMotivo: "+plan.optString("reason")+
+   "\nProducto: "+plan.optString("targetCode")+" → "+plan.optString("newCode")+
+   "\nCantidad: "+plan.optInt("oldQty")+" → "+plan.optInt("newQty")+
+   "\nPrecio: "+Store.money(plan.optDouble("oldPrice"))+" → "+Store.money(plan.optDouble("newPrice"))+
+   "\n\nLa operación modificará localmente venta, inventario y efectivo estimado. El permiso remoto se consume una sola vez."
+  AlertDialog.Builder(this).setTitle("APLICAR CORRECCIÓN AUTORIZADA")
+   .setMessage(text).setPositiveButton("APLICAR AHORA"){_,_->applyApprovedCorrection(item,plan)}
+   .setNegativeButton("CANCELAR",null).show()
+ }
+ private fun applyApprovedCorrection(item:JSONObject,plan:JSONObject){
+  Thread{try{
+   val prefs=getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE)
+   val requestId=item.optString("requestId")
+   val grantId=item.optString("grantId")
+   val saleId=plan.optString("saleId")
+   val planHash=plan.optString("planHash")
+   val oldCode=plan.optString("targetCode")
+   val newCode=plan.optString("newCode")
+   val oldQty=plan.optInt("oldQty")
+   val newQty=plan.optInt("newQty")
+   val oldPrice=plan.optDouble("oldPrice")
+   val newPrice=plan.optDouble("newPrice")
+   if(requestId.isBlank()||grantId.isBlank()||saleId.isBlank()||!planHash.matches(Regex("^[a-fA-F0-9]{64}$"))||
+      oldCode.isBlank()||newCode.isBlank()||newQty !in 0..100000||newPrice<0.0)
+    throw IllegalStateException("El plan local está incompleto o no coincide con el permiso")
+   val sales=Store.sales(this)
+   val ts=plan.optLong("targetTs",0L)
+   fun saleKey(x:JSONObject)=x.optString("saleId").ifBlank{"legacy-"+x.optLong("ts",0L)}
+   val newAlreadyApplied=(0 until sales.length()).any{idx->
+    val x=sales.optJSONObject(idx)?:return@any false
+    saleKey(x)==saleId&&x.optString("code")==newCode&&x.optInt("qty")==newQty&&
+     kotlin.math.abs(x.optDouble("price")-newPrice)<0.0001&&x.optLong("ts",0L)==ts
+   }
+   val oldLineIndex=(0 until sales.length()).firstOrNull{idx->
+    val x=sales.optJSONObject(idx)?:return@firstOrNull false
+    saleKey(x)==saleId&&x.optString("code")==oldCode&&x.optLong("ts",0L)==ts
+   }
+   val removeAlreadyApplied=oldLineIndex==null&&newQty==0
+   if(!newAlreadyApplied&&!removeAlreadyApplied&&oldLineIndex==null)
+    throw IllegalStateException("No se encontró el renglón original de la venta; no se modificó el inventario")
+   val products=Store.products(this)
+   var oldProduct:JSONObject?=null;var newProduct:JSONObject?=null
+   for(i in 0 until products.length()){
+    val p=products.optJSONObject(i)?:continue
+    if(p.optString("code")==oldCode)oldProduct=p
+    if(p.optString("code")==newCode)newProduct=p
+   }
+   if(!newAlreadyApplied&&!removeAlreadyApplied){
+    if(oldProduct==null)throw IllegalStateException("El producto original ya no existe en inventario")
+    if(newQty>0&&newProduct==null)throw IllegalStateException("El producto correcto no existe en inventario")
+    val available=if(oldCode==newCode)oldProduct!!.optInt("stock")+oldQty else (newProduct?.optInt("stock")?:0)
+    if(available<newQty)throw IllegalStateException("No hay existencias suficientes para aplicar la cantidad corregida")
+   }
+   // El servidor consume primero el grant; si la app se cierra después, el plan local
+   // permanece y se puede reintentar sin volver a consumir el permiso.
+   if(item.optString("status")!="consumed"){
+    payrollApi().consumeSaleCorrection(requestId,grantId,saleId,planHash)
+   }
+   plan.put("grantConsumed",true)
+   prefs.edit().putString("plan_"+requestId,plan.toString()).commit()
+   if(!newAlreadyApplied&&!removeAlreadyApplied){
+    val old=oldProduct!!
+    old.put("stock",old.optInt("stock")+oldQty)
+    if(newQty>0){
+     val target=newProduct!!
+     target.put("stock",target.optInt("stock")-newQty)
+    }
+    if(newQty==0){
+     sales.remove(oldLineIndex!!)
+    }else{
+     val line=sales.getJSONObject(oldLineIndex!!)
+     line.put("code",newCode).put("name",newProduct!!.optString("name"))
+      .put("qty",newQty).put("price",newPrice).put("subtotal",newQty*newPrice)
+    }
+    Store.saveProducts(this,products)
+    Store.saveSales(this,sales)
+   }
+   plan.put("applied",true).put("appliedAt",System.currentTimeMillis())
+   prefs.edit().putString("plan_"+requestId,plan.toString()).commit()
+   runOnUiThread{msg("Corrección aplicada localmente. Venta, inventario y caja estimada quedaron actualizados.")}
+  }catch(e:Exception){runOnUiThread{msg("No se pudo aplicar la corrección: "+(e.message?:"Error"))}}}.start()
  }
  private fun showSaleCorrectionPicker(){
   val sales=Store.sales(this)
