@@ -528,7 +528,7 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte","Restaurar SENE VENTAS · mismo teléfono")
+  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte","Restaurar SENE VENTAS · mismo teléfono","Enviar solicitud al patrón")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
    override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
     val row=super.getView(position,convertView,parent) as TextView
@@ -550,8 +550,37 @@ class MainActivity:Activity(){
     7->showSeneCloudConnection()
     8->showPayrollTools()
     9->showVentasSamePhoneRestoreDialog()
+    10->showWorkRequestDialog()
    }
   }.setNegativeButton("Volver",null).show()
+ }
+ private fun showWorkRequestDialog(){
+  val labels=arrayOf("Préstamo","Consumo de producto","Permiso de ausencia","Aviso de llegada tarde","Cambio de horario","Vacaciones","Incidente","Faltante","Cambio de descanso","Adelanto de sueldo","Equipo dañado","Sugerencia")
+  val types=arrayOf("LOAN","CONSUMPTION","ABSENCE_PERMISSION","LATE_ARRIVAL","SCHEDULE_CHANGE","VACATION","INCIDENT","SHORTAGE","REST_DAY_CHANGE","SALARY_ADVANCE","DAMAGED_EQUIPMENT","SUGGESTION")
+  AlertDialog.Builder(this).setTitle("¿QUÉ NECESITAS SOLICITAR?")
+   .setItems(labels){_,index->showWorkRequestDetails(types[index],labels[index])}
+   .setNegativeButton("CANCELAR",null).show()
+ }
+ private fun showWorkRequestDetails(type:String,label:String){
+  val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val description=input("Explica qué necesitas y por qué").apply{minLines=3;maxLines=5;setSingleLine(false)}
+  val amount=input("Cantidad en pesos (si aplica)",true)
+  form.addView(description);form.addView(amount)
+  AlertDialog.Builder(this).setTitle(label.uppercase(Locale.ROOT)).setMessage("La solicitud se enviará a SENE PATRÓN para revisión. Podrás consultar la respuesta en Día de pago · historial y reporte.")
+   .setView(form).setPositiveButton("ENVIAR SOLICITUD"){_,_->
+    val detail=description.text.toString().trim()
+    val money=if(amount.text.isNullOrBlank())null else parseAmount(amount.text.toString())
+    if(detail.length<4||detail.length>1500||(amount.text.isNotBlank()&&(money==null||money<0.0))){
+     msg("Escribe una explicación y revisa la cantidad")
+     return@setPositiveButton
+    }
+    val payload=JSONObject().put("description",detail).put("requestedAt",stamp())
+    if(money!=null)payload.put("amountCents",Math.round(money*100.0))
+    Thread{try{
+     val result=payrollApi().createWorkRequest(type,payload)
+     runOnUiThread{msg("Solicitud enviada al patrón. Estado: "+result.optString("status","pendiente"))}
+    }catch(e:Exception){runOnUiThread{msg("No se pudo enviar la solicitud: "+(e.message?:"Error de conexión"))}}}.start()
+   }.setNegativeButton("CANCELAR",null).show()
  }
  private fun showPayrollTools(){
   val options=arrayOf("CONSULTAR HISTORIAL DE SOLICITUDES Y RESPUESTAS","GENERAR / CONSULTAR REPORTE DE NÓMINA")
