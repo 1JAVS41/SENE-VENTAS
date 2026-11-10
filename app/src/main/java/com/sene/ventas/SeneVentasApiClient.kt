@@ -36,7 +36,14 @@ class SeneVentasApiClient(context: Context, baseUrl: String) {
 
     /** Canjea el QR de un solo uso generado por SENE PATRÓN. */
     fun pairFromQr(qrToken: String): JSONObject {
-        val token = qrToken.trim()
+        val scanned = qrToken.trim()
+        // Los QR oficiales actuales usan SENEPAIR2:<token>; también se admite
+        // SENEPAIR1 por compatibilidad con códigos antiguos. El Worker recibe solo el token hexadecimal.
+        val token = when {
+            scanned.startsWith("SENEPAIR2:", ignoreCase = true) -> scanned.substringAfter(':')
+            scanned.startsWith("SENEPAIR1:", ignoreCase = true) -> scanned.substringAfter(':')
+            else -> scanned
+        }
         require(Regex("^[a-fA-F0-9]{64}$").matches(token)) {
             "El QR no contiene un código de vinculación SENE válido"
         }
