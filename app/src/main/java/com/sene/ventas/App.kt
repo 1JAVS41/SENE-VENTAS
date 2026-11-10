@@ -620,9 +620,15 @@ class MainActivity:Activity(){
     val x=sales.optJSONObject(idx)?:return@firstOrNull false
     saleKey(x)==saleId&&x.optString("code")==oldCode&&x.optLong("ts",0L)==ts
    }
-   val removeAlreadyApplied=oldLineIndex==null&&newQty==0
+   val removeAlreadyApplied=oldLineIndex==null&&newQty==0&&
+    (item.optString("status")=="consumed"||plan.optBoolean("grantConsumed",false))
    if(!newAlreadyApplied&&!removeAlreadyApplied&&oldLineIndex==null)
     throw IllegalStateException("No se encontró el renglón original de la venta; no se modificó el inventario")
+   if(oldLineIndex!=null){
+    val current=sales.getJSONObject(oldLineIndex)
+    if(!newAlreadyApplied&&(current.optInt("qty")!=oldQty||kotlin.math.abs(current.optDouble("price")-oldPrice)>0.0001))
+     throw IllegalStateException("La venta cambió desde que se solicitó el permiso; no se aplicó una corrección distinta")
+   }
    val products=Store.products(this)
    var oldProduct:JSONObject?=null;var newProduct:JSONObject?=null
    for(i in 0 until products.length()){
@@ -725,6 +731,14 @@ class MainActivity:Activity(){
       val cashWhy=if(cashImpact)cashReasons[cashReason.selectedItemPosition] else ""
       if(target==null||code.isBlank()||qty==null||qty !in 0..100000||price==null||price<0.0||detail.length<4||detail.length>1000){
        msg("Revisa producto, cantidad, precio y explicación");return@setPositiveButton
+      }
+      val oldTotal=target.optInt("qty")*target.optDouble("price")
+      val newTotal=qty*price
+      if(target.optString("code")==code&&target.optInt("qty")==qty&&kotlin.math.abs(target.optDouble("price")-price)<0.0001){
+       msg("No hay cambios que corregir");return@setPositiveButton
+      }
+      if(kotlin.math.abs(oldTotal-newTotal)>0.005&&!cash.isChecked){
+       msg("Marca que cambia el efectivo de caja para autorizar la diferencia");return@setPositiveButton
       }
       val products=Store.products(this)
       var newProduct:JSONObject?=null
