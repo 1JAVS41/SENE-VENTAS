@@ -651,6 +651,8 @@ class MainActivity:Activity(){
     if(oldProduct==null)throw IllegalStateException("El producto original ya no existe en inventario")
     if(newQty>0&&newProduct==null)throw IllegalStateException("El producto correcto no existe en inventario")
    }
+   if(prepared&&oldProduct==null)throw IllegalStateException("El producto original desapareció del inventario; se requiere revisión manual")
+   if(prepared&&newQty>0&&newProduct==null)throw IllegalStateException("El producto corregido desapareció del inventario; se requiere revisión manual")
    if(!prepared&&!newAlreadyApplied&&!removeAlreadyApplied){
     val oldStock=oldProduct!!.optInt("stock")
     val oldAfter: Int
