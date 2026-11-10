@@ -468,7 +468,7 @@ class InicioTurnoActivity:Activity(){
   }catch(e:Exception){AlertDialog.Builder(this).setTitle("No se pudo iniciar el turno").setMessage("No se pudo guardar el respaldo en INVENTARIO SENE. Verifica que la carpeta esté disponible y tenga permisos de escritura.\n\nDetalle: "+(e.message?:"Error desconocido.")).setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}.setNegativeButton("Cerrar",null).show()}
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==pairScanRequest){if(c==RESULT_OK){val values=d?.getStringArrayListExtra(SCAN_CODES)?:arrayListOf();completePairingFromQr(values)};return};if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
- private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()});val savedSlot=pairingPrefs().getString("device_slot",null);val savedDevice=pairingPrefs().getString("device_id",null);val linkLabel=if(!savedDevice.isNullOrBlank())"SENE PATRÓN: VINCULADO · ${savedSlot?: "VENTAS"}" else "SENE PATRÓN: AÚN NO VINCULADO";pairingStatusView=txt(linkLabel,14f);v.addView(pairingStatusView!!);v.addView(button("VINCULAR / VERIFICAR SENE PATRÓN",false){showPairingSetup()})
+ private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()});val savedSlot=pairingPrefs().getString("device_slot",null);val savedDevice=pairingPrefs().getString("device_id",null);val linkLabel=if(!savedDevice.isNullOrBlank())"SENE PATRÓN: VINCULADO · ${savedSlot?: "VENTAS"}" else "SENE PATRÓN: AÚN NO VINCULADO";pairingStatusView=txt(linkLabel,14f);v.addView(pairingStatusView!!);v.addView(button("VINCULAR / VERIFICAR SENE PATRÓN",false){showPairingSetup()});v.addView(button("RESTAURAR GRATIS · MISMO TELÉFONO",false){showVentasSamePhoneRestoreDialog()})
  val n=input("Nombre del trabajador");val p=input("Número de celular del trabajador",true);val cash=input("¿Con cuánto inicia caja chica? $",true);v.addView(n);v.addView(p);v.addView(cash)
  v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton};startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())})
  v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
@@ -527,7 +527,7 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte")
+  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte","Restaurar SENE VENTAS · mismo teléfono")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
    override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
     val row=super.getView(position,convertView,parent) as TextView
@@ -548,6 +548,7 @@ class MainActivity:Activity(){
     6->saveReportToPhone()
     7->showSeneCloudConnection()
     8->showPayrollTools()
+    9->showVentasSamePhoneRestoreDialog()
    }
   }.setNegativeButton("Volver",null).show()
  }
@@ -1209,6 +1210,37 @@ private const val IMPORT_FILE_REQUEST=7418
 private const val START_INVENTORY_TREE_REQUEST=7416
 private const val INVENTORY_TREE_REQUEST=7417
 private const val SCAN_CODES="scan_codes"
+private fun Activity.showVentasSamePhoneRestoreDialog(){
+ val prefs=getSharedPreferences("sene_ventas_server",0)
+ val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+ val base=input("Dirección HTTPS oficial del servidor SENE").apply{setText(prefs.getString("server_base_url","")?: "")}
+ val company=input("Nombre exacto de la empresa registrada")
+ val email=input("Correo registrado de la empresa").apply{inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS}
+ val phone=input("Teléfono registrado con lada").apply{inputType=android.text.InputType.TYPE_CLASS_PHONE}
+ form.addView(base);form.addView(company);form.addView(email);form.addView(phone)
+ AlertDialog.Builder(this).setTitle("RESTAURAR SENE VENTAS · MISMO TELÉFONO")
+  .setMessage("Sin costo después de reinstalar en el mismo teléfono. El servidor comprobará el identificador físico, la empresa y los datos registrados. No crea otra licencia ni ocupa otro espacio.")
+  .setView(form)
+  .setPositiveButton("VERIFICAR Y RESTAURAR"){_,_->
+   val url=base.text.toString().trim().trimEnd('/')
+   val business=company.text.toString().trim()
+   val mail=email.text.toString().trim()
+   val number=phone.text.toString().filter{it.isDigit()}
+   if(!url.startsWith("https://")||Uri.parse(url).host.isNullOrBlank()||business.isBlank()||
+      !android.util.Patterns.EMAIL_ADDRESS.matcher(mail).matches()||number.length !in 10..15){
+    msg("Revisa servidor HTTPS, empresa, correo y teléfono registrados")
+    return@setPositiveButton
+   }
+   prefs.edit().putString("server_base_url",url).apply()
+   msg("Verificando que sea el mismo teléfono y restaurando el espacio original…")
+   Thread{try{
+    val result=SeneVentasApiClient(this,url).restoreSamePhone(business,mail,number)
+    runOnUiThread{msg("Vinculación restaurada: "+result.optString("slot")+" · "+result.optString("businessName"))}
+   }catch(e:Exception){
+    runOnUiThread{msg("No se pudo restaurar: "+(e.message?:"El servidor no pudo verificar este teléfono"))}
+   }}.start()
+  }.setNegativeButton("CANCELAR",null).show()
+}
 private fun Activity.openScanner(){startActivityForResult(Intent(this,ScanActivity::class.java),SCAN_REQUEST)}
 class ScanActivity:Activity(){
  private lateinit var scanner:DecoratedBarcodeView
