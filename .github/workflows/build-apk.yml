@@ -1,7 +1,7 @@
 name: Compilar APK SENE VENTAS
 on:
   push:
-    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge]
+    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge, fix/ventas-cloudflare-client]
   pull_request:
     branches: [main, sene-ventas-rebuild]
   workflow_dispatch:
