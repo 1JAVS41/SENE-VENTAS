@@ -118,6 +118,11 @@ class SeneVentasApiClient(context: Context, baseUrl: String) {
         return deviceSigned("VENTAS_SHIFT_REPORT", "/v1/ventas/shift-reports", body.toString())
     }
 
+    /** Lee únicamente la configuración de nómina del espacio al que pertenece este equipo. */
+    fun payrollSettings(): JSONObject = deviceSigned(
+        "VENTAS_PAYROLL_SETTINGS_GET", "/v1/ventas/payroll/settings/get", "{}"
+    )
+
     /** El servidor solo acepta este reporte en una fecha de pago configurada para el slot. */
     fun savePayrollReport(periodKey: String, report: JSONObject): JSONObject {
         require(periodKey.matches(Regex("^[A-Za-z0-9._:-]{1,100}$"))) {
