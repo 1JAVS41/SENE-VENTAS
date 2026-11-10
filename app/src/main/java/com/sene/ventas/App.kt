@@ -558,6 +558,15 @@ class MainActivity:Activity(){
    }
   }.setNegativeButton("Volver",null).show()
  }
+ private fun hasPendingCorrectionApply():Boolean{
+  val prefs=getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE)
+  return prefs.all.any{(key,value)->
+   if(!key.startsWith("plan_")||value !is String)false else try{
+    val plan=JSONObject(value)
+    plan.optString("applyState")=="prepared"&&!plan.optBoolean("applied",false)
+   }catch(_:Exception){false}
+  }
+ }
  private fun showApprovedCorrections(){
   msg("Consultando permisos de corrección autorizados…")
   Thread{try{
@@ -621,13 +630,14 @@ class MainActivity:Activity(){
     val x=sales.optJSONObject(idx)?:return@firstOrNull false
     saleKey(x)==saleId&&x.optString("code")==oldCode&&x.optLong("ts",0L)==ts
    }
+   val prepared=plan.optString("applyState")=="prepared"
    val removeAlreadyApplied=oldLineIndex==null&&newQty==0&&
     (item.optString("status")=="consumed"||plan.optBoolean("grantConsumed",false))
    if(!newAlreadyApplied&&!removeAlreadyApplied&&oldLineIndex==null)
     throw IllegalStateException("No se encontró el renglón original de la venta; no se modificó el inventario")
-   if(oldLineIndex!=null){
+   if(oldLineIndex!=null&&!newAlreadyApplied){
     val current=sales.getJSONObject(oldLineIndex)
-    if(!newAlreadyApplied&&(current.optInt("qty")!=oldQty||kotlin.math.abs(current.optDouble("price")-oldPrice)>0.0001))
+    if(current.optInt("qty")!=oldQty||kotlin.math.abs(current.optDouble("price")-oldPrice)>0.0001)
      throw IllegalStateException("La venta cambió desde que se solicitó el permiso; no se aplicó una corrección distinta")
    }
    val products=Store.products(this)
@@ -640,23 +650,37 @@ class MainActivity:Activity(){
    if(!newAlreadyApplied&&!removeAlreadyApplied){
     if(oldProduct==null)throw IllegalStateException("El producto original ya no existe en inventario")
     if(newQty>0&&newProduct==null)throw IllegalStateException("El producto correcto no existe en inventario")
-    val available=if(oldCode==newCode)oldProduct!!.optInt("stock")+oldQty else (newProduct?.optInt("stock")?:0)
-    if(available<newQty)throw IllegalStateException("No hay existencias suficientes para aplicar la cantidad corregida")
    }
-   // El servidor consume primero el grant; si la app se cierra después, el plan local
-   // permanece y se puede reintentar sin volver a consumir el permiso.
-   if(item.optString("status")!="consumed"){
-    payrollApi().consumeSaleCorrection(requestId,grantId,saleId,planHash)
-   }
-   plan.put("grantConsumed",true)
-   prefs.edit().putString("plan_"+requestId,plan.toString()).commit()
-   if(!newAlreadyApplied&&!removeAlreadyApplied){
-    val old=oldProduct!!
-    old.put("stock",old.optInt("stock")+oldQty)
-    if(newQty>0){
-     val target=newProduct!!
-     target.put("stock",target.optInt("stock")-newQty)
+   if(!prepared&&!newAlreadyApplied&&!removeAlreadyApplied){
+    val oldStock=oldProduct!!.optInt("stock")
+    val oldAfter: Int
+    val newAfter: Int
+    if(oldCode==newCode){
+     oldAfter=oldStock+oldQty-newQty
+     newAfter=oldAfter
+    }else{
+     val newStock=newProduct?.optInt("stock")?:0
+     if(newStock<newQty)throw IllegalStateException("No hay existencias suficientes para aplicar la cantidad corregida")
+     oldAfter=oldStock+oldQty
+     newAfter=newStock-newQty
     }
+    if(oldAfter<0||newAfter<0)throw IllegalStateException("El inventario no permite aplicar esta corrección")
+    // Guardar los valores finales exactos antes de modificar SQLite o preferencias.
+    // Si Android cierra la app entre ambos guardados, el reintento no suma stock dos veces.
+    plan.put("applyState","prepared").put("oldStockAfter",oldAfter).put("newStockAfter",newAfter)
+    if(!prefs.edit().putString("plan_"+requestId,plan.toString()).commit())
+     throw IllegalStateException("No se pudo guardar el plan de aplicación local")
+   }
+   if(!newAlreadyApplied&&!removeAlreadyApplied&&plan.optString("applyState")!="prepared")
+    throw IllegalStateException("No se pudo preparar la aplicación local")
+   // El permiso se consume antes de aplicar; el estado prepared permite reanudar tras un cierre inesperado.
+   if(item.optString("status")!="consumed"&&!plan.optBoolean("grantConsumed",false)){
+    payrollApi().consumeSaleCorrection(requestId,grantId,saleId,planHash)
+    plan.put("grantConsumed",true)
+    if(!prefs.edit().putString("plan_"+requestId,plan.toString()).commit())
+     throw IllegalStateException("El permiso se consumió, pero no se pudo guardar el estado local; vuelve a intentar")
+   }
+   if(!newAlreadyApplied&&!removeAlreadyApplied){
     if(newQty==0){
      sales.remove(oldLineIndex!!)
     }else{
@@ -664,11 +688,20 @@ class MainActivity:Activity(){
      line.put("code",newCode).put("name",newProduct!!.optString("name"))
       .put("qty",newQty).put("price",newPrice).put("subtotal",newQty*newPrice)
     }
-    Store.saveProducts(this,products)
-    Store.saveSales(this,sales)
    }
+   if(plan.optString("applyState")=="prepared"){
+    if(oldCode==newCode){
+     oldProduct!!.put("stock",plan.optInt("oldStockAfter"))
+    }else{
+     oldProduct!!.put("stock",plan.optInt("oldStockAfter"))
+     if(newQty>0)newProduct!!.put("stock",plan.optInt("newStockAfter"))
+    }
+    Store.saveProducts(this,products)
+   }
+   Store.saveSales(this,sales)
    plan.put("applied",true).put("appliedAt",System.currentTimeMillis())
-   prefs.edit().putString("plan_"+requestId,plan.toString()).commit()
+   if(!prefs.edit().putString("plan_"+requestId,plan.toString()).commit())
+    throw IllegalStateException("La corrección se aplicó, pero no se pudo marcar como finalizada")
    runOnUiThread{msg("Corrección aplicada localmente. Venta, inventario y caja estimada quedaron actualizados.")}
   }catch(e:Exception){runOnUiThread{msg("No se pudo aplicar la corrección: "+(e.message?:"Error"))}}}.start()
  }
@@ -1117,7 +1150,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   offerSupplierInventory(c,null)
  }
  private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);val b=StringBuilder();var sum=0.0;for((c,q) in ticket){for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\n");break}}};ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString();val diff=(parseAmount(paid.text.toString())?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff)}
- private fun sellTicket(){if(due()){showReportAlert();return};if(ticket.isEmpty()){msg("Ticket vacio. Escanea un producto.");return}
+ private fun sellTicket(){if(due()){showReportAlert();return};if(hasPendingCorrectionApply()){msg("Hay una corrección autorizada pendiente de terminar. Entra a Herramientas → Aplicar corrección autorizada antes de registrar otra venta.");return};if(ticket.isEmpty()){msg("Ticket vacio. Escanea un producto.");return}
  val p=Store.products(this);val list=mutableListOf<Pair<JSONObject,Int>>();var sum=0.0
  for((c,q) in ticket){var found:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i);if(x?.optString("code")==c){found=x;break}};if(found==null){msg("Producto no encontrado: "+c);return};if(found.optInt("stock")<q){msg("Stock insuficiente: "+found.optString("name")+". Quedan "+found.optInt("stock"));return};list.add(found to q);sum+=found.optDouble("price")*q}
  val pay=paid.text.toString().toDoubleOrNull()?:0.0;if(pay<sum){msg("Falta dinero");return};val s=Store.shift(this)?:JSONObject()
