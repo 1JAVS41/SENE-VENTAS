@@ -1,4 +1,5 @@
 package com.sene.ventas
+// Build validation marker: QR SENEPAIR2, same-phone restore, shift sync and payment-day flow.
 import android.app.*
 import android.content.*
 import android.graphics.Typeface
