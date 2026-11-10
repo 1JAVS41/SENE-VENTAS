@@ -528,7 +528,7 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte","Restaurar SENE VENTAS · mismo teléfono","Enviar solicitud al patrón")
+  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN","Día de pago · historial y reporte","Restaurar SENE VENTAS · mismo teléfono","Enviar solicitud al patrón","Solicitar corrección de venta")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
    override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
     val row=super.getView(position,convertView,parent) as TextView
@@ -551,8 +551,71 @@ class MainActivity:Activity(){
     8->showPayrollTools()
     9->showVentasSamePhoneRestoreDialog()
     10->showWorkRequestDialog()
+    11->showSaleCorrectionPicker()
    }
   }.setNegativeButton("Volver",null).show()
+ }
+ private fun showSaleCorrectionPicker(){
+  val sales=Store.sales(this)
+  val grouped=linkedMapOf<String,MutableList<JSONObject>>()
+  for(i in 0 until sales.length()){
+   val item=sales.optJSONObject(i)?:continue
+   val id=item.optString("saleId").ifBlank{"legacy-"+item.optLong("ts",0L)}
+   grouped.getOrPut(id){mutableListOf()}.add(item)
+  }
+  val entries=grouped.entries.toList().takeLast(30).reversed()
+  if(entries.isEmpty()){msg("Todavía no hay ventas registradas para corregir");return}
+  val labels=entries.map{entry->
+   val first=entry.value.first()
+   val total=entry.value.sumOf{it.optDouble("subtotal",0.0)}
+   first.optString("time")+" · "+first.optString("worker")+" · "+Store.money(total)
+  }.toTypedArray()
+  AlertDialog.Builder(this).setTitle("SELECCIONA LA VENTA CON ERROR")
+   .setItems(labels){_,index->showSaleCorrectionDetails(entries[index].key,entries[index].value)}
+   .setNegativeButton("CANCELAR",null).show()
+ }
+ private fun showSaleCorrectionDetails(saleId:String,items:List<JSONObject>){
+  val reasons=arrayOf("Devolución","Ajuste de precio","Eliminación de producto","Corrección de cantidad","Producto equivocado","Otro")
+  AlertDialog.Builder(this).setTitle("MOTIVO DE LA CORRECCIÓN")
+   .setItems(reasons){_,index->
+    val reason=reasons[index]
+    val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+    val lines=items.joinToString("\n"){it.optString("code")+" · "+it.optString("name")+" · "+it.optInt("qty")+" pzas · "+Store.money(it.optDouble("price"))}
+    val detail=input("Describe el código/producto, cantidad registrada y cómo debe quedar").apply{minLines=3;maxLines=5;setSingleLine(false)}
+    val cash=CheckBox(this).apply{text="Esta corrección cambia el efectivo de caja"}
+    val cashReasons=arrayOf("Devolución al cliente","Diferencia por precio vigente","Cantidad corregida","Producto eliminado o incorrecto","Producto omitido","Otro")
+    val cashReason=Spinner(this).apply{adapter=android.widget.ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,cashReasons)}
+    form.addView(txt("Renglones de la venta seleccionada:\n"+lines,13f))
+    form.addView(detail);form.addView(cash);form.addView(cashReason)
+    AlertDialog.Builder(this).setTitle("DETALLE LOCAL DE CORRECCIÓN")
+     .setMessage("Este detalle no se envía al servidor. Se comparte al patrón por WhatsApp para que pueda revisar la solicitud. El servidor solo conserva motivo, hash y permiso de un solo uso.")
+     .setView(form).setPositiveButton("SOLICITAR AUTORIZACIÓN"){_,_->
+      val description=detail.text.toString().trim()
+      if(description.length !in 10..1200){msg("Describe con claridad qué producto y cantidad deben corregirse");return@setPositiveButton}
+      val cashImpact=cash.isChecked
+      val cashWhy=if(cashImpact)cashReasons[cashReason.selectedItemPosition] else ""
+      val plan=JSONObject().put("saleId",saleId).put("reason",reason)
+       .put("description",description).put("cashImpact",cashImpact).put("cashReason",cashWhy)
+       .put("createdAt",System.currentTimeMillis())
+      val hash=java.security.MessageDigest.getInstance("SHA-256")
+       .digest(plan.toString().toByteArray(Charsets.UTF_8))
+       .joinToString(""){"%02x".format(it.toInt() and 0xFF)}
+      Thread{try{
+       val result=payrollApi().requestSaleCorrection(saleId,reason,listOf(reason),hash,cashImpact,cashWhy)
+       val requestId=result.optString("requestId")
+       getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE).edit()
+        .putString("plan_"+requestId,plan.toString()).apply()
+       val message="SENE VENTAS · SOLICITUD DE CORRECCIÓN\nVenta: "+saleId+
+        "\nMotivo: "+reason+"\nDetalle: "+description+
+        "\nCambio de caja: "+if(cashImpact)"Sí · "+cashWhy else "No"+
+        "\n\nEl permiso se aplica solo en SENE VENTAS después de la autorización."
+       runOnUiThread{
+        msg("Solicitud registrada. Abriendo WhatsApp para enviar el detalle al patrón…")
+        if(!openWhatsAppText(this,message))msg("La solicitud quedó en SENE, pero no se pudo abrir WhatsApp para compartir el detalle.")
+       }
+      }catch(e:Exception){runOnUiThread{msg("No se pudo solicitar la corrección: "+(e.message?:"Error"))}}}.start()
+     }.setNegativeButton("CANCELAR",null).show()
+   }.setNegativeButton("CANCELAR",null).show()
  }
  private fun showWorkRequestDialog(){
   val labels=arrayOf("Préstamo","Consumo de producto","Permiso de ausencia","Aviso de llegada tarde","Cambio de horario","Vacaciones","Incidente","Faltante","Cambio de descanso","Adelanto de sueldo","Equipo dañado","Sugerencia")
@@ -896,8 +959,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  val p=Store.products(this);val list=mutableListOf<Pair<JSONObject,Int>>();var sum=0.0
  for((c,q) in ticket){var found:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i);if(x?.optString("code")==c){found=x;break}};if(found==null){msg("Producto no encontrado: "+c);return};if(found.optInt("stock")<q){msg("Stock insuficiente: "+found.optString("name")+". Quedan "+found.optInt("stock"));return};list.add(found to q);sum+=found.optDouble("price")*q}
  val pay=paid.text.toString().toDoubleOrNull()?:0.0;if(pay<sum){msg("Falta dinero");return};val s=Store.shift(this)?:JSONObject()
- val saleTime=stamp();val saleTs=System.currentTimeMillis();val saleItems=ArrayList<JSONObject>()
- for((x,q) in list){x.put("stock",x.optInt("stock")-q);saleItems.add(JSONObject().put("ts",saleTs).put("time",saleTime).put("code",x.optString("code")).put("name",x.optString("name")).put("qty",q).put("price",x.optDouble("price")).put("subtotal",x.optDouble("price")*q).put("worker",s.optString("worker")))}
+ val saleTime=stamp();val saleTs=System.currentTimeMillis();val saleId=UUID.randomUUID().toString();val saleItems=ArrayList<JSONObject>()
+ for((x,q) in list){x.put("stock",x.optInt("stock")-q);saleItems.add(JSONObject().put("saleId",saleId).put("ts",saleTs).put("time",saleTime).put("code",x.optString("code")).put("name",x.optString("name")).put("qty",q).put("price",x.optDouble("price")).put("subtotal",x.optDouble("price")*q).put("worker",s.optString("worker")))}
  Store.saveProducts(this,p);Store.addSales(this,saleItems);val change=pay-sum;val n=list.size;ticket.clear();paid.setText("");msg("Venta guardada: "+n+" productos | Total "+Store.money(sum)+" | Cambio "+Store.money(change));draw()}
  private fun reportText(final:Boolean):String{val s=Store.shift(this)?:JSONObject();val all=Store.sales(this);val b=StringBuilder("SENE.VENTAS - "+if(final)"CIERRE DE TURNO" else "REPORTE");var sum=0.0;b.append("\nTrabajador: ").append(s.optString("worker")).append("\nFecha/hora celular: ").append(stamp()).append("\nCaja inicial: ").append(Store.money(s.optDouble("cash"))).append("\nVentas del turno")
  for(i in 0 until all.length()){val x=all.optJSONObject(i)?:continue;if(x.optLong("ts")>=s.optLong("startTs",0)){sum+=x.optDouble("subtotal");b.append("\n").append(x.optString("time")).append(" ").append(x.optString("name")).append(" x").append(x.optInt("qty")).append(" = ").append(Store.money(x.optDouble("subtotal")))}}
