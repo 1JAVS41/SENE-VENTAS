@@ -527,7 +527,7 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT")
+  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Conexión con SENE PATRÓN")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
    override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
     val row=super.getView(position,convertView,parent) as TextView
@@ -546,8 +546,47 @@ class MainActivity:Activity(){
     4->pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}
     5->AlertDialog.Builder(this).setTitle("Cerrar turno").setMessage("¿Enviar reporte final y cerrar turno?").setPositiveButton("Enviar y cerrar"){_,_->sendReport(true)}.setNegativeButton("Cancelar",null).show()
     6->saveReportToPhone()
+    7->showSeneCloudConnection()
    }
   }.setNegativeButton("Volver",null).show()
+ }
+ private fun showSeneCloudConnection(){
+  val prefs=getSharedPreferences("sene_ventas_server",MODE_PRIVATE)
+  val baseInput=input("Dirección HTTPS oficial del servidor SENE")
+  baseInput.setText(prefs.getString("server_base_url","")?: "")
+  val device=prefs.getString("device_id",null)
+  val slot=prefs.getString("device_slot",null)
+  val state=if(!device.isNullOrBlank())"Este equipo está vinculado como ${slot?: "VENTAS"}." else "Este equipo todavía no está vinculado."
+  AlertDialog.Builder(this).setTitle("Conexión SENE PATRÓN")
+   .setMessage(state+"\n\nGuarda la dirección HTTPS del servidor. Para vincular, escanea el QR de un solo uso que genera SENE PATRÓN.")
+   .setView(baseInput)
+   .setNeutralButton("VERIFICAR") { _, _ ->
+    val base=baseInput.text.toString().trim().trimEnd('/')
+    if(!base.startsWith("https://")||Uri.parse(base).host.isNullOrBlank()){msg("Dirección HTTPS no válida");return@setNeutralButton}
+    prefs.edit().putString("server_base_url",base).apply()
+    Thread{try{
+     val api=SeneVentasApiClient(this,base)
+     if(api.storedDeviceId()==null)throw IllegalStateException("El equipo aún no está vinculado")
+     val result=api.session()
+     runOnUiThread{msg("Conexión correcta · "+result.optString("slot")+" · "+result.optString("licenseStatus"))}
+    }catch(e:Exception){runOnUiThread{msg("No se pudo verificar: "+(e.message?:"Error"))}}}.start()
+   }
+   .setPositiveButton("GUARDAR Y ESCANEAR QR"){_,_->
+    val base=baseInput.text.toString().trim().trimEnd('/')
+    if(!base.startsWith("https://")||Uri.parse(base).host.isNullOrBlank()){msg("Dirección HTTPS no válida");return@setPositiveButton}
+    prefs.edit().putString("server_base_url",base).apply()
+    startActivityForResult(Intent(this,ScanActivity::class.java),MAIN_PAIR_SCAN_REQUEST)
+   }.setNegativeButton("CANCELAR",null).show()
+ }
+ private fun finishQrPairing(values:ArrayList<String>){
+  val token=values.lastOrNull{it.matches(Regex("^[a-fA-F0-9]{64}$"))}
+  if(token.isNullOrBlank()){msg("No se encontró un QR SENE válido");return}
+  val base=getSharedPreferences("sene_ventas_server",MODE_PRIVATE).getString("server_base_url",null)
+  if(base.isNullOrBlank()){msg("Configura primero el servidor SENE");return}
+  Thread{try{
+   val result=SeneVentasApiClient(this,base).pairFromQr(token)
+   runOnUiThread{msg("Equipo vinculado: "+result.optString("slot")+" · "+result.optString("businessName"))}
+  }catch(e:Exception){runOnUiThread{msg("No se pudo vincular: "+(e.message?:"Error de conexión"))}}}.start()
  }
  private fun showCurrentSalesSummary(){
   val shift=Store.shift(this)?:JSONObject()
@@ -769,7 +808,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private fun stock(){val p=Store.products(this);val b=StringBuilder();for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;b.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Stock ").append(x.optInt("stock")).append("\n")};AlertDialog.Builder(this).setTitle("Stock actual").setMessage(if(b.isEmpty())"Sin productos" else b.toString()).setPositiveButton("Cerrar",null).show()}
  private fun saveReportToPhone(){val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/plain";putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")};try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(_:Exception){msg("No se pudo abrir el selector para guardar")}}
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty())reviewScannedCodes(codes);return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==MAIN_PAIR_SCAN_REQUEST){if(c==RESULT_OK){finishQrPairing(d?.getStringArrayListExtra(SCAN_CODES)?:arrayListOf())};return};if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty())reviewScannedCodes(codes);return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
 
 class AgregarInventarioActivity:Activity(){
@@ -988,6 +1027,7 @@ class PatronActivity:Activity(){
  private fun export(){try{if(InventoryArchive.save(this,Store.products(this)))msg("TXT de inventario guardado en INVENTARIO SENE")else{pendingInventorySave=true;AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("Crea una carpeta nueva llamada INVENTARIO SENE, ábrela y selecciónala para guardar el TXT.") .setPositiveButton("CREAR / SELECCIONAR"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Cancelar",null).show()}}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))}}
 }
 
+private const val MAIN_PAIR_SCAN_REQUEST=7420
 private const val SCAN_REQUEST=7412
 private const val SAVE_REPORT_REQUEST=7413
 private const val TREE_REPORT_REQUEST=7414
