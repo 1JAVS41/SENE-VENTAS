@@ -1,4 +1,5 @@
 package com.sene.ventas
+// Build validation marker: one-time local correction application workflow.
 // Build validation marker: latest payroll server boundary and sale-correction request UI.
 // Build validation marker: QR SENEPAIR2, same-phone restore, shift sync and payment-day flow.
 import android.app.*
