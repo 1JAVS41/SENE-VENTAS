@@ -383,7 +383,7 @@ class InicioTurnoActivity:Activity(){
    }.setNegativeButton("CANCELAR",null).show()
  }
  private fun completePairingFromQr(values:ArrayList<String>){
-  val token=values.lastOrNull{it.matches(Regex("^[a-fA-F0-9]{64}$"))}
+  val token=values.lastOrNull{it.matches(Regex("^[a-fA-F0-9]{64}$"))||it.startsWith("SENEPAIR2:",true)||it.startsWith("SENEPAIR1:",true)}
   if(token.isNullOrBlank()){msg("No se encontró un QR de vinculación SENE válido");return}
   val base=pendingPairBaseUrl.ifBlank{pairingPrefs().getString("server_base_url","")?:""}
   if(base.isBlank()){msg("Primero configura el servidor SENE");return}
@@ -706,7 +706,7 @@ class MainActivity:Activity(){
    }.setNegativeButton("CANCELAR",null).show()
  }
  private fun finishQrPairing(values:ArrayList<String>){
-  val token=values.lastOrNull{it.matches(Regex("^[a-fA-F0-9]{64}$"))}
+  val token=values.lastOrNull{it.matches(Regex("^[a-fA-F0-9]{64}$"))||it.startsWith("SENEPAIR2:",true)||it.startsWith("SENEPAIR1:",true)}
   if(token.isNullOrBlank()){msg("No se encontró un QR SENE válido");return}
   val base=getSharedPreferences("sene_ventas_server",MODE_PRIVATE).getString("server_base_url",null)
   if(base.isNullOrBlank()){msg("Configura primero el servidor SENE");return}
