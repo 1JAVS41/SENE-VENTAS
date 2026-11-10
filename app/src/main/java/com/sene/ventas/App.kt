@@ -621,6 +621,8 @@ class MainActivity:Activity(){
    for(i in 0 until items.length()){
     val item=items.optJSONObject(i)?:continue
     if(item.optString("status")!="approved")continue
+    val decidedAt=item.optLong("decidedAt",0L)
+    if(periodStart>0L && decidedAt>0L && decidedAt*1000L<periodStart)continue
     val deduction=item.optJSONObject("decisionDetails")?.optJSONObject("deduction")?:continue
     if(!deduction.optBoolean("authorized",false))continue
     val cents=deduction.optLong("amountCents",0L)
@@ -644,8 +646,6 @@ class MainActivity:Activity(){
     .put("approvedDeductionsCents",deductions)
     .put("approvedDeductionsCount",approved)
     .put("netPayCents",net)
-    .put("requestHistory",items)
-    .put("correctionHistory",corrections)
    val due=payrollState.optBoolean("dueToday",false)
    val dueLabel=if(due)"SÍ · hoy está habilitado el envío" else "NO · el envío por WhatsApp está bloqueado hasta el día configurado"
    val body=StringBuilder("SENE VENTAS · REPORTE DE DÍA DE PAGO")
@@ -666,9 +666,10 @@ class MainActivity:Activity(){
     if(due)builder.setPositiveButton("ENVIAR A PATRÓN POR WHATSAPP"){_,_->
      Thread{try{
       api.savePayrollReport(date,report)
-      prefs.edit().putLong("last_reported_at",System.currentTimeMillis()).apply()
       runOnUiThread{
-       if(!openWhatsAppText(this,body.toString()))msg("El reporte quedó guardado en SENE, pero no se pudo abrir WhatsApp.")
+       val opened=openWhatsAppText(this,body.toString())
+       if(opened)prefs.edit().putLong("last_reported_at",System.currentTimeMillis()).apply()
+       else msg("El reporte quedó guardado en SENE, pero no se pudo abrir WhatsApp.")
       }
      }catch(e:Exception){runOnUiThread{msg("No se pudo registrar el reporte de nómina: "+(e.message?:"Error"))}}}.start()
     }
