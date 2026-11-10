@@ -737,8 +737,10 @@ class MainActivity:Activity(){
       if(target.optString("code")==code&&target.optInt("qty")==qty&&kotlin.math.abs(target.optDouble("price")-price)<0.0001){
        msg("No hay cambios que corregir");return@setPositiveButton
       }
-      if(kotlin.math.abs(oldTotal-newTotal)>0.005&&!cash.isChecked){
-       msg("Marca que cambia el efectivo de caja para autorizar la diferencia");return@setPositiveButton
+      val hasCashChange=kotlin.math.abs(oldTotal-newTotal)>0.005
+      if(hasCashChange!=cash.isChecked){
+       msg(if(hasCashChange)"Marca que cambia el efectivo de caja para autorizar la diferencia" else "El total de la venta no cambia; desmarca cambio de caja")
+       return@setPositiveButton
       }
       val products=Store.products(this)
       var newProduct:JSONObject?=null
