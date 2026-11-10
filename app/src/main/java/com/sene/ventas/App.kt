@@ -1,4 +1,5 @@
 package com.sene.ventas
+// Build validation marker: latest payroll server boundary and sale-correction request UI.
 // Build validation marker: QR SENEPAIR2, same-phone restore, shift sync and payment-day flow.
 import android.app.*
 import android.content.*
@@ -607,7 +608,7 @@ class MainActivity:Activity(){
         .putString("plan_"+requestId,plan.toString()).apply()
        val message="SENE VENTAS · SOLICITUD DE CORRECCIÓN\nVenta: "+saleId+
         "\nMotivo: "+reason+"\nDetalle: "+description+
-        "\nCambio de caja: "+if(cashImpact)"Sí · "+cashWhy else "No"+
+        "\nCambio de caja: "+(if(cashImpact)"Sí · "+cashWhy else "No")+
         "\n\nEl permiso se aplica solo en SENE VENTAS después de la autorización."
        runOnUiThread{
         msg("Solicitud registrada. Abriendo WhatsApp para enviar el detalle al patrón…")
