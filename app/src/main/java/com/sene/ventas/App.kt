@@ -945,7 +945,9 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file)
-   uploadShiftReportToServer(s,file,final)
+   // Solo se sincroniza el cierre final del turno; los cortes obligatorios de 2 horas
+   // siguen siendo locales/WhatsApp y no consumen cuota remota semanal.
+   if(final)uploadShiftReportToServer(s,file,true)
    pendingShareUri=dailyUri
    pendingReportText=body
    pendingFinalShare=final
