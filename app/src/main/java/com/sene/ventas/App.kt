@@ -661,18 +661,29 @@ class MainActivity:Activity(){
     .append("\nNETO PRELIMINAR: $").append(String.format(Locale.US,"%.2f",net/100.0))
     .append("\n\nFecha de pago: ").append(dueLabel)
     .append("\n\nEl cálculo es preliminar; el patrón valida los movimientos y autorizaciones.")
+   val savedDate=prefs.getString("server_saved_date",null)
+   val reuseSaved=savedDate==date
+   val reportToSend=if(reuseSaved)JSONObject(prefs.getString("server_saved_report","{}")?:"{}")else report
+   val bodyText=if(reuseSaved)prefs.getString("server_saved_body",null)?:body.toString()else body.toString()
+   val alreadySent=prefs.getString("whatsapp_sent_date",null)==date
    runOnUiThread{
     val builder=AlertDialog.Builder(this).setTitle("REPORTE DE NÓMINA")
-     .setMessage(body.toString()).setNegativeButton("CERRAR",null)
-    if(due)builder.setPositiveButton("ENVIAR A PATRÓN POR WHATSAPP"){_,_->
+     .setMessage(bodyText).setNegativeButton("CERRAR",null)
+    if(due&&!alreadySent)builder.setPositiveButton("ENVIAR A PATRÓN POR WHATSAPP"){_,_->
      Thread{try{
-      api.savePayrollReport(date,report)
+      api.savePayrollReport(date,reportToSend)
+      prefs.edit().putString("server_saved_date",date)
+       .putString("server_saved_report",reportToSend.toString())
+       .putString("server_saved_body",bodyText).apply()
       runOnUiThread{
-       val opened=openWhatsAppText(this,body.toString())
-       if(opened)prefs.edit().putLong("last_reported_at",System.currentTimeMillis()).apply()
-       else msg("El reporte quedó guardado en SENE, pero no se pudo abrir WhatsApp.")
+       val opened=openWhatsAppText(this,bodyText)
+       if(opened)prefs.edit().putLong("last_reported_at",System.currentTimeMillis())
+        .putString("whatsapp_sent_date",date).apply()
+       else msg("El reporte quedó guardado en SENE. Puedes volver a abrir este mismo reporte y reintentar WhatsApp.")
       }
      }catch(e:Exception){runOnUiThread{msg("No se pudo registrar el reporte de nómina: "+(e.message?:"Error"))}}}.start()
+    }else if(due&&alreadySent){
+     builder.setPositiveButton("YA ENVIADO HOY",null)
     }
     builder.show()
    }
