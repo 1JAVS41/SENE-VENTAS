@@ -73,6 +73,41 @@ class SeneVentasApiClient(context: Context, baseUrl: String) {
         return result
     }
 
+    /** Restaura gratis el mismo espacio tras reinstalar en el mismo teléfono físico. */
+    fun restoreSamePhone(
+        businessName: String,
+        registeredEmail: String,
+        registeredPhone: String
+    ): JSONObject {
+        val name = businessName.trim()
+        val email = registeredEmail.trim().lowercase()
+        val phone = registeredPhone.filter { it.isDigit() }
+        require(name.isNotBlank() && name.length <= 100 &&
+            android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches() &&
+            phone.length in 10..15) { "Revisa los datos registrados de la empresa" }
+        val identity = SeneVentasDeviceIdentity.get(app)
+        val body = JSONObject()
+            .put("businessName", name)
+            .put("registeredEmail", email)
+            .put("registeredPhone", phone)
+            .put("installationId", identity.installationId)
+            .put("continuityId", identity.continuityId)
+            .put("publicKeyBase64", identity.publicKeyBase64)
+            .put("fingerprint", identity.fingerprint)
+        val result = bootstrapSigned("VENTAS_RESTORE", "/v1/ventas/restore", body.toString())
+        val deviceId = result.optString("deviceId")
+        val slot = result.optString("slot")
+        check(deviceId.isNotBlank() && (slot == "VENTAS_1" || slot == "VENTAS_2")) {
+            "El servidor no devolvió una restauración válida"
+        }
+        check(prefs.edit()
+            .putString("device_id", deviceId)
+            .putString("device_slot", slot)
+            .putString("paired_business", result.optString("businessName"))
+            .commit()) { "No se pudo guardar la vinculación restaurada" }
+        return result
+    }
+
     fun session(): JSONObject {
         val result = deviceSigned("DEVICE_AUTH", "/v1/device/session", "{}")
         check(result.optString("role") == "VENTAS") {
