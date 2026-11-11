@@ -1693,19 +1693,30 @@ class MainActivity:Activity(){
   var total=0.0
   var tickets=0
   for(i in 0 until sales.length()){
-   val item=sales.optJSONObject(i)?:continue
-   if(item.optLong("ts",0L)>=start){total+=item.optDouble("subtotal",0.0);tickets++}
+   val item=sales.optJSONObject(i)?:throw IllegalStateException("Hay una venta dañada; no se puede preparar el reporte del turno.")
+   if(item.optLong("ts",0L)>=start){
+    val amount=item.optDouble("subtotal",Double.NaN)
+    val qty=item.optInt("qty",0)
+    check(amount.isFinite()&&amount>=0.0&&qty>0){"Hay una venta con importe o cantidad inválidos; revisa Tickets antes de cerrar."}
+    total+=amount
+    check(total.isFinite()){"El total vendido no es válido; no se puede preparar el reporte."}
+    tickets++
+   }
   }
+  val openingCash=shift.optDouble("cash",Double.NaN)
+  check(openingCash.isFinite()&&openingCash>=0.0){"La caja inicial es inválida; no se puede preparar el reporte."}
   val expenses=try{Store.providerExpenses(this,start)}catch(e:Exception){throw IllegalStateException("No se pudo preparar el reporte del turno porque hay movimientos inválidos. Revisa el historial antes de cerrar.",e)}
+  val cashAtClose=openingCash+total-expenses
+  check(cashAtClose.isFinite()&&cashAtClose>=0.0){"El saldo de cierre no es válido; revisa ventas y pagos antes de cerrar."}
   val payload=JSONObject()
    .put("worker",shift.optString("worker"))
    .put("shiftStartedAt",start)
    .put("shiftClosedAt",System.currentTimeMillis())
-   .put("openingCash",shift.optDouble("cash",0.0))
+   .put("openingCash",openingCash)
    .put("salesTotal",total)
    .put("salesLines",tickets)
    .put("supplierExpenses",expenses)
-   .put("cashAtClose",shift.optDouble("cash",0.0)+total-expenses)
+   .put("cashAtClose",cashAtClose)
   val prefs=seneServerPrefs()
   val queue=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
   var exists=false
@@ -1745,24 +1756,32 @@ class MainActivity:Activity(){
   var dayTotal=0.0;var shiftTotal=0.0
   var dayUnits=0;var shiftUnits=0
   val dayTickets=mutableSetOf<Long>();val shiftTickets=mutableSetOf<Long>()
-  for(i in 0 until all.length()){
-   val sale=all.optJSONObject(i)?:continue
-   val time=sale.optString("time")
-   val ts=sale.optLong("ts",0L)
-   val amount=sale.optDouble("subtotal",0.0)
-   val qty=sale.optInt("qty",1)
-   if(time.startsWith(today)){
-    dayTotal+=amount;dayUnits+=qty
-    dayTickets.add(if(ts>0L)ts else time.hashCode().toLong())
+  try{
+   for(i in 0 until all.length()){
+    val sale=all.optJSONObject(i)?:throw IllegalStateException("Hay una venta dañada en el historial.")
+    val time=sale.optString("time")
+    val ts=sale.optLong("ts",0L)
+    val amount=sale.optDouble("subtotal",Double.NaN)
+    val qty=sale.optInt("qty",0)
+    check(amount.isFinite()&&amount>=0.0&&qty>0){"Hay una venta con importe o cantidad inválidos en el historial."}
+    if(time.startsWith(today)){
+     dayTotal+=amount;dayUnits+=qty
+     check(dayTotal.isFinite()){"El total del día no es válido."}
+     dayTickets.add(if(ts>0L)ts else time.hashCode().toLong())
+    }
+    if(startTs>0L && ts>=startTs){
+     shiftTotal+=amount;shiftUnits+=qty
+     check(shiftTotal.isFinite()){"El total del turno no es válido."}
+     shiftTickets.add(if(ts>0L)ts else time.hashCode().toLong())
+    }
    }
-   if(startTs>0L && ts>=startTs){
-    shiftTotal+=amount;shiftUnits+=qty
-    shiftTickets.add(if(ts>0L)ts else time.hashCode().toLong())
-   }
-  }
+  }catch(e:Exception){msg("No se puede calcular el resumen con seguridad: "+(e.message?:"revisa el historial."));return}
+  val opening=shift.optDouble("cash",Double.NaN)
+  if(!opening.isFinite()||opening<0.0){msg("La caja inicial tiene un importe inválido. Revisa el turno.");return}
   val opening=shift.optDouble("cash",0.0)
   val providerExpenses=try{Store.providerExpenses(this,startTs)}catch(e:Exception){msg("No se puede calcular la caja con seguridad: "+(e.message?:"revisa los movimientos registrados."));return}
   val estimated=opening+shiftTotal-providerExpenses
+  if(!estimated.isFinite()||estimated<0.0){msg("El saldo estimado no es válido. Revisa ventas y pagos antes de continuar.");return}
   val report=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   fun summaryLine(label:String,value:String,emphasis:Boolean=false){
    val line=TextView(this).apply{
