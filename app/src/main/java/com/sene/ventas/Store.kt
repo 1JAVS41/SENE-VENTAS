@@ -34,7 +34,20 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
     fun saveCorrectionOperation(operation: JSONObject): Boolean {
         val opId = operation.optString("opId").trim()
         val saleId = operation.optString("saleId").trim()
-        if (opId.isBlank() || saleId.isBlank()) return false
+        val requestId = operation.optString("requestId").trim()
+        val planHash = operation.optString("planHash").trim()
+        val changes = operation.optJSONArray("changes")
+        if (opId.isBlank() || saleId.isBlank() || requestId.isBlank() ||
+            operation.optString("state") != "prepared" || planHash.isBlank() ||
+            changes == null || changes.length() == 0) return false
+        for (i in 0 until changes.length()) {
+            val change = changes.optJSONObject(i) ?: return false
+            val fromCode = change.optString("fromCode").trim()
+            val toCode = change.optString("toCode").trim()
+            val newQty = change.optInt("newQty", -1)
+            if (newQty !in 0..100000 || (fromCode.isBlank() && (toCode.isBlank() || newQty == 0)) ||
+                (fromCode.isNotBlank() && newQty > 0 && toCode.isBlank())) return false
+        }
         val payload = operation.toString()
         val db = writableDatabase
         db.beginTransaction()
@@ -48,7 +61,7 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
                 put("state", operation.optString("state", "prepared"))
                 put("payload", payload); put("updated_at", System.currentTimeMillis())
             }
-            if (db.insert("correction_ops", null, values) == -1L) return false
+            db.insertOrThrow("correction_ops", null, values)
             db.setTransactionSuccessful()
             return true
         } finally { db.endTransaction() }
