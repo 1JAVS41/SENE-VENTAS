@@ -1790,13 +1790,17 @@ class MainActivity:Activity(){
      ).show()
     }
    }finally{
-    synchronized(ShiftReportSendLock){ShiftReportSendLock.active=false}
-    prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").apply()
+    synchronized(ShiftReportSendLock){
+     prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").commit()
+     ShiftReportSendLock.active=false
+    }
    }
   }.apply {
    try{start()}catch(e:Exception){
-    synchronized(ShiftReportSendLock){ShiftReportSendLock.active=false}
-    prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").apply()
+    synchronized(ShiftReportSendLock){
+     prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").commit()
+     ShiftReportSendLock.active=false
+    }
     throw e
    }
   }
