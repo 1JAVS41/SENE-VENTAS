@@ -56,9 +56,38 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
 
     /** State changes are durable and scoped to the immutable operation identifier. */
     fun updateCorrectionOperation(opId: String, state: String, operation: JSONObject): Boolean {
-        if (opId.isBlank() || operation.optString("opId") != opId || operation.optString("saleId").isBlank()) return false
-        val values = ContentValues().apply { put("state", state); put("payload", operation.toString()); put("updated_at", System.currentTimeMillis()) }
-        return writableDatabase.update("correction_ops", values, "op_id=?", arrayOf(opId)) == 1
+        val saleId = operation.optString("saleId").trim()
+        if (opId.isBlank() || operation.optString("opId") != opId ||
+            saleId.isBlank() || state != "grant_consumed" ||
+            operation.optString("state") != state ||
+            operation.optString("grantId").isBlank()) return false
+
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val existing = db.rawQuery(
+                "SELECT sale_id, state, payload FROM correction_ops WHERE op_id=?",
+                arrayOf(opId)
+            ).use { c ->
+                if (c.moveToFirst()) Triple(c.getString(0), c.getString(1), c.getString(2)) else null
+            } ?: return false
+            if (existing.first != saleId) return false
+            val payload = operation.toString()
+            // Repeated delivery is safe only when it repeats the exact consumed grant.
+            if (existing.second == "grant_consumed") return existing.third == payload
+            if (existing.second != "prepared") return false
+
+            val values = ContentValues().apply {
+                put("state", state)
+                put("payload", payload)
+                put("updated_at", System.currentTimeMillis())
+            }
+            if (db.update("correction_ops", values, "op_id=? AND sale_id=? AND state='prepared'", arrayOf(opId, saleId)) != 1) return false
+            db.setTransactionSuccessful()
+            return true
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun pendingCorrectionOperations(): JSONArray {
