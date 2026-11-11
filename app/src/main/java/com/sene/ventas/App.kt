@@ -1255,6 +1255,7 @@ class MainActivity:Activity(){
  private var pendingFinalReport=false
  private var pendingShareUri:Uri?=null
  private var pendingFinalShare=false
+ private var pendingServerDelivery=false
  private var confirmingReport=false
  private var refreshAfterPatron=false
  private var pendingPairingScan=false
@@ -1262,7 +1263,7 @@ class MainActivity:Activity(){
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(7200000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=7200000}
  override fun onCreate(b:Bundle?){super.onCreate(b);if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();seneServerPrefs().edit().putBoolean("work_queue_sending",false).apply();flushPendingShiftReports();flushPendingWorkRequests();watchConnectivity()}
- override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();flushPendingShiftReports();flushPendingWorkRequests();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
+ override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();flushPendingShiftReports();flushPendingWorkRequests();if(pendingShareUri!=null&&!pendingServerDelivery)h.post{confirmReportSent()}else if(pendingServerDelivery)h.post{flushPendingShiftReports{pendingServerDelivery=false;launchPendingReportShare()}}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);try{connectivityManager?.unregisterNetworkCallback(connectivityCallback)}catch(_:Exception){};super.onDestroy()}
  private fun watchConnectivity(){
   try{
@@ -1681,7 +1682,7 @@ class MainActivity:Activity(){
   }.start()
  }
 
- private fun queueShiftReportForServer(){
+ private fun queueShiftReportForServer(onSuccess:(()->Unit)?=null){
   val shift=Store.shift(this)?:return
   val start=shift.optLong("startTs",0L)
   if(start<=0L)return
@@ -1708,13 +1709,20 @@ class MainActivity:Activity(){
   val payload=JSONObject()
    .put("worker",shift.optString("worker"))
    .put("shiftStartedAt",start)
-   .put("shiftClosedAt",System.currentTimeMillis())
+   .put("shiftClosedAt",shift.optLong("closingTs",System.currentTimeMillis()))
    .put("openingCash",openingCash)
    .put("salesTotal",total)
    .put("salesLines",tickets)
    .put("supplierExpenses",expenses)
    .put("cashAtClose",cashAtClose)
+   // El inventario completo se envía una sola vez como parte del reporte final.
+   .put("inventory",Store.products(this))
   val prefs=seneServerPrefs()
+  val base=prefs.getString("server_base_url",null)
+  val device=prefs.getString("device_id",null)
+  check(!base.isNullOrBlank()&&!device.isNullOrBlank()){"No se puede enviar el inventario: primero debe estar activa la vinculación con el servidor SENE."}
+  val sentKeys=prefs.getString("shift_report_sent_keys","[]")?.let{JSONArray(it)}?:JSONArray()
+  for(i in 0 until sentKeys.length())if(sentKeys.optString(i)==key){onSuccess?.invoke();return}
   val queue=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
   var exists=false
   for(i in 0 until queue.length())if(queue.optJSONObject(i)?.optString("shiftKey")==key)exists=true
@@ -1722,9 +1730,9 @@ class MainActivity:Activity(){
   check(prefs.edit().putString("shift_report_queue",queue.toString()).commit()){
    "No se pudo guardar el reporte pendiente; no se confirmó su envío."
   }
-  flushPendingShiftReports()
+  flushPendingShiftReports(onSuccess)
  }
- private fun flushPendingShiftReports(){
+ private fun flushPendingShiftReports(onSuccess:(()->Unit)?=null){
   // SharedPreferences no ofrece compare-and-set: serializa la reserva del envío
   // entre distintas instancias de Activity dentro del mismo proceso.
   val reservation=synchronized(ShiftReportSendLock){
@@ -1770,11 +1778,19 @@ class MainActivity:Activity(){
       else remaining.put(latest.get(i))
      }
      check(removed){"El servidor recibió el reporte, pero no se encontró su entrada local para confirmar la cola."}
-     check(prefs.edit().putString("shift_report_queue",remaining.toString()).commit()){
-      "El reporte fue enviado, pero no se pudo confirmar su salida de la cola local."
+     val sent=prefs.getString("shift_report_sent_keys","[]")?.let{JSONArray(it)}?:JSONArray()
+     var alreadySent=false
+     for(i in 0 until sent.length())if(sent.optString(i)==sentKey)alreadySent=true
+     if(!alreadySent)sent.put(sentKey)
+     val sentTrimmed=JSONArray()
+     for(i in maxOf(0,sent.length()-1000) until sent.length())sentTrimmed.put(sent.get(i))
+     check(prefs.edit().putString("shift_report_queue",remaining.toString())
+      .putString("shift_report_sent_keys",sentTrimmed.toString()).commit()){
+      "El reporte fue enviado, pero no se pudo confirmar localmente su recepción."
      }
      current=remaining
     }
+    onSuccess?.let{callback->runOnUiThread{callback()}}
    }catch(e:Exception){
     val detail=(e.message?:e.javaClass.simpleName).replace("\n"," ").take(140)
     runOnUiThread{
@@ -2263,11 +2279,21 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    dailyUri=saveDailyReport(tree,file)
-   if(final)queueShiftReportForServer()
-   pendingShareUri=dailyUri
-   pendingReportText=body
-   pendingFinalShare=final
-   launchPendingReportShare()
+   if(final){
+    pendingShareUri=dailyUri
+    pendingReportText=body
+    pendingFinalShare=true
+    pendingServerDelivery=true
+    queueShiftReportForServer{
+     pendingServerDelivery=false
+     launchPendingReportShare()
+    }
+   }else{
+    pendingShareUri=dailyUri
+    pendingReportText=body
+    pendingFinalShare=false
+    launchPendingReportShare()
+   }
   }catch(e:Exception){
    dailyUri?.let{uri->
     try{DocumentsContract.deleteDocument(contentResolver,uri)}
