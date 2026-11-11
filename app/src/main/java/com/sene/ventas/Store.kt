@@ -666,10 +666,13 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
         val result = JSONArray()
         readableDatabase.rawQuery("SELECT data FROM $table ORDER BY id ASC", null).use { cursor ->
             while (cursor.moveToNext()) {
-                try {
-                    result.put(JSONObject(cursor.getString(0)))
-                } catch (_: Exception) {
+                val raw = cursor.getString(0)
+                val item = try {
+                    JSONObject(raw)
+                } catch (error: Exception) {
+                    throw IllegalStateException("Hay un registro dañado en el historial de ventas o movimientos. Se bloqueó la lectura para no ocultar información.", error)
                 }
+                result.put(item)
             }
         }
         return result
