@@ -197,17 +197,17 @@ private fun Activity.pin(ok:()->Unit){
     .joinToString(""){"%02x".format(it.toInt() and 0xFF)}
   } finally { spec.clearPassword() }
  }
- fun valid(pin:String)=pin.matches(Regex("^\\d{4,8}$"))
+ fun valid(pin:String)=pin.matches(Regex("^\\d{6,8}$"))
  if(savedSalt.isNullOrBlank()||savedHash.isNullOrBlank()){
   val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
-  val first=input("Crea un PIN de 4 a 8 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val first=input("Crea un PIN de 6 a 8 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
   val confirm=input("Confirma el PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
   form.addView(first);form.addView(confirm)
   AlertDialog.Builder(this).setTitle("CONFIGURA EL PIN DEL PATRÓN")
    .setMessage("Este PIN protege el acceso a las funciones del patrón en este teléfono. No uses 1234 ni fechas fáciles de adivinar.")
    .setView(form).setPositiveButton("GUARDAR PIN"){_,_->
     val a=first.text.toString();val b=confirm.text.toString()
-    if(!valid(a)||a!=b){msg("El PIN debe tener de 4 a 8 dígitos y ambas capturas deben coincidir");return@setPositiveButton}
+    if(!valid(a)||a!=b){msg("El PIN debe tener de 6 a 8 dígitos y ambas capturas deben coincidir");return@setPositiveButton}
     val saltBytes=ByteArray(16).also{java.security.SecureRandom().nextBytes(it)}
     val salt=android.util.Base64.encodeToString(saltBytes,android.util.Base64.NO_WRAP)
     val hash=digest(a,salt)
@@ -218,13 +218,25 @@ private fun Activity.pin(ok:()->Unit){
    }.setNegativeButton("CANCELAR",null).show()
   return
  }
+ val now=System.currentTimeMillis()
+ val lockUntil=prefs.getLong("owner_pin_lock_until",0L)
+ if(now<lockUntil){msg("Por seguridad, intenta de nuevo en ${((lockUntil-now+59999L)/60000L)} minuto(s)");return}
  val entry=input("PIN del patrón",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
  AlertDialog.Builder(this).setTitle("SOY PATRÓN").setView(entry)
   .setPositiveButton("ENTRAR"){_,_->
    val candidate=entry.text.toString()
    val actual=digest(candidate,savedSalt)
    val matches=java.security.MessageDigest.isEqual(savedHash.toByteArray(Charsets.US_ASCII),actual.toByteArray(Charsets.US_ASCII))
-   if(matches)ok()else msg("PIN incorrecto")
+   if(matches){
+    prefs.edit().remove("owner_pin_failures").remove("owner_pin_lock_until").commit()
+    ok()
+   }else{
+    val failures=prefs.getInt("owner_pin_failures",0)+1
+    val edit=prefs.edit().putInt("owner_pin_failures",failures)
+    if(failures>=5){edit.putLong("owner_pin_lock_until",System.currentTimeMillis()+15L*60L*1000L).putInt("owner_pin_failures",0)}
+    edit.commit()
+    msg(if(failures>=5)"Demasiados intentos. El acceso se bloqueó durante 15 minutos" else "PIN incorrecto. Intentos restantes: ${5-failures}")
+   }
   }.setNegativeButton("CANCELAR",null).show()
 }
 private object InventoryCrypto {
