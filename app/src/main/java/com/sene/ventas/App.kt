@@ -2141,39 +2141,59 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  private fun reportText(final:Boolean):String{
   val s=Store.shift(this)?:JSONObject()
   val start=s.optLong("startTs",0L)
+  val end=s.optLong("closingTs",0L).takeIf{it>0L}?:System.currentTimeMillis()
+  val formatter=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX"))
   val opening=s.optDouble("cash",Double.NaN)
   check(opening.isFinite()&&opening>=0.0){"La caja inicial es inválida; no se puede generar el reporte."}
   val all=Store.sales(this)
-  val b=StringBuilder("SENE.VENTAS - "+if(final)"CIERRE DE TURNO" else "REPORTE")
+  val products=Store.products(this)
+  val stockByCode=HashMap<String,Int>()
+  for(i in 0 until products.length()){
+   val product=products.optJSONObject(i)?:throw IllegalStateException("Hay un producto dañado; no se puede generar el reporte.")
+   stockByCode[product.optString("code")]=product.optInt("stock")
+  }
+  val b=StringBuilder("SENE VENTAS - "+if(final)"CIERRE DE TURNO" else "REPORTE DE TURNO")
   var sum=0.0
-  b.append("\nTrabajador: ").append(s.optString("worker"))
-   .append("\nFecha/hora celular: ").append(stamp())
-   .append("\nCaja inicial: ").append(Store.money(opening))
-   .append("\nVentas del turno")
+  b.append("\nTRABAJADOR: ").append(s.optString("worker","Sin nombre"))
+   .append("\nTELÉFONO: ").append(s.optString("phone","No registrado"))
+   .append("\nCOMENZÓ EL TURNO: ").append(if(start>0L)formatter.format(Date(start)) else s.optString("started","No registrado"))
+   .append("\nFINALIZÓ EL TURNO: ").append(if(final)formatter.format(Date(end)) else "Turno en curso · "+stamp())
+   .append("\nCAJA INICIAL: ").append(Store.money(opening))
+   .append("\n\nVENTAS DEL TURNO")
+   .append("\n").append("PRODUCTO".padEnd(24)).append("HORA DE VENTA".padEnd(21))
+   .append("CANT.".padEnd(7)).append("STOCK".padEnd(8)).append("IMPORTE")
+  var saleCount=0
   for(i in 0 until all.length()){
    val x=all.optJSONObject(i)?:throw IllegalStateException("Hay una venta dañada en el historial; no se puede generar el reporte.")
-   if(x.optLong("ts",0L)>=start){
+   val ts=x.optLong("ts",0L)
+   if(ts>=start && ts<=end){
     val amount=x.optDouble("subtotal",Double.NaN)
     val qty=x.optInt("qty",0)
     check(amount.isFinite()&&amount>=0.0&&qty>0){"Hay una venta con importe o cantidad inválidos; no se puede generar el reporte."}
     sum+=amount
     check(sum.isFinite()){"El total de ventas no es válido."}
-    b.append("\n").append(x.optString("time")).append(" ").append(x.optString("name"))
-     .append(" x").append(qty).append(" = ").append(Store.money(amount))
+    val name=x.optString("name","Producto").take(23)
+    val time=x.optString("time").ifBlank{if(ts>0L)formatter.format(Date(ts)) else "Sin hora"}.take(20)
+    val stock=stockByCode[x.optString("code")]?.toString()?: "N/D"
+    b.append("\n").append(name.padEnd(24)).append(time.padEnd(21))
+     .append(qty.toString().padEnd(7)).append(stock.padEnd(8)).append(Store.money(amount))
+    saleCount++
    }
   }
+  if(saleCount==0)b.append("\nSin ventas registradas en este turno.")
   val expenses=Store.providerExpenses(this,start)
   val cash=opening+sum-expenses
   check(cash.isFinite()&&cash>=0.0){"El saldo de cierre no es válido; revisa ventas y pagos."}
-  b.append("\nTotal: ").append(Store.money(sum))
-   .append("\nPagos a proveedores: ").append(Store.money(expenses))
-   .append("\nCaja ahora: ").append(Store.money(cash))
-   .append("\nINVENTARIO_SENE_V1\ncodigo | nombre | precio | stock")
-  val p=Store.products(this)
-  for(i in 0 until p.length()){
-   val x=p.optJSONObject(i)?:throw IllegalStateException("Hay un producto dañado; no se puede generar el reporte.")
-   b.append("\n").append(x.optString("code")).append(" | ").append(x.optString("name"))
-    .append(" | ").append(x.optDouble("price")).append(" | ").append(x.optInt("stock"))
+  b.append("\n\nTOTAL DE VENTAS: ").append(Store.money(sum))
+   .append("\nPAGOS A PROVEEDORES: ").append(Store.money(expenses))
+   .append("\nCAJA FINAL ESTIMADA: ").append(Store.money(cash))
+   .append("\n\nEXISTENCIAS ACTUALES")
+   .append("\n").append("CÓDIGO".padEnd(16)).append("PRODUCTO".padEnd(28)).append("PRECIO".padEnd(12)).append("STOCK")
+  for(i in 0 until products.length()){
+   val x=products.optJSONObject(i)?:throw IllegalStateException("Hay un producto dañado; no se puede generar el reporte.")
+   b.append("\n").append(x.optString("code").take(15).padEnd(16))
+    .append(x.optString("name").take(27).padEnd(28))
+    .append(Store.money(x.optDouble("price")).padEnd(12)).append(x.optInt("stock"))
   }
   return b.toString()
  }
@@ -2223,9 +2243,12 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }
  }
  private fun launchPendingReportShare(){
-  val uri=pendingShareUri?:return
-  if(!openWhatsAppDocument(this,uri,"Reporte SENE VENTAS")){
-   msg("El reporte TXT quedó guardado, pero no se pudo abrir WhatsApp para adjuntarlo. Verifica que WhatsApp esté instalado e inténtalo de nuevo.")
+  // El TXT ya está guardado localmente/en INVENTARIO SENE. WhatsApp recibe
+  // únicamente el texto; nunca se adjunta ni se comparte el archivo.
+  if(pendingShareUri==null)return
+  val body=pendingReportText?:return
+  if(!openWhatsAppText(this,body)){
+   msg("El reporte TXT quedó guardado en INVENTARIO SENE, pero no se pudo abrir el chat de WhatsApp. Puedes volver a intentarlo.")
   }
  }
  private fun confirmReportSent(){
