@@ -1413,8 +1413,36 @@ class MainActivity:Activity(){
    grid.addView(tile,params)
   }
   val scroll=ScrollView(this).apply{isFillViewport=true;addView(grid)}
-  toolsDialog=AlertDialog.Builder(this).setTitle("SENE · HERRAMIENTAS")
-   .setView(scroll).setNegativeButton("VOLVER",null).create()
+  val toolsPanel=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL
+   setPadding(dp(8),dp(8),dp(8),dp(8))
+   background=rounded(0xFFF4F6FB.toInt(),20)
+  }
+  val toolsHeader=LinearLayout(this).apply{
+   orientation=LinearLayout.HORIZONTAL
+   gravity=Gravity.CENTER_VERTICAL
+   setPadding(dp(12),dp(5),dp(4),dp(8))
+  }
+  toolsHeader.addView(TextView(this).apply{
+   text="SENE · HERRAMIENTAS"
+   textSize=19f;setTextColor(0xFF18345D.toInt())
+   typeface=Typeface.create("sans-serif",Typeface.BOLD)
+  },LinearLayout.LayoutParams(0,-2,1f))
+  val closeTools=TextView(this).apply{
+   text="×";textSize=30f;gravity=Gravity.CENTER
+   setTextColor(0xFF53647D.toInt())
+   background=rounded(0xFFFFFFFF.toInt(),14,0xFFDCE5F2.toInt())
+   contentDescription="Cerrar herramientas"
+   isClickable=true;isFocusable=true
+   setOnClickListener{toolsDialog?.dismiss()}
+  }
+  toolsHeader.addView(closeTools,LinearLayout.LayoutParams(dp(44),dp(44)))
+  toolsPanel.addView(toolsHeader)
+  toolsPanel.addView(scroll,LinearLayout.LayoutParams(-1,dp(510)))
+  toolsDialog=AlertDialog.Builder(this).setView(toolsPanel).create()
+  toolsDialog?.setOnKeyListener{_,keyCode,event->
+   keyCode==android.view.KeyEvent.KEYCODE_BACK && event.action==android.view.KeyEvent.ACTION_UP
+  }
   toolsDialog?.show()
   toolsDialog?.window?.setLayout((resources.displayMetrics.widthPixels*0.94f).toInt(),-2)
  }
