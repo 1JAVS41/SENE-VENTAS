@@ -45,7 +45,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 
 private const val GREEN=0xFF168B45.toInt()
-private const val PIN="2910"
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 private fun parseAmount(raw:String):Double? {
  val value=raw.trim().replace("$","").replace(" ","").replace("\u00A0","")
@@ -186,7 +185,43 @@ private fun Activity.display(v:LinearLayout){
  sc.viewTreeObserver.addOnGlobalLayoutListener{sc.post{revealFocused()}}
 }
 private fun Activity.msg(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
-private fun Activity.pin(ok:()->Unit){val e=input("PIN del patrón",true);e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;AlertDialog.Builder(this).setTitle("Soy Patrón").setView(e).setPositiveButton("Entrar"){_,_->if(e.text.toString()==PIN)ok()else msg("PIN incorrecto")}.setNegativeButton("Cancelar",null).show()}
+private fun Activity.pin(ok:()->Unit){
+ val prefs=getSharedPreferences("sene_ventas_local",0)
+ val savedSalt=prefs.getString("owner_pin_salt",null)
+ val savedHash=prefs.getString("owner_pin_hash",null)
+ fun digest(pin:String,salt:String):String=java.security.MessageDigest.getInstance("SHA-256")
+  .digest((salt+":"+pin).toByteArray(Charsets.UTF_8))
+  .joinToString(""){"%02x".format(it.toInt() and 0xFF)}
+ fun valid(pin:String)=pin.matches(Regex("^\\d{4,8}$"))
+ if(savedSalt.isNullOrBlank()||savedHash.isNullOrBlank()){
+  val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val first=input("Crea un PIN de 4 a 8 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val confirm=input("Confirma el PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  form.addView(first);form.addView(confirm)
+  AlertDialog.Builder(this).setTitle("CONFIGURA EL PIN DEL PATRÓN")
+   .setMessage("Este PIN protege el acceso a las funciones del patrón en este teléfono. No uses 1234 ni fechas fáciles de adivinar.")
+   .setView(form).setPositiveButton("GUARDAR PIN"){_,_->
+    val a=first.text.toString();val b=confirm.text.toString()
+    if(!valid(a)||a!=b){msg("El PIN debe tener de 4 a 8 dígitos y ambas capturas deben coincidir");return@setPositiveButton}
+    val saltBytes=ByteArray(16).also{java.security.SecureRandom().nextBytes(it)}
+    val salt=android.util.Base64.encodeToString(saltBytes,android.util.Base64.NO_WRAP)
+    val hash=digest(a,salt)
+    if(!prefs.edit().putString("owner_pin_salt",salt).putString("owner_pin_hash",hash).commit()){
+     msg("No se pudo guardar el PIN. Inténtalo de nuevo");return@setPositiveButton
+    }
+    ok()
+   }.setNegativeButton("CANCELAR",null).show()
+  return
+ }
+ val entry=input("PIN del patrón",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+ AlertDialog.Builder(this).setTitle("SOY PATRÓN").setView(entry)
+  .setPositiveButton("ENTRAR"){_,_->
+   val candidate=entry.text.toString()
+   val actual=digest(candidate,savedSalt)
+   val matches=java.security.MessageDigest.isEqual(savedHash.toByteArray(Charsets.US_ASCII),actual.toByteArray(Charsets.US_ASCII))
+   if(matches)ok()else msg("PIN incorrecto")
+  }.setNegativeButton("CANCELAR",null).show()
+}
 private object InventoryCrypto {
  private const val ALIAS="SENE_INVENTORY_AES_KEY"
  private val MAGIC="SENEENC1".toByteArray(Charsets.US_ASCII)
