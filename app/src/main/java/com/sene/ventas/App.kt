@@ -1696,7 +1696,7 @@ class MainActivity:Activity(){
    val item=sales.optJSONObject(i)?:continue
    if(item.optLong("ts",0L)>=start){total+=item.optDouble("subtotal",0.0);tickets++}
   }
-  val expenses=Store.providerExpenses(this,start)
+  val expenses=try{Store.providerExpenses(this,start)}catch(e:Exception){throw IllegalStateException("No se pudo preparar el reporte del turno porque hay movimientos inválidos. Revisa el historial antes de cerrar.",e)}
   val payload=JSONObject()
    .put("worker",shift.optString("worker"))
    .put("shiftStartedAt",start)
@@ -1761,7 +1761,7 @@ class MainActivity:Activity(){
    }
   }
   val opening=shift.optDouble("cash",0.0)
-  val providerExpenses=Store.providerExpenses(this,startTs)
+  val providerExpenses=try{Store.providerExpenses(this,startTs)}catch(e:Exception){msg("No se puede calcular la caja con seguridad: "+(e.message?:"revisa los movimientos registrados."));return}
   val estimated=opening+shiftTotal-providerExpenses
   val report=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   fun summaryLine(label:String,value:String,emphasis:Boolean=false){
