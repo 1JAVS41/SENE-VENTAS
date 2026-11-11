@@ -473,16 +473,11 @@ class WorkerPortalActivity:Activity(){
  private var pendingPairingScan=false
  private fun prefs()=getSharedPreferences("sene_ventas_server",0)
  private fun config(after:()->Unit){
-  val field=input("https://tu-worker.workers.dev")
-  field.setText(prefs().getString("server_base_url",""))
-  AlertDialog.Builder(this).setTitle("Conexión segura SENE")
-   .setMessage("Dirección HTTPS del servidor SENE.")
-   .setView(field).setPositiveButton("Guardar"){_,_->
-    val value=field.text.toString().trim().trimEnd('/')
-    val uri=Uri.parse(value)
-    if(!value.startsWith("https://")||uri.host.isNullOrBlank()||value.any{it.isWhitespace()}){msg("Dirección HTTPS no válida");return@setPositiveButton}
-    prefs().edit().putString("server_base_url",value).apply();after()
-   }.setNegativeButton("Cancelar",null).show()
+  // La dirección del servidor es configuración interna de SENE. No pedir al
+  // trabajador que escriba una URL ni aceptar una dirección temporal de prueba.
+  AlertDialog.Builder(this).setTitle("SERVIDOR SENE EN PREPARACIÓN")
+   .setMessage("La conexión oficial todavía no está habilitada. No introduzcas direcciones manuales ni uses el servidor de prueba Hello World. La vinculación por QR y las funciones en línea estarán disponibles cuando SENE publique y configure el servidor oficial.")
+   .setPositiveButton("ENTENDIDO",null).show()
  }
  private fun draw(){
   val root=page("Mi trabajo")
