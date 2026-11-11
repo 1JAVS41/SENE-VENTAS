@@ -2381,13 +2381,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  private fun offerSupplierInventory(codeValue:String, productName:String?){
   val title=if(productName==null)"Producto no registrado" else "Producto sin existencia"
   val message=if(productName==null)
-   "El código "+codeValue+" no está registrado. Si es un producto nuevo que llegó del proveedor, puedes darlo de alta y agregar la cantidad recibida."
+   "El código "+codeValue+" no está registrado en el inventario. ¿Deseas agregarlo ahora?"
    else
-   productName+" no tiene existencia disponible. Si llegó mercancía del proveedor, puedes registrar únicamente la cantidad recibida."
+   productName+" no tiene existencia disponible. ¿Deseas agregar la cantidad que llegó del proveedor?"
   AlertDialog.Builder(this).setTitle(title).setMessage(message)
-   .setPositiveButton("AGREGAR INVENTARIO"){_,_->
-    startActivity(Intent(this,AgregarInventarioActivity::class.java).putExtra("prefill_code",codeValue))
-   }.setNegativeButton("Cancelar",null).show()
+   .setPositiveButton("SÍ"){_,_->
+    startActivity(Intent(this,AgregarInventarioActivity::class.java).putExtra("prefill_code",codeValue).putExtra("from_sales_missing",true))
+   }.setNegativeButton("NO",null).show()
  }
  private fun addCode(c:String){
   if(c.isBlank()){msg("Escribe o escanea un código");return}
@@ -2666,71 +2666,88 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
 
 class AgregarInventarioActivity:Activity(){
  private lateinit var code:EditText;private lateinit var name:EditText;private lateinit var price:EditText;private lateinit var qty:EditText;private lateinit var providerPayment:EditText;private var existing:JSONObject?=null
+ private val fromSalesMissing by lazy{intent.getBooleanExtra("from_sales_missing",false)}
  override fun onCreate(b:Bundle?){super.onCreate(b);draw();intent.getStringExtra("prefill_code")?.takeIf{it.isNotBlank()}?.let{code.setText(it);find()}}
  private lateinit var deviceClock:TextView;private lateinit var internetClock:TextView;private val clockHandler=Handler(Looper.getMainLooper());private val clockTick=object:Runnable{override fun run(){if(::deviceClock.isInitialized)deviceClock.text="Hora del celular: "+stamp();clockHandler.postDelayed(this,1000)}}
- override fun onResume(){super.onResume();if(::deviceClock.isInitialized)clockHandler.post(clockTick)}
+ override fun onResume(){super.onResume();if(!fromSalesMissing&&::deviceClock.isInitialized)clockHandler.post(clockTick)}
  override fun onPause(){clockHandler.removeCallbacks(clockTick);super.onPause()}
- private fun consultProviderInternetTime(){internetClock.text="Hora de Internet: consultando…";Thread{val value=internetTimeMillis();val text=value?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible";runOnUiThread{if(::internetClock.isInitialized)internetClock.text="Hora de Internet: "+text}}.start()}
+ private fun consultProviderInternetTime(){if(!::internetClock.isInitialized)return;internetClock.text="Hora de Internet: consultando…";Thread{val value=internetTimeMillis();val text=value?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible";runOnUiThread{if(::internetClock.isInitialized)internetClock.text="Hora de Internet: "+text}}.start()}
  private fun draw(){
-  val v=page("Agregar Inventario - Llegó proveedor")
-  deviceClock=txt("Hora del celular: "+stamp(),14f);internetClock=txt("Hora de Internet: consultando…",14f)
-  v.addView(deviceClock);v.addView(internetClock)
-  val cashLabel=try{"CAJA DISPONIBLE: "+Store.money(Store.cashBalance(this))}catch(e:Exception){"CAJA NO DISPONIBLE: revisa el historial"}
-  v.addView(txt(cashLabel,17f))
-  v.addView(actionCard("Actualizar hora de Internet","Consultar la hora oficial disponible","🌐",0xFFEAF7F7.toInt()){consultProviderInternetTime()})
+  val v=page(if(fromSalesMissing)"Agregar inventario" else "Agregar Inventario - Llegó proveedor")
+  if(!fromSalesMissing){
+   deviceClock=txt("Hora del celular: "+stamp(),14f);internetClock=txt("Hora de Internet: consultando…",14f)
+   v.addView(deviceClock);v.addView(internetClock)
+   val cashLabel=try{"CAJA DISPONIBLE: "+Store.money(Store.cashBalance(this))}catch(e:Exception){"CAJA NO DISPONIBLE: revisa el historial"}
+   v.addView(txt(cashLabel,17f))
+   v.addView(actionCard("Actualizar hora de Internet","Consultar la hora oficial disponible","🌐",0xFFEAF7F7.toInt()){consultProviderInternetTime()})
+  }
   v.addView(txt("DATOS DEL PRODUCTO",13f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF49618B.toInt())})
-  code=input("Escanea o escribe código");name=input("Descripción del producto");price=input("Precio de venta $",true)
-  qty=input("¿Cuántos llegaron del proveedor?",true);providerPayment=input("¿Cuánto pagarás al proveedor? $",true)
+  code=input("Código del producto");name=input("Nombre del producto")
+  qty=input(if(fromSalesMissing)"Cantidad para agregar al inventario" else "Cantidad que llegó del proveedor",true)
+  price=input("Precio de venta $",true)
+  providerPayment=input("¿Cuánto pagarás al proveedor? $",true)
   v.addView(code)
-  v.addView(actionCard("Escanear código","Leer el código de barras del producto","📷",0xFFE8F7EF.toInt()){openScanner()})
-  v.addView(actionCard("Buscar producto","Comprobar si ya existe en el inventario","🔎",0xFFEAF2FF.toInt()){find()})
-  v.addView(name);v.addView(price);v.addView(qty);v.addView(providerPayment)
-  v.addView(txt("El pago se descontará de la caja al guardar. Si no pagarás ahora, escribe 0.",13f))
-  v.addView(actionCard("Continuar y confirmar","Revisar cantidad recibida y pago al proveedor","✓",0xFFFFF3E5.toInt()){confirm()})
+  if(!fromSalesMissing){
+   v.addView(actionCard("Escanear código","Leer el código de barras del producto","📷",0xFFE8F7EF.toInt()){openScanner()})
+   v.addView(actionCard("Buscar producto","Comprobar si ya existe en el inventario","🔎",0xFFEAF2FF.toInt()){find()})
+  }
+  v.addView(name);v.addView(qty);v.addView(price)
+  if(!fromSalesMissing){v.addView(providerPayment);v.addView(txt("El pago se descontará de la caja al guardar. Si no pagarás ahora, escribe 0.",13f))}
+  v.addView(actionCard(if(fromSalesMissing)"Agregar inventario" else "Continuar y confirmar",if(fromSalesMissing)"Guardar el producto y aumentar la existencia" else "Revisar cantidad recibida y pago al proveedor","✓",0xFFFFF3E5.toInt()){confirm()})
   v.addView(actionCard("Volver","Regresar a ventas sin guardar cambios","↩️",0xFFF1F3F8.toInt()){finish()})
-  display(v);consultProviderInternetTime()
+  display(v);if(!fromSalesMissing)consultProviderInternetTime()
  }
- private fun find(){existing=null;val p=Store.products(this);for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==code.text.toString())existing=x};if(existing!=null){name.setText(existing!!.optString("name"));price.setText(existing!!.optDouble("price").toString());price.isEnabled=false;msg("Producto existente. El precio no se puede cambiar.")}else{price.isEnabled=true;name.setText("");price.setText("");msg("Producto nuevo. Captura descripción y precio.")}}
- private fun confirm(){val q=qty.text.toString().toIntOrNull();val payment=if(providerPayment.text.isBlank())0.0 else parseAmount(providerPayment.text.toString());val cash=try{Store.cashBalance(this)}catch(e:Exception){msg("No se puede validar el pago porque la caja tiene movimientos inválidos. Revisa el historial.");return};if(code.text.isBlank()||q==null||q<1){msg("Revisa código y cantidad");return};if(payment==null||!payment.isFinite()||payment<0){msg("Captura un pago válido");return};if(payment>cash){msg("El pago supera la caja disponible ("+Store.money(cash)+"). No se puede registrar.");return};if(existing==null&&(name.text.isBlank()||parseAmount(price.text.toString())==null)){msg("Captura descripción y precio");return};val old=existing?.optInt("stock")?:0;val summary="Código: "+code.text+"\nDescripción: "+name.text+"\nPrecio: "+price.text+"\nStock actual: "+old+"\nCantidad que llegó: "+q+"\nStock nuevo: "+(old+q)+"\n\nPago al proveedor: "+Store.money(payment)+"\nCaja antes del pago: "+Store.money(cash)+"\nCaja después del pago: "+Store.money(cash-payment)+"\n\nASEGÚRATE DE QUE LA CANTIDAD Y EL PAGO SEAN CORRECTOS. ESTA ACCIÓN NO SE PUEDE DESHACER."
- AlertDialog.Builder(this).setTitle("Confirmación 1 de 2").setMessage(summary).setPositiveButton("Sí, la cantidad es correcta"){_,_->AlertDialog.Builder(this).setTitle("¿Estás 100% seguro?").setMessage("Última oportunidad para revisar. Si guardas, ya no se puede deshacer.").setPositiveButton("SÍ, GUARDAR - YA REVISÉ"){_,_->save(q,payment)}.setNegativeButton("NO, ME EQUIVOQUÉ - REVISAR",null).show()}.setNegativeButton("No, revisar cantidad",null).show()}
+ private fun find(){existing=null;val p=Store.products(this);for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==code.text.toString())existing=x};if(existing!=null){name.setText(existing!!.optString("name"));price.setText(existing!!.optDouble("price").toString());price.isEnabled=false;msg("Producto existente. El precio no se puede cambiar.")}else{price.isEnabled=true;name.setText("");price.setText("");msg("Producto nuevo. Captura nombre y precio.")}}
+ private fun confirm(){
+  val q=qty.text.toString().toIntOrNull()
+  val payment=if(fromSalesMissing)0.0 else if(providerPayment.text.isBlank())0.0 else parseAmount(providerPayment.text.toString())
+  val cash=if(fromSalesMissing)0.0 else try{Store.cashBalance(this)}catch(e:Exception){msg("No se puede validar el pago porque la caja tiene movimientos inválidos. Revisa el historial.");return}
+  if(code.text.isBlank()||q==null||q<1){msg("Revisa el código y la cantidad");return}
+  if(payment==null||!payment.isFinite()||payment<0){msg("Captura un pago válido");return}
+  if(!fromSalesMissing&&payment>cash){msg("El pago supera la caja disponible ("+Store.money(cash)+"). No se puede registrar.");return}
+  val parsedPrice=parseAmount(price.text.toString())
+  if(existing==null&&(name.text.isBlank()||parsedPrice==null||parsedPrice<0)){msg("Captura nombre y precio válidos");return}
+  val old=existing?.optInt("stock")?:0
+  val summary=if(fromSalesMissing)
+   "Código: "+code.text+"\nProducto: "+name.text+"\nCantidad a agregar: "+q+"\nExistencia nueva: "+(old+q)+"\nPrecio: "+price.text+"\n\n¿Confirmas agregarlo al inventario?"
+  else
+   "Código: "+code.text+"\nDescripción: "+name.text+"\nPrecio: "+price.text+"\nStock actual: "+old+"\nCantidad que llegó: "+q+"\nStock nuevo: "+(old+q)+"\n\nPago al proveedor: "+Store.money(payment)+"\nCaja antes del pago: "+Store.money(cash)+"\nCaja después del pago: "+Store.money(cash-payment)+"\n\nASEGÚRATE DE QUE LA CANTIDAD Y EL PAGO SEAN CORRECTOS. ESTA ACCIÓN NO SE PUEDE DESHACER."
+  AlertDialog.Builder(this).setTitle(if(fromSalesMissing)"Confirmar agregar inventario" else "Confirmación 1 de 2").setMessage(summary)
+   .setPositiveButton(if(fromSalesMissing)"AGREGAR" else "Sí, la cantidad es correcta"){_,_->
+    if(fromSalesMissing)save(q,0.0)
+    else AlertDialog.Builder(this).setTitle("¿Estás 100% seguro?").setMessage("Última oportunidad para revisar. Si guardas, ya no se puede deshacer.").setPositiveButton("SÍ, GUARDAR - YA REVISÉ"){_,_->save(q,payment)}.setNegativeButton("NO, ME EQUIVOQUÉ - REVISAR",null).show()
+   }.setNegativeButton(if(fromSalesMissing)"CANCELAR" else "No, revisar cantidad",null).show()
+ }
  private fun presentCode(products:JSONArray,codeValue:String):Boolean{for(i in 0 until products.length())if(products.optJSONObject(i)?.optString("code")==codeValue)return true;return false}
  private fun save(q:Int,payment:Double){
   if(!payment.isFinite()||payment<0.0){msg("El pago no es válido. No se guardó.");return}
-  val currentCash=try{Store.cashBalance(this)}catch(e:Exception){msg("No se puede validar el pago porque la caja tiene movimientos inválidos. No se guardó el ingreso.");return}
-  if(payment>currentCash){msg("La caja cambió y ya no alcanza para ese pago. Revisa el monto.");return}
-  val p=Store.products(this)
-  val label=name.text.toString().trim()
+  val currentCash=if(fromSalesMissing)0.0 else try{Store.cashBalance(this)}catch(e:Exception){msg("No se puede validar el pago porque la caja tiene movimientos inválidos. No se guardó el ingreso.");return}
+  if(!fromSalesMissing&&payment>currentCash){msg("La caja cambió y ya no alcanza para ese pago. Revisa el monto.");return}
+  val p=Store.products(this);val label=name.text.toString().trim()
   if(existing!=null){
    val index=(0 until p.length()).firstOrNull{p.optJSONObject(it)?.optString("code")==existing!!.optString("code")}?:run{msg("El producto ya no existe. No se guardó.");return}
    p.optJSONObject(index)!!.put("stock",p.optJSONObject(index)!!.optInt("stock")+q)
   }else{
    if(presentCode(p,code.text.toString().trim())){msg("Ese código ya existe. Busca el producto antes de agregar.");return}
-   p.put(JSONObject().put("code",code.text.toString().trim()).put("name",label).put("price",price.text.toString().toDouble()).put("stock",q))
+   val parsedPrice=parseAmount(price.text.toString())?:run{msg("El precio no es válido.");return}
+   p.put(JSONObject().put("code",code.text.toString().trim()).put("name",label).put("price",parsedPrice).put("stock",q))
   }
-  // El permiso de la carpeta INVENTARIO SENE pertenece al teléfono del patrón.
-  // El trabajador debe poder registrar la recepción en su propio dispositivo sin bloquearse por ese permiso.
   val backup=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia")
-  for(i in 0 until p.length()){
-   val item=p.optJSONObject(i)?:continue
-   backup.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optDouble("price")).append(" | ").append(item.optInt("stock"))
-  }
+  for(i in 0 until p.length()){val item=p.optJSONObject(i)?:continue;backup.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optDouble("price")).append(" | ").append(item.optInt("stock"))}
   var savedInSharedFolder=false
   val tree=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
   if(!tree.isNullOrBlank())try{savedInSharedFolder=InventoryArchive.save(this,p)}catch(_:Exception){}
-  try{
-   if(!savedInSharedFolder)saveTextBackupLocal(this,"SENE-INGRESO-PROVEEDOR",backup.toString())
-  }catch(e:Exception){msg("No se pudo crear el respaldo local: "+(e.message?:"error"));return}
+  try{if(!savedInSharedFolder)saveTextBackupLocal(this,if(fromSalesMissing)"SENE-ALTA-INVENTARIO" else "SENE-INGRESO-PROVEEDOR",backup.toString())}
+  catch(e:Exception){msg("No se pudo crear el respaldo local: "+(e.message?:"error"));return}
   Store.saveProducts(this,p)
-  val s=Store.shift(this)?:JSONObject()
-  val now=System.currentTimeMillis()
-  val time=stamp()
-  Store.addMove(this,JSONObject().put("ts",now).put("time",time).put("text","INGRESO DE PROVEEDOR: +"+q+" "+label+" por "+s.optString("worker")))
+  val s=Store.shift(this)?:JSONObject();val now=System.currentTimeMillis();val time=stamp()
+  Store.addMove(this,JSONObject().put("ts",now).put("time",time).put("text",(if(fromSalesMissing)"ALTA DESDE VENTAS: +" else "INGRESO DE PROVEEDOR: +")+q+" "+label+" por "+s.optString("worker")))
   if(payment>0.0)Store.addMove(this,JSONObject().put("type","PROVIDER_PAYMENT").put("ts",now).put("time",time).put("amount",payment).put("supplier",label).put("text","PAGO A PROVEEDOR por ingreso de "+q+" "+label+" | "+Store.money(payment)).put("worker",s.optString("worker")))
   val where=if(savedInSharedFolder)"INVENTARIO SENE actualizado" else "respaldo guardado en este teléfono; el reporte de turno incluirá el stock actualizado"
-  val cashAfter=try{Store.money(Store.cashBalance(this))}catch(e:Exception){null}
-  msg("Ingreso guardado. "+(if(payment>0.0)"Pago descontado de caja: "+Store.money(payment)+" | " else "")+(cashAfter?.let{"Caja actual: "+it+" | "}?:"Caja no disponible: revisa el historial | ")+where)
+  val cashAfter=if(fromSalesMissing)null else try{Store.money(Store.cashBalance(this))}catch(e:Exception){null}
+  msg(if(fromSalesMissing)"Producto agregado al inventario correctamente. "+where else "Ingreso guardado. "+(if(payment>0.0)"Pago descontado de caja: "+Store.money(payment)+" | " else "")+(cashAfter?.let{"Caja actual: "+it+" | "}?:"Caja no disponible: revisa el historial | ")+where)
   finish()
-}
+ }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){code.setText(codes.last());find()};return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null){code.setText(x.contents);find()}}
 }
 
@@ -2847,7 +2864,28 @@ class PatronActivity:Activity(){
    Store.saveProducts(this,products);saveInventorySnapshot();msg("Precio actualizado")
   }.setNegativeButton("Cancelar",null).show()
  }
- private fun inventory(){val a=Store.products(this);val b=StringBuilder();for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;b.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | ").append(x.optInt("stock")).append("\n")};AlertDialog.Builder(this).setTitle("Inventario actual").setMessage(if(b.isEmpty())"Sin productos" else b.toString()).setPositiveButton("Cerrar",null).show()}
+ private fun inventory(){
+  val products=Store.products(this)
+  val root=LinearLayout(this).apply{orientation=1;setPadding(dp(16),dp(10),dp(16),dp(10))}
+  val total=products.length()
+  val units=(0 until total).sumOf{products.optJSONObject(it)?.optInt("stock")?:0}
+  root.addView(txt("PRODUCTOS REGISTRADOS: "+total+"     UNIDADES: "+units,14f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF49618B.toInt())})
+  val scroll=ScrollView(this)
+  val list=LinearLayout(this).apply{orientation=1}
+  val ordered=(0 until total).mapNotNull{products.optJSONObject(it)}.sortedBy{it.optString("name").lowercase(Locale("es","MX"))}
+  if(ordered.isEmpty())list.addView(txt("Todavía no hay productos registrados.",15f))
+  for(item in ordered){
+   val card=LinearLayout(this).apply{orientation=1;setPadding(dp(14),dp(11),dp(14),dp(11));background=rounded(0xFFF3F6FC.toInt(),14)}
+   card.addView(txt(item.optString("name","Producto"),16f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF17345F.toInt())})
+   card.addView(txt("Código: "+item.optString("code"),13f))
+   val detail=LinearLayout(this).apply{orientation=0;gravity=Gravity.CENTER_VERTICAL}
+   detail.addView(txt("Precio: "+Store.money(item.optDouble("price")),14f).apply{layoutParams=LinearLayout.LayoutParams(0,-2,1f)})
+   detail.addView(txt("Existencia: "+item.optInt("stock"),14f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(if(item.optInt("stock")>0)0xFF16834A.toInt() else 0xFFC62828.toInt())})
+   card.addView(detail);list.addView(card,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(9)})
+  }
+  scroll.addView(list);root.addView(scroll,LinearLayout.LayoutParams(-1,dp(440)))
+  AlertDialog.Builder(this).setTitle("Inventario actual").setView(root).setPositiveButton("CERRAR",null).show()
+ }
  private fun chooseInventoryFolder(){
   // Abrir directamente el selector de archivos, sin opciones intermedias.
   pickInventoryTxt()
