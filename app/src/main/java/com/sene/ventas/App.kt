@@ -587,6 +587,14 @@ class WorkerPortalActivity:Activity(){
   val plan=JSONArray()
   addCorrectionPlanChange(saleId,summary,reason,detail,rows,plan)
  }
+ private fun startCorrectionPlanForSelectedRows(saleId:String,summary:String,detail:String,selectedCodes:Set<String>){
+  val rows=correctionSaleRows(saleId)
+  if(rows.isEmpty()){msg("La venta original ya no está disponible.");return}
+  if(rows.any{it.has("correctionOpId")}){msg("Esta venta ya fue corregida.");return}
+  if(selectedCodes.isEmpty()||rows.none{it.optString("code") in selectedCodes}){msg("No hay productos válidos seleccionados.");return}
+  val plan=JSONArray()
+  addCorrectionPlanChange(saleId,summary,"Solicitud desde ticket escaneado",detail,rows,plan,selectedCodes)
+ }
  private fun addCorrectionPlanChange(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,selectedCodes:Set<String>?=null){
   val used=mutableSetOf<String>()
   for(i in 0 until plan.length())used.add(plan.optJSONObject(i)?.optString("fromCode").orEmpty())
@@ -2191,14 +2199,6 @@ class MainActivity:Activity(){
     val summary=rows.firstOrNull()?.optString("time","Venta original")+" · Folio "+saleId
     startCorrectionPlanForSelectedRows(saleId,summary,detail,selected)
    }.setNegativeButton("CANCELAR",null).show()
- }
- private fun startCorrectionPlanForSelectedRows(saleId:String,summary:String,detail:String,selectedCodes:Set<String>){
-  val rows=correctionSaleRows(saleId)
-  if(rows.isEmpty()){msg("La venta original ya no está disponible.");return}
-  if(rows.any{it.has("correctionOpId")}){msg("Esta venta ya fue corregida.");return}
-  if(selectedCodes.isEmpty()||rows.none{it.optString("code") in selectedCodes}){msg("No hay productos válidos seleccionados.");return}
-  val plan=JSONArray()
-  addCorrectionPlanChange(saleId,summary,"Solicitud desde ticket escaneado",detail,rows,plan,selectedCodes)
  }
  private fun handleTicketScan(codes:ArrayList<String>){
   val match=identifyOriginalTicket(codes)?:return
