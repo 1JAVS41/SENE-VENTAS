@@ -1243,7 +1243,7 @@ class MainActivity:Activity(){
   }
   salesClockHandler.postDelayed(this,1000L)
  }}
- private val ticket=linkedMapOf<String,Int>();private val checklistScannedCodes=mutableListOf<String>();private val checklistUncheckedCodes=mutableListOf<String>();private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private val h=Handler(Looper.getMainLooper())
+ private val ticket=linkedMapOf<String,Int>();private val checklistScannedCodes=mutableListOf<String>();private val checklistUncheckedCodes=mutableListOf<String>();private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private var paidValidationError=false;private val h=Handler(Looper.getMainLooper())
  private var connectivityManager:ConnectivityManager?=null
  private val connectivityCallback=object:ConnectivityManager.NetworkCallback(){
   override fun onAvailable(network:Network){
@@ -2080,15 +2080,21 @@ class MainActivity:Activity(){
   val v=page("VENTAS"){showToolsMenu()}
   val sales=Store.sales(this);var sum=0.0;var count=0
   for(i in 0 until sales.length()){val x=sales.optJSONObject(i)?:continue;if(x.optString("time").startsWith(day())){sum+=x.optDouble("subtotal");count++}}
-  v.addView(txt("HOY  ·  $count ventas     "+Store.money(sum),14f).apply{gravity=Gravity.CENTER})
+  val shift=Store.shift(this)?:JSONObject()
+  val startTs=shift.optLong("startTs",0L)
+  var shiftSales=0.0
+  for(i in 0 until sales.length()){val item=sales.optJSONObject(i)?:continue;if(startTs>0L&&item.optLong("ts",0L)>=startTs)shiftSales+=item.optDouble("subtotal",0.0)}
+  val opening=shift.optDouble("cash",0.0)
+  val expenses=try{Store.providerExpenses(this,startTs)}catch(_:Exception){0.0}
+  val cashNow=(opening+shiftSales-expenses).coerceAtLeast(0.0)
+  v.addView(txt("HOY\\nDINERO EN CAJA: "+Store.money(cashNow)+"\\nVENTAS DE HOY: "+Store.money(sum)+"  ·  $count ventas",16f).apply{gravity=Gravity.CENTER})
   v.addView(button("ESCANEAR PRODUCTO"){openScanner()})
-  code=input("Código de barras");v.addView(code)
-  v.addView(button("AGREGAR AL TICKET",false){addCode(code.text.toString());code.setText("")})
+  code=input("Código de barras");code.imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_DONE;code.setOnEditorActionListener{_,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){addCode(code.text.toString());code.setText("");true}else false};v.addView(code)
   ticketView=txt("Ticket vacío",18f);v.addView(ticketView)
   paid=input("¿Cuánto te pagan?",true);v.addView(paid)
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
-  sell=button("COBRAR Y REGISTRAR VENTA"){sellTicket()};v.addView(sell)
+  sell=button("COBRAR"){sellTicket()};v.addView(sell)
   v.addView(button("Limpiar ticket",false){ticket.clear();checklistScannedCodes.clear();checklistUncheckedCodes.clear();refresh()})
   
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
@@ -2146,11 +2152,32 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }
   offerSupplierInventory(c,null)
  }
- private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);val b=StringBuilder();var sum=0.0;for((c,q) in ticket){for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\n");break}}};ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString();val diff=(parseAmount(paid.text.toString())?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff)}
+ private fun refresh(){
+  if(!::ticketView.isInitialized)return
+  val p=Store.products(this);val b=StringBuilder();var sum=0.0
+  for((c,q) in ticket)for(i in 0 until p.length()){
+   val x=p.optJSONObject(i)?:continue
+   if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\\n");break}
+  }
+  ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString()
+  val entered=parseAmount(paid.text.toString())
+  val canPay=ticket.isNotEmpty()&&entered!=null&&entered>=sum
+  val diff=(entered?:0.0)-sum
+  totalView.text="TOTAL: "+Store.money(sum)+"\\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff)
+  if(::sell.isInitialized){
+   sell.text="COBRAR"
+   sell.background=rounded(if(canPay)0xFF1769D2.toInt() else 0xFFD92727.toInt(),14)
+   sell.setTextColor(0xFFFFFFFF.toInt())
+  }
+  if(::paid.isInitialized){
+   if(canPay)paidValidationError=false
+   paid.background=rounded(0xFFFFFFFF.toInt(),14,if(paidValidationError)0xFFD92727.toInt() else 0xFFDCE2EF.toInt())
+  }
+}
  private fun sellTicket(){if(due()){showReportAlert();return};if(ticket.isEmpty()){msg("Ticket vacio. Escanea un producto.");return}
  val p=Store.products(this);val list=mutableListOf<Pair<JSONObject,Int>>();var sum=0.0
  for((c,q) in ticket){var found:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i);if(x?.optString("code")==c){found=x;break}};if(found==null){msg("Producto no encontrado: "+c);return};if(found.optInt("stock")<q){msg("Stock insuficiente: "+found.optString("name")+". Quedan "+found.optInt("stock"));return};list.add(found to q);sum+=found.optDouble("price")*q}
- val pay=parseAmount(paid.text.toString())?:0.0;if(pay<sum){msg("Falta dinero");return};val s=Store.shift(this)?:JSONObject()
+ val pay=parseAmount(paid.text.toString());if(pay==null||pay<sum){paidValidationError=true;paid.background=rounded(0xFFFFFFFF.toInt(),14,0xFFD92727.toInt());paid.requestFocus();paid.error="Escribe cuánto te pagan";sell.background=rounded(0xFFD92727.toInt(),14);sell.setTextColor(0xFFFFFFFF.toInt());msg("Primero escribe cuánto te paga el cliente. El botón COBRAR se habilitará en azul cuando la cantidad sea suficiente.");return};val s=Store.shift(this)?:JSONObject()
  val saleTime=stamp();val saleTs=System.currentTimeMillis();val saleId=UUID.randomUUID().toString();val saleItems=ArrayList<JSONObject>()
  for((x,q) in list){x.put("stock",x.optInt("stock")-q);saleItems.add(JSONObject().put("saleId",saleId).put("ts",saleTs).put("time",saleTime).put("code",x.optString("code")).put("name",x.optString("name")).put("qty",q).put("price",x.optDouble("price")).put("subtotal",x.optDouble("price")*q).put("worker",s.optString("worker")).put("saleTotal",sum).put("amountPaid",pay).put("change",pay-sum).put("saleItemCount",list.size).put("checklistScannedCount",checklistScannedCodes.size).put("checklistCheckedCount",checklistScannedCodes.size-checklistUncheckedCodes.size).put("checklistStatus",if(checklistScannedCodes.isEmpty())"NO_REALIZADO" else if(checklistUncheckedCodes.isEmpty())"COMPLETO" else "INCOMPLETO").put("checklistComplete",checklistScannedCodes.isNotEmpty()&&checklistUncheckedCodes.isEmpty()).put("checklistScannedCodes",JSONArray(checklistScannedCodes)).put("checklistUncheckedCodes",JSONArray(checklistUncheckedCodes)))}
  if(!Store.recordSale(this,p,saleItems)){msg("Esta venta ya quedó registrada o no se pudo validar su folio. Revisa Tickets antes de intentarlo de nuevo.");return};val change=pay-sum;val n=list.size;ticket.clear();checklistScannedCodes.clear();checklistUncheckedCodes.clear();paid.setText("");msg("Venta guardada: "+n+" productos | Total "+Store.money(sum)+" | Cambio "+Store.money(change));draw()}
@@ -2362,7 +2389,28 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    throw e
   }
  }
- private fun stock(){val p=Store.products(this);val b=StringBuilder();for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;b.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Stock ").append(x.optInt("stock")).append("\n")};AlertDialog.Builder(this).setTitle("Stock actual").setMessage(if(b.isEmpty())"Sin productos" else b.toString()).setPositiveButton("Cerrar",null).show()}
+ private fun stock(){
+  val products=Store.products(this)
+  val sorted=ArrayList<JSONObject>()
+  for(i in 0 until products.length())products.optJSONObject(i)?.let{sorted.add(it)}
+  sorted.sortWith(compareBy(String.CASE_INSENSITIVE_ORDER){it.optString("name")})
+  val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(8),dp(14),dp(8))}
+  if(sorted.isEmpty())list.addView(txt("Sin productos registrados"))
+  for(product in sorted){
+   val row=TextView(this).apply{
+    text=product.optString("name")+"  ·  Stock: "+product.optInt("stock")+
+      "\\nCódigo: "+product.optString("code","Sin código")+
+      "\\nPrecio: "+Store.money(product.optDouble("price"))
+    textSize=15f;setTextColor(0xFF202B49.toInt());setPadding(dp(13),dp(11),dp(13),dp(11))
+    background=rounded(0xFFFFFFFF.toInt(),12,0xFFE2E6F0.toInt())
+    setLineSpacing(dp(2).toFloat(),1f)
+   }
+   val params=LinearLayout.LayoutParams(-1,-2);params.bottomMargin=dp(7);list.addView(row,params)
+  }
+  val scroll=ScrollView(this).apply{isFillViewport=true;addView(list)}
+  AlertDialog.Builder(this).setTitle("STOCK ACTUAL · ORDEN ALFABÉTICO")
+   .setView(scroll).setPositiveButton("CERRAR",null).show()
+ }
  private fun saveReportToPhone(){val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/plain";putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")};try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(_:Exception){msg("No se pudo abrir el selector para guardar")}}
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST){if(c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(pendingPairingScan){pendingPairingScan=false;finishVentasPairing(codes.last())}else reviewScannedCodes(codes)}}else pendingPairingScan=false;return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
