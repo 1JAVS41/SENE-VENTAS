@@ -469,7 +469,10 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             val saleRows = ArrayList<Pair<Long, JSONObject>>()
             db.rawQuery("SELECT id, data FROM sales ORDER BY id ASC", null).use { c ->
                 while (c.moveToNext()) {
-                    val row = try { JSONObject(c.getString(1)) } catch (_: Exception) { continue }
+                    val raw = c.getString(1)
+                    val row = try { JSONObject(raw) } catch (error: Exception) {
+                        throw IllegalStateException("Hay una venta dañada en el historial. Se bloqueó la corrección para evitar modificar un ticket incompleto.", error)
+                    }
                     if (row.optString("saleId") == saleId) saleRows.add(c.getLong(0) to row)
                 }
             }
@@ -487,7 +490,18 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
 
             val productRows = ArrayList<JSONObject>()
             db.rawQuery("SELECT data FROM products ORDER BY id ASC", null).use { c ->
-                while (c.moveToNext()) productRows.add(JSONObject(c.getString(0)))
+                while (c.moveToNext()) {
+                    val raw = c.getString(0)
+                    val product = try { JSONObject(raw) } catch (error: Exception) {
+                        throw IllegalStateException("Hay un producto dañado en el inventario. Se bloqueó la corrección para proteger las existencias.", error)
+                    }
+                    val code = product.optString("code").trim()
+                    val stock = product.optInt("stock", -1)
+                    if (code.isBlank() || stock < 0) {
+                        throw IllegalStateException("Hay un producto con código o existencia inválidos. Se bloqueó la corrección.")
+                    }
+                    productRows.add(product)
+                }
             }
             if (productRows.isEmpty()) return false
             fun productIndex(code: String): Int {
