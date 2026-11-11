@@ -489,6 +489,7 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             val updatedRows = saleRows.map { JSONObject(it.second.toString()) }.toMutableList()
 
             val productRows = ArrayList<JSONObject>()
+            val productCodes = HashSet<String>()
             db.rawQuery("SELECT data FROM products ORDER BY id ASC", null).use { c ->
                 while (c.moveToNext()) {
                     val raw = c.getString(0)
@@ -497,8 +498,10 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
                     }
                     val code = product.optString("code").trim()
                     val stock = product.optInt("stock", -1)
-                    if (code.isBlank() || stock < 0) {
-                        throw IllegalStateException("Hay un producto con código o existencia inválidos. Se bloqueó la corrección.")
+                    val price = product.optDouble("price", Double.NaN)
+                    if (code.isBlank() || !productCodes.add(code) || stock < 0 ||
+                        !price.isFinite() || price < 0.0) {
+                        throw IllegalStateException("Hay un producto con código, existencia o precio inválidos/duplicados. Se bloqueó la corrección.")
                     }
                     productRows.add(product)
                 }
