@@ -206,17 +206,31 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
         return result
     }
 
+    private fun validateProductArray(array: JSONArray, allowEmpty: Boolean = true): Boolean {
+        if (!allowEmpty && array.length() == 0) return false
+        val codes = HashSet<String>()
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: return false
+            val code = item.optString("code").trim()
+            val stock = item.optInt("stock", -1)
+            if (code.isBlank() || !codes.add(code) || stock < 0) return false
+        }
+        return true
+    }
+
     fun replaceProducts(array: JSONArray) {
+        // Validate the complete replacement before deleting any persisted stock.
+        require(validateProductArray(array)) { "El inventario contiene productos inválidos o códigos duplicados; no se guardaron cambios." }
         val db = writableDatabase
         db.beginTransaction()
         try {
             db.delete("products", null, null)
             for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                db.insert("products", null, ContentValues().apply {
-                    put("code", item.optString("code", ""))
+                val item = array.getJSONObject(i)
+                check(db.insert("products", null, ContentValues().apply {
+                    put("code", item.optString("code").trim())
                     put("data", item.toString())
-                })
+                }) != -1L) { "No se pudo guardar un producto; se revirtió el inventario completo." }
             }
             db.setTransactionSuccessful()
         } finally {
@@ -230,9 +244,15 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
      * matching inventory change, or vice versa.
      */
     fun recordSale(array: JSONArray, items: List<JSONObject>): Boolean {
-        if (items.isEmpty()) return false
-        val saleId = items.first().optString("saleId")
-        if (saleId.isBlank() || items.any { it.optString("saleId") != saleId }) return false
+        if (items.isEmpty() || !validateProductArray(array, allowEmpty = false)) return false
+        val saleId = items.first().optString("saleId").trim()
+        if (saleId.isBlank() || items.any {
+                it.optString("saleId").trim() != saleId ||
+                    it.optString("code").isBlank() ||
+                    it.optInt("qty", 0) <= 0 ||
+                    !it.optDouble("subtotal", Double.NaN).isFinite() ||
+                    it.optDouble("subtotal", Double.NaN) < 0.0
+            }) return false
 
         val db = writableDatabase
         db.beginTransaction()
