@@ -99,17 +99,26 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             return
         }
 
+        val rawSales = legacy.opt("sales")
+        val rawMoves = legacy.opt("moves")
+        if ((legacy.has("sales") && rawSales != null && rawSales !is JSONArray) ||
+            (legacy.has("moves") && rawMoves != null && rawMoves !is JSONArray)) return
+        val sales = (rawSales as? JSONArray) ?: JSONArray()
+        val moves = (rawMoves as? JSONArray) ?: JSONArray()
+        // Preserve the original preferences backup and retry later if any row is
+        // malformed; never mark a partial history migration as complete.
+        if ((0 until sales.length()).any { sales.optJSONObject(it) == null } ||
+            (0 until moves.length()).any { moves.optJSONObject(it) == null }) return
+
         db.beginTransaction()
         try {
-            val sales = legacy.optJSONArray("sales") ?: JSONArray()
             for (i in 0 until sales.length()) {
-                val item = sales.optJSONObject(i) ?: continue
-                db.insert("sales", null, ContentValues().apply { put("data", item.toString()) })
+                val item = sales.getJSONObject(i)
+                db.insertOrThrow("sales", null, ContentValues().apply { put("data", item.toString()) })
             }
-            val moves = legacy.optJSONArray("moves") ?: JSONArray()
             for (i in 0 until moves.length()) {
-                val item = moves.optJSONObject(i) ?: continue
-                db.insert("moves", null, ContentValues().apply { put("data", item.toString()) })
+                val item = moves.getJSONObject(i)
+                db.insertOrThrow("moves", null, ContentValues().apply { put("data", item.toString()) })
             }
             db.insertWithOnConflict(
                 "store_meta",
