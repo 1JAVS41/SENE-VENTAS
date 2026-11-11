@@ -2087,7 +2087,7 @@ class MainActivity:Activity(){
   val opening=shift.optDouble("cash",0.0)
   val expenses=try{Store.providerExpenses(this,startTs)}catch(_:Exception){0.0}
   val cashNow=(opening+shiftSales-expenses).coerceAtLeast(0.0)
-  v.addView(txt("HOY\\nDINERO EN CAJA: "+Store.money(cashNow)+"\\nVENTAS DE HOY: "+Store.money(sum)+"  ·  $count ventas",16f).apply{gravity=Gravity.CENTER})
+  v.addView(txt("HOY\nDINERO EN CAJA: "+Store.money(cashNow)+"\nVENTAS DE HOY: "+Store.money(sum)+"  ·  $count ventas",16f).apply{gravity=Gravity.CENTER})
   v.addView(button("ESCANEAR PRODUCTO"){openScanner()})
   code=input("Código de barras");code.imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_DONE;code.setOnEditorActionListener{_,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){addCode(code.text.toString());code.setText("");true}else false};v.addView(code)
   ticketView=txt("Ticket vacío",18f);v.addView(ticketView)
@@ -2157,20 +2157,20 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val p=Store.products(this);val b=StringBuilder();var sum=0.0
   for((c,q) in ticket)for(i in 0 until p.length()){
    val x=p.optJSONObject(i)?:continue
-   if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\\n");break}
+   if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\n");break}
   }
   ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString()
   val entered=parseAmount(paid.text.toString())
   val canPay=ticket.isNotEmpty()&&entered!=null&&entered>=sum
   val diff=(entered?:0.0)-sum
-  totalView.text="TOTAL: "+Store.money(sum)+"\\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff)
+  totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff)
   if(::sell.isInitialized){
    sell.text="COBRAR"
    sell.background=rounded(if(canPay)0xFF1769D2.toInt() else 0xFFD92727.toInt(),14)
    sell.setTextColor(0xFFFFFFFF.toInt())
   }
   if(::paid.isInitialized){
-   if(canPay)paidValidationError=false
+   if(canPay){paidValidationError=false;paid.error=null}
    paid.background=rounded(0xFFFFFFFF.toInt(),14,if(paidValidationError)0xFFD92727.toInt() else 0xFFDCE2EF.toInt())
   }
 }
@@ -2399,8 +2399,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   for(product in sorted){
    val row=TextView(this).apply{
     text=product.optString("name")+"  ·  Stock: "+product.optInt("stock")+
-      "\\nCódigo: "+product.optString("code","Sin código")+
-      "\\nPrecio: "+Store.money(product.optDouble("price"))
+      "\nCódigo: "+product.optString("code","Sin código")+
+      "\nPrecio: "+Store.money(product.optDouble("price"))
     textSize=15f;setTextColor(0xFF202B49.toInt());setPadding(dp(13),dp(11),dp(13),dp(11))
     background=rounded(0xFFFFFFFF.toInt(),12,0xFFE2E6F0.toInt())
     setLineSpacing(dp(2).toFloat(),1f)
