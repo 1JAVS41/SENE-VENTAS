@@ -1778,7 +1778,6 @@ class MainActivity:Activity(){
   }catch(e:Exception){msg("No se puede calcular el resumen con seguridad: "+(e.message?:"revisa el historial."));return}
   val opening=shift.optDouble("cash",Double.NaN)
   if(!opening.isFinite()||opening<0.0){msg("La caja inicial tiene un importe inválido. Revisa el turno.");return}
-  val opening=shift.optDouble("cash",0.0)
   val providerExpenses=try{Store.providerExpenses(this,startTs)}catch(e:Exception){msg("No se puede calcular la caja con seguridad: "+(e.message?:"revisa los movimientos registrados."));return}
   val estimated=opening+shiftTotal-providerExpenses
   if(!estimated.isFinite()||estimated<0.0){msg("El saldo estimado no es válido. Revisa ventas y pagos antes de continuar.");return}
