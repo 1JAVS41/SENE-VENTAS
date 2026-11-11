@@ -1871,7 +1871,8 @@ class MainActivity:Activity(){
   }
   val view=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   view.addView(txt("TOTAL PAGADO EN ESTE TURNO\n"+Store.money(total),19f))
-  view.addView(txt("CAJA ACTUAL ESTIMADA\n"+Store.money(Store.cashBalance(this)),21f))
+  val cash=try{Store.cashBalance(this)}catch(e:Exception){msg("No se puede calcular la caja con seguridad: "+(e.message?:"revisa los movimientos registrados."));return}
+  view.addView(txt("CAJA ACTUAL ESTIMADA\n"+Store.money(cash),21f))
   view.addView(txt(if(rows.isEmpty())"Aún no hay pagos a proveedores registrados en este turno." else rows.asReversed().joinToString("\n\n"),14f))
   AlertDialog.Builder(this).setTitle("GASTOS A PROVEEDORES").setView(view).setPositiveButton("CERRAR",null).show()
  }
@@ -2054,9 +2055,9 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  private fun completeReport(final:Boolean,tree:Uri){
   val s=Store.shift(this)?:return
   try{
+   if(final)queueShiftReportForServer()
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
    val file=ReportFile.update(this)
-   if(final)queueShiftReportForServer()
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file)
