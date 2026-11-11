@@ -248,10 +248,28 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
         val saleId = items.first().optString("saleId").trim()
         if (saleId.isBlank() || items.any {
                 it.optString("saleId").trim() != saleId ||
-                    it.optString("code").isBlank() ||
+                    it.optString("code").trim().isBlank() ||
                     it.optInt("qty", 0) <= 0 ||
                     !it.optDouble("subtotal", Double.NaN).isFinite() ||
                     it.optDouble("subtotal", Double.NaN) < 0.0
+            }) return false
+        val itemCodes = HashSet<String>()
+        var calculatedTotal = 0.0
+        for (item in items) {
+            if (!itemCodes.add(item.optString("code").trim())) return false
+            calculatedTotal += item.optDouble("subtotal", Double.NaN)
+        }
+        if (!calculatedTotal.isFinite()) return false
+        val paid = items.first().optDouble("amountPaid", Double.NaN)
+        val change = items.first().optDouble("change", Double.NaN)
+        if (!paid.isFinite() || !change.isFinite() || paid < calculatedTotal ||
+            kotlin.math.abs(change - (paid - calculatedTotal)) > 0.01 ||
+            items.any {
+                !it.optDouble("saleTotal", Double.NaN).isFinite() ||
+                    kotlin.math.abs(it.optDouble("saleTotal", Double.NaN) - calculatedTotal) > 0.01 ||
+                    kotlin.math.abs(it.optDouble("amountPaid", Double.NaN) - paid) > 0.01 ||
+                    kotlin.math.abs(it.optDouble("change", Double.NaN) - change) > 0.01 ||
+                    it.optInt("saleItemCount", -1) != items.size
             }) return false
 
         // Reconcile the proposed stock snapshot against the currently persisted
