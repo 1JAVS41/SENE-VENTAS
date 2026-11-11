@@ -1288,7 +1288,7 @@ class MainActivity:Activity(){
    }
   }.start()
  }
- private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
+ private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el resumen del reporte como texto por WhatsApp. El archivo TXT se guarda por separado en INVENTARIO SENE.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
   val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Mi horario (8 horas)","Identidad de este equipo","Mi trabajo / Mis solicitudes","Vincular con SENE PATRÓN","Día de pago / Reporte de nómina","AYUDA OFICIAL SENE")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
@@ -2255,7 +2255,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   if(confirmingReport||pendingShareUri==null)return
   confirmingReport=true
   AlertDialog.Builder(this).setTitle("Confirmar envío del reporte")
-   .setMessage("¿Ya enviaste el reporte escrito por WhatsApp? El respaldo TXT completo ya está guardado en INVENTARIO SENE. Las ventas seguirán bloqueadas hasta que confirmes.")
+   .setMessage("¿Ya enviaste el texto del reporte por WhatsApp? El respaldo TXT completo está guardado por separado en INVENTARIO SENE. Las ventas seguirán bloqueadas hasta que confirmes.")
    .setCancelable(false)
    .setPositiveButton("SÍ, YA LO ENVIÉ"){_,_->
     confirmingReport=false
