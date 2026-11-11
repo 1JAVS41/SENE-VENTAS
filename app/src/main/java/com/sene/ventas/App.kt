@@ -2109,6 +2109,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val s=Store.shift(this)?:return
   val original=try{JSONObject(s.toString())}catch(_:Exception){s}
   var closeCommitted=false
+  var dailyUri:Uri?=null
+  var dailyCleanupFailed=false
   try{
    if(final && s.optLong("closingTs",0L)==0L){
     s.put("closingTs",System.currentTimeMillis()).put("closed",stamp())
@@ -2118,15 +2120,20 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val file=ReportFile.update(this)
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
-   val dailyUri=saveDailyReport(tree,file)
+   dailyUri=saveDailyReport(tree,file)
    if(final)queueShiftReportForServer()
    pendingShareUri=dailyUri
    pendingReportText=body
    pendingFinalShare=final
    launchPendingReportShare()
   }catch(e:Exception){
+   dailyUri?.let{uri->
+    try{DocumentsContract.deleteDocument(contentResolver,uri)}
+    catch(_:Exception){dailyCleanupFailed=true}
+   }
    if(final && closeCommitted)try{Store.saveShift(this,original)}catch(_:Exception){}
-   msg("No se pudo guardar el reporte. El turno permanece abierto y las ventas no se reactivaron: "+(e.message?:"error"))
+   val cleanupNote=if(dailyCleanupFailed)" El proveedor de archivos no permitió borrar el TXT parcial; revisa la carpeta del día antes de reintentar." else ""
+   msg("No se pudo completar el reporte. El turno permanece abierto y las ventas no se reactivaron: "+(e.message?:"error")+cleanupNote)
   }
  }
  private fun launchPendingReportShare(){
@@ -2168,8 +2175,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val time=SimpleDateFormat("HH-mm-ss",Locale.US).format(Date())
   val name="SENE-VENTAS-$date-$time.txt"
   val target=DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear el TXT")
-  resolver.openOutputStream(target,"w")?.use{out->source.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el TXT")
-  return target
+  try{
+   resolver.openOutputStream(target,"w")?.use{out->source.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el TXT")
+   return target
+  }catch(e:Exception){
+   try{DocumentsContract.deleteDocument(resolver,target)}catch(_:Exception){}
+   throw e
+  }
  }
  private fun stock(){val p=Store.products(this);val b=StringBuilder();for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;b.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Stock ").append(x.optInt("stock")).append("\n")};AlertDialog.Builder(this).setTitle("Stock actual").setMessage(if(b.isEmpty())"Sin productos" else b.toString()).setPositiveButton("Cerrar",null).show()}
  private fun saveReportToPhone(){val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/plain";putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")};try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(_:Exception){msg("No se pudo abrir el selector para guardar")}}
