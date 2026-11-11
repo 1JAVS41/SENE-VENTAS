@@ -1,10 +1,13 @@
-plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
 android {
     namespace = "com.sene.ventas"
     compileSdk = 35
     defaultConfig {
         applicationId = "com.sene.ventas"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -13,10 +16,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
+}
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
+
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
