@@ -591,8 +591,9 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
         try {
             db.delete(table, null, null)
             for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                db.insert(table, null, ContentValues().apply { put("data", item.toString()) })
+                val item = array.optJSONObject(i)
+                    ?: throw IllegalArgumentException("Registro inválido en $table")
+                db.insertOrThrow(table, null, ContentValues().apply { put("data", item.toString()) })
             }
             db.setTransactionSuccessful()
         } finally {
@@ -602,7 +603,7 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
 
     fun append(table: String, item: JSONObject) {
         require(table == "sales" || table == "moves")
-        writableDatabase.insert(table, null, ContentValues().apply { put("data", item.toString()) })
+        writableDatabase.insertOrThrow(table, null, ContentValues().apply { put("data", item.toString()) })
     }
 
     fun appendMany(table: String, items: List<JSONObject>) {
@@ -610,7 +611,9 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
         val db = writableDatabase
         db.beginTransaction()
         try {
-            for (item in items) db.insert(table, null, ContentValues().apply { put("data", item.toString()) })
+            for (item in items) {
+                db.insertOrThrow(table, null, ContentValues().apply { put("data", item.toString()) })
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
