@@ -363,7 +363,7 @@ private object InventoryReader {
 }
 private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
 
-private object ShiftReportSendLock
+private object ShiftReportSendLock { var active = false }
 
 class InicioTurnoActivity:Activity(){
  private var internet="Consultando internet…"
@@ -1737,13 +1737,18 @@ class MainActivity:Activity(){
    val now=System.currentTimeMillis()
    val sending=prefs.getBoolean("shift_reports_sending",false)
    val sendingAt=prefs.getLong("shift_reports_sending_at",0L)
-   // Si el reloj retrocedió o falta la marca temporal, no arriesgar un duplicado.
-   if(sending && (sendingAt<=0L || now<sendingAt || now-sendingAt<300000L))return@synchronized null
+   // El bloqueo en memoria protege todo el envío mientras el proceso siga vivo,
+   // aunque la cola tarde más de cinco minutos o cambie el reloj del teléfono.
+   if(ShiftReportSendLock.active)return@synchronized null
+   // Tras reiniciar el proceso, el bloqueo en memoria desaparece. La marca
+   // temporal permite esperar una petición anterior antes de recuperar la cola.
+   if(sending && sendingAt>0L && now>=sendingAt && now-sendingAt<300000L)return@synchronized null
    val base=prefs.getString("server_base_url",null)?:return@synchronized null
    val device=prefs.getString("device_id",null)?:return@synchronized null
    val queue=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
    if(queue.length()==0)return@synchronized null
    if(!prefs.edit().putBoolean("shift_reports_sending",true).putLong("shift_reports_sending_at",now).commit())return@synchronized null
+   ShiftReportSendLock.active=true
    Triple(prefs,base,device)
   }?:return
   val prefs=reservation.first
@@ -1784,8 +1789,17 @@ class MainActivity:Activity(){
       android.widget.Toast.LENGTH_LONG
      ).show()
     }
-   }finally{prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").apply()}
-  }.start()
+   }finally{
+    synchronized(ShiftReportSendLock){ShiftReportSendLock.active=false}
+    prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").apply()
+   }
+  }.apply {
+   try{start()}catch(e:Exception){
+    synchronized(ShiftReportSendLock){ShiftReportSendLock.active=false}
+    prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").apply()
+    throw e
+   }
+  }
  }
  private fun showCurrentSalesSummary(){
   val shift=Store.shift(this)?:JSONObject()
