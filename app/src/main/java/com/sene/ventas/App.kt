@@ -2555,51 +2555,80 @@ private fun openWhatsAppDocument(activity:Activity,uri:Uri,subject:String):Boole
 
 object ReportFile {
  @Synchronized fun update(c:android.content.Context, root:org.json.JSONObject?=null):java.io.File {
-  val data=root ?: run { val pref=c.getSharedPreferences("sene_ventas_local",0).getString("datos",null); try{if(pref==null)org.json.JSONObject() else org.json.JSONObject(pref)}catch(_:Exception){org.json.JSONObject()} }
+  val pref=c.getSharedPreferences("sene_ventas_local",0).getString("datos",null)
+  val data=root ?: try { if(pref==null)org.json.JSONObject() else org.json.JSONObject(pref) }
+   catch(e:Exception){throw IllegalStateException("Los datos locales están dañados; no se generó un reporte incompleto.",e)}
   val shift=data.optJSONObject("shift") ?: org.json.JSONObject()
   data.put("sales",Store.sales(c)).put("moves",Store.moves(c))
+  val startTs=shift.optLong("startTs",0L)
+  val opening=shift.optDouble("cash",Double.NaN)
+  if(data.has("shift"))check(opening.isFinite()&&opening>=0.0){"La caja inicial es inválida; no se puede generar el reporte."}
   val out=StringBuilder("SENE-VENTAS - REPORTE DE MOVIMIENTOS\n")
-  out.append("Actualizado: ").append(stamp()).append("\nTrabajador: ").append(shift.optString("worker","-")).append("\nNúmero del trabajador: ").append(shift.optString("phone","-")).append("\nInicio de turno: ").append(shift.optString("started","-")).append("\nFecha y hora de cierre: ").append(shift.optString("closed","Turno en curso")).append("\nÚltima actualización de stock: ").append(Store.stockUpdatedAtText(c)).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\n\nVENTAS\n")
-  val sales=data.optJSONArray("sales") ?: org.json.JSONArray();var total=0.0
-  for(i in 0 until sales.length()){val x=sales.optJSONObject(i)?:continue;if(x.optLong("ts")>=shift.optLong("startTs",0)){total+=x.optDouble("subtotal");out.append(x.optString("time")).append(" | ").append(x.optString("name")).append(" x").append(x.optInt("qty")).append(" | ").append(Store.money(x.optDouble("subtotal"))).append("\n")}}
-  val moves=data.optJSONArray("moves") ?: org.json.JSONArray()
-  var providerTotal=0.0
-  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optString("type")=="PROVIDER_PAYMENT"&&x.optLong("ts",0L)>=shift.optLong("startTs",0L))providerTotal+=x.optDouble("amount",0.0)}
-  out.append("TOTAL VENDIDO: ").append(Store.money(total)).append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal)).append("\nCAJA ACTUAL: ").append(Store.money(shift.optDouble("cash")+total-providerTotal)).append("\n\nMOVIMIENTOS DE INVENTARIO Y GASTOS\n")
-   for(i in 0 until moves.length()){
-    val x=moves.optJSONObject(i)?:continue
-    if(x.optString("type")=="CORRECTION_AUDIT"){
-     val ts=x.optLong("ts",0L)
-     val date=if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Fecha no disponible"
-     val evidence=x.optJSONObject("cashEvidence")?:org.json.JSONObject()
-     val method=when(evidence.optString("method").lowercase()){
-      "cash"->"Efectivo";"card"->"Tarjeta";"transfer"->"Transferencia";"other"->"Otro";else->"No indicado"
-     }
-     out.append(date).append(" | CORRECCIÓN DE VENTA | Folio: ").append(x.optString("saleId","-"))
-      .append("\nMotivo: ").append(x.optString("reason","Sin motivo"))
-     if(x.optString("detail").isNotBlank())out.append("\nDetalle: ").append(x.optString("detail"))
-     out.append("\nTotal anterior: ").append(Store.money(x.optDouble("previousTotal")))
-      .append(" | Total corregido: ").append(Store.money(x.optDouble("newTotal")))
-     when(x.optString("direction")){
-      "COBRO"->out.append("\nDiferencia cobrada: ").append(Store.money(x.optDouble("amount")))
-      "DEVOLUCION"->out.append("\nDiferencia devuelta: ").append(Store.money(x.optDouble("amount")))
-      else->out.append("\nSin movimiento adicional de dinero")
-     }
-     if(x.optDouble("amount",0.0)>0.0){
-      out.append("\nConfirmación: ").append(if(x.optBoolean("cashConfirmed"))"Registrada" else "No registrada")
-       .append(" | Medio: ").append(method)
-       .append(" | Referencia: ").append(evidence.optString("reference","-"))
-     }
-     if(x.optString("cashReason").isNotBlank())out.append("\nMotivo de caja: ").append(x.optString("cashReason"))
-     out.append("\nNota: el total corregido ya está incluido en VENTAS; este registro es evidencia y no debe sumarse nuevamente.\n\n")
-    }else{
-     out.append(x.optString("time")).append(" | ").append(x.optString("text")).append("\n")
-    }
+  out.append("Actualizado: ").append(stamp()).append("\nTrabajador: ").append(shift.optString("worker","-"))
+   .append("\nNúmero del trabajador: ").append(shift.optString("phone","-"))
+   .append("\nInicio de turno: ").append(shift.optString("started","-"))
+   .append("\nFecha y hora de cierre: ").append(shift.optString("closed","Turno en curso"))
+   .append("\nÚltima actualización de stock: ").append(Store.stockUpdatedAtText(c))
+   .append("\nCaja inicial: ").append(Store.money(if(data.has("shift"))opening else 0.0)).append("\n\nVENTAS\n")
+  val sales=data.optJSONArray("sales")?:throw IllegalStateException("No se pudo leer el historial de ventas.")
+  var total=0.0
+  for(i in 0 until sales.length()){
+   val x=sales.optJSONObject(i)?:throw IllegalStateException("Hay una venta dañada; no se generó el reporte.")
+   if(x.optLong("ts",0L)>=startTs){
+    val subtotal=x.optDouble("subtotal",Double.NaN);val qty=x.optInt("qty",0)
+    check(subtotal.isFinite()&&subtotal>=0.0&&qty>0){"Hay una venta con cantidad o subtotal inválido; revisa el historial."}
+    total+=subtotal;check(total.isFinite()){"El total vendido no es válido."}
+    out.append(x.optString("time")).append(" | ").append(x.optString("name")).append(" x").append(qty)
+     .append(" | ").append(Store.money(subtotal)).append("\n")
    }
-  out.append("\nSTOCK ACTUAL\n");val products=data.optJSONArray("products") ?: org.json.JSONArray()
-  for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Existencia: ").append(x.optInt("stock")).append("\n")}
-  val dir=c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir
-  if(!dir.exists())dir.mkdirs()
+  }
+  val moves=data.optJSONArray("moves")?:throw IllegalStateException("No se pudo leer el historial de movimientos.")
+  var providerTotal=0.0
+  for(i in 0 until moves.length()){
+   val x=moves.optJSONObject(i)?:throw IllegalStateException("Hay un movimiento dañado; no se generó el reporte.")
+   if(x.optString("type")=="PROVIDER_PAYMENT"&&x.optLong("ts",0L)>=startTs){
+    val amount=x.optDouble("amount",Double.NaN)
+    check(amount.isFinite()&&amount>=0.0){"Hay un pago a proveedor inválido; no se generó el reporte."}
+    providerTotal+=amount;check(providerTotal.isFinite()){"El total de pagos a proveedores no es válido."}
+   }
+  }
+  val balance=if(data.has("shift"))Store.cashBalance(c) else 0.0
+  check(balance.isFinite()&&balance>=0.0){"El saldo de caja es inválido; revisa ventas y pagos antes de generar el reporte."}
+  out.append("TOTAL VENDIDO: ").append(Store.money(total)).append("\nPAGOS A PROVEEDORES: ")
+   .append(Store.money(providerTotal)).append("\nCAJA ACTUAL: ").append(Store.money(balance))
+   .append("\n\nMOVIMIENTOS DE INVENTARIO Y GASTOS\n")
+  for(i in 0 until moves.length()){
+   val x=moves.optJSONObject(i)?:throw IllegalStateException("Hay un movimiento dañado; no se generó el reporte.")
+   if(x.optString("type")=="CORRECTION_AUDIT"){
+    val previous=x.optDouble("previousTotal",Double.NaN);val corrected=x.optDouble("newTotal",Double.NaN)
+    val amount=x.optDouble("amount",0.0)
+    check(previous.isFinite()&&previous>=0.0&&corrected.isFinite()&&corrected>=0.0&&amount.isFinite()&&amount>=0.0){"Hay una auditoría de corrección inválida; no se generó el reporte."}
+    val ts=x.optLong("ts",0L)
+    val date=if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Fecha no disponible"
+    val evidence=x.optJSONObject("cashEvidence")?:org.json.JSONObject()
+    val method=when(evidence.optString("method").lowercase()){"cash"->"Efectivo";"card"->"Tarjeta";"transfer"->"Transferencia";"other"->"Otro";else->"No indicado"}
+    out.append(date).append(" | CORRECCIÓN DE VENTA | Folio: ").append(x.optString("saleId","-"))
+     .append("\nMotivo: ").append(x.optString("reason","Sin motivo"))
+    if(x.optString("detail").isNotBlank())out.append("\nDetalle: ").append(x.optString("detail"))
+    out.append("\nTotal anterior: ").append(Store.money(previous)).append(" | Total corregido: ").append(Store.money(corrected))
+    when(x.optString("direction")){"COBRO"->out.append("\nDiferencia cobrada: ").append(Store.money(amount));"DEVOLUCION"->out.append("\nDiferencia devuelta: ").append(Store.money(amount));else->out.append("\nSin movimiento adicional de dinero")}
+    if(amount>0.0)out.append("\nConfirmación: ").append(if(x.optBoolean("cashConfirmed"))"Registrada" else "No registrada")
+     .append(" | Medio: ").append(method).append(" | Referencia: ").append(evidence.optString("reference","-"))
+    if(x.optString("cashReason").isNotBlank())out.append("\nMotivo de caja: ").append(x.optString("cashReason"))
+    out.append("\nNota: el total corregido ya está incluido en VENTAS; este registro es evidencia y no debe sumarse nuevamente.\n\n")
+   }else out.append(x.optString("time")).append(" | ").append(x.optString("text")).append("\n")
+  }
+  out.append("\nSTOCK ACTUAL\n")
+  val products=data.optJSONArray("products")?:throw IllegalStateException("No se pudo leer el inventario.")
+  for(i in 0 until products.length()){
+   val x=products.optJSONObject(i)?:throw IllegalStateException("Hay un producto dañado; no se generó el reporte.")
+   val price=x.optDouble("price",Double.NaN);val stock=x.optInt("stock",Int.MIN_VALUE)
+   check(x.optString("code").isNotBlank()&&price.isFinite()&&price>=0.0&&stock>=0){"Hay un producto con código, precio o existencia inválidos; no se generó el reporte."}
+   out.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ")
+    .append(Store.money(price)).append(" | Existencia: ").append(stock).append("\n")
+  }
+  val dir=c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)?:c.filesDir
+  if(!dir.exists()&&!dir.mkdirs())throw java.io.IOException("No se pudo crear la carpeta del reporte.")
   val file=java.io.File(dir,"SENE-VENTAS-REPORTE.txt")
   file.writeText(out.toString(),Charsets.UTF_8)
   return file
