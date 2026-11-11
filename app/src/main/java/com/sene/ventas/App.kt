@@ -1745,7 +1745,16 @@ class MainActivity:Activity(){
      prefs.edit().putString("shift_report_queue",remaining.toString()).apply()
      current=remaining
     }
-   }catch(_:Exception){}finally{prefs.edit().putBoolean("shift_reports_sending",false).apply()}
+   }catch(e:Exception){
+    val detail=(e.message?:e.javaClass.simpleName).replace("\n"," ").take(140)
+    runOnUiThread{
+     android.widget.Toast.makeText(
+      applicationContext,
+      "El reporte sigue guardado y pendiente de envío. Se reintentará al recuperar la conexión. Detalle: $detail",
+      android.widget.Toast.LENGTH_LONG
+     ).show()
+    }
+   }finally{prefs.edit().putBoolean("shift_reports_sending",false).apply()}
   }.start()
  }
  private fun showCurrentSalesSummary(){
