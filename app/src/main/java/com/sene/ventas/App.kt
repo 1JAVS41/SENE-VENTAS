@@ -542,7 +542,6 @@ class WorkerPortalActivity:Activity(){
   root.addView(actionCard("Volver","Regresar a la pantalla anterior","↩️",0xFFF1F3F8.toInt()){finish()})
   display(root)
  }
- }
  override fun onCreate(b:Bundle?){super.onCreate(b);draw();prefs().edit().putBoolean("work_queue_sending",false).apply();flushQueue();flushCorrectionQueue();resumePreparedCorrections();handleIncomingTicketCorrection(intent)}
  private fun handleIncomingTicketCorrection(source:Intent?){
   if(source?.getBooleanExtra("ticket_correction_request",false)!=true)return
@@ -2325,7 +2324,6 @@ class MainActivity:Activity(){
   v.addView(countdownView)
   v.addView(actionCard("Tickets","Escanear un ticket para verificarlo o solicitar corrección","🎟️",0xFFFFF3E5.toInt()){pendingTicketScan=true;openScanner()})
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
- }
  }
 private fun reviewScannedCodes(codes:ArrayList<String>){
   if(codes.isEmpty()){msg("No se escanearon productos");return}
