@@ -330,6 +330,13 @@ private object PatronPin {
  fun markCustom(activity:Activity)=activity.getSharedPreferences(PREFS,0).edit().putBoolean(CUSTOM_KEY,true).commit()
 }
 
+private fun Activity.showPasswordOptions(){
+ val labels=arrayOf("Cambiar PIN de Soy Patrón","Vincular / desvincular huella")
+ AlertDialog.Builder(this).setTitle("CONTRASEÑAS").setItems(labels){_,which->
+  if(which==0)changePatronPin() else configurePatronBiometric()
+ }.setNegativeButton("Cerrar",null).show()
+}
+
 private fun Activity.showDefaultPinNotice(after:()->Unit={}){
  if(PatronPin.noticeShown(this)||PatronPin.isCustom(this))return
  if(Store.phone(this).filter{it.isDigit()}.isBlank())return
@@ -1600,10 +1607,6 @@ class MainActivity:FragmentActivity(){
   }.start()
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el resumen del reporte como texto por WhatsApp. El archivo TXT se guarda por separado en INVENTARIO SENE.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
- private fun showPasswordOptions(){
-  val labels=arrayOf("Cambiar PIN de Soy Patrón","Vincular / desvincular huella")
-  AlertDialog.Builder(this).setTitle("CONTRASEÑAS").setItems(labels){_,which->if(which==0)changePatronPin()else configurePatronBiometric()}.setNegativeButton("Cerrar",null).show()
- }
  private fun showToolsMenu(){
   val items=arrayOf(
    "Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores",
