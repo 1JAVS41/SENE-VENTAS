@@ -189,9 +189,14 @@ private fun Activity.pin(ok:()->Unit){
  val prefs=getSharedPreferences("sene_ventas_local",0)
  val savedSalt=prefs.getString("owner_pin_salt",null)
  val savedHash=prefs.getString("owner_pin_hash",null)
- fun digest(pin:String,salt:String):String=java.security.MessageDigest.getInstance("SHA-256")
-  .digest((salt+":"+pin).toByteArray(Charsets.UTF_8))
-  .joinToString(""){"%02x".format(it.toInt() and 0xFF)}
+ fun digest(pin:String,salt:String):String {
+  val saltBytes=android.util.Base64.decode(salt,android.util.Base64.NO_WRAP)
+  val spec=javax.crypto.spec.PBEKeySpec(pin.toCharArray(),saltBytes,120000,256)
+  return try {
+   javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    .joinToString(""){"%02x".format(it.toInt() and 0xFF)}
+  } finally { spec.clearPassword() }
+ }
  fun valid(pin:String)=pin.matches(Regex("^\\d{4,8}$"))
  if(savedSalt.isNullOrBlank()||savedHash.isNullOrBlank()){
   val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
