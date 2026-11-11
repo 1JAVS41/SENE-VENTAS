@@ -1866,31 +1866,65 @@ class MainActivity:Activity(){
  private fun showWorkerSchedule(){
   val shift=Store.shift(this)
   if(shift==null){
-   AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage("No hay un turno activo. Inicia tu turno para consultar tu hora de entrada y tu salida estimada.").setPositiveButton("CERRAR",null).show()
+   AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage("No hay un turno activo. Inicia tu turno para consultar tu horario.").setPositiveButton("CERRAR",null).show()
    return
   }
   val start=shift.optLong("startTs",0L)
   if(start<=0L){
-   AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage("Este turno no tiene una hora de entrada válida registrada.").setPositiveButton("CERRAR",null).show()
+   AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage("No encontramos la hora de inicio de este turno.").setPositiveButton("CERRAR",null).show()
    return
   }
   val end=start+8L*60L*60L*1000L
-  val now=System.currentTimeMillis()
-  val format=SimpleDateFormat("EEEE dd/MM/yyyy · HH:mm",Locale("es","MX"))
-  val remaining=end-now
-  val status=if(remaining>0L){
-   val total=remaining/60000L
-   "Tiempo restante estimado: "+(total/60L)+" h "+(total%60L)+" min"
-  }else{
-   val late=(-remaining)/60000L
-   "La jornada estimada de 8 horas ya se cumplió hace "+(late/60L)+" h "+(late%60L)+" min."
+  val locale=Locale("es","MX")
+  val timeFormat=SimpleDateFormat("hh:mm a",locale)
+  val dateFormat=SimpleDateFormat("EEEE dd 'de' MMMM 'de' yyyy",locale)
+  val content=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL
+   setPadding(dp(22),dp(14),dp(22),dp(12))
   }
-  val message="TRABAJADOR: "+shift.optString("worker","-")+
-   "\nENTRADA REGISTRADA: "+format.format(Date(start))+
-   "\nSALIDA ESTIMADA (8 HORAS): "+format.format(Date(end))+
-   "\n\n"+status+
-   "\n\nLa salida se calcula sumando 8 horas exactas a la entrada registrada. No es una marcación de salida ni una confirmación del patrón. La hora se toma del reloj del teléfono."
-  AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage(message).setPositiveButton("CERRAR",null).show()
+  content.addView(TextView(this).apply{
+   text="Comenzaste tu turno a las "+timeFormat.format(Date(start))
+   textSize=18f;setTextColor(0xFF203A2B.toInt());typeface=Typeface.DEFAULT_BOLD
+  })
+  content.addView(TextView(this).apply{
+   text="Fecha: "+dateFormat.format(Date(start))
+   textSize=14f;setTextColor(0xFF596579.toInt());setPadding(0,dp(5),0,dp(18))
+  })
+  content.addView(TextView(this).apply{
+   text="Deberías salir a las "+timeFormat.format(Date(end))
+   textSize=18f;setTextColor(0xFF245DB8.toInt());typeface=Typeface.DEFAULT_BOLD
+  })
+  content.addView(TextView(this).apply{
+   text="Hora aproximada de salida · jornada estimada de 8 horas"
+   textSize=13f;setTextColor(0xFF596579.toInt());setPadding(0,dp(5),0,dp(20))
+  })
+  content.addView(TextView(this).apply{
+   text="TIEMPO RESTANTE";textSize=13f;setTextColor(0xFF596579.toInt());typeface=Typeface.DEFAULT_BOLD
+  })
+  val counter=TextView(this).apply{
+   textSize=30f;setTextColor(0xFF16834A.toInt());typeface=Typeface.DEFAULT_BOLD
+   setPadding(0,dp(5),0,dp(4))
+  }
+  content.addView(counter)
+  val dialog=AlertDialog.Builder(this).setTitle("MI HORARIO").setView(content).setPositiveButton("CERRAR",null).create()
+  val handler=Handler(Looper.getMainLooper())
+  val tick=object:Runnable{
+   override fun run(){
+    val remaining=end-System.currentTimeMillis()
+    if(remaining>0L){
+     val seconds=remaining/1000L
+     counter.text=String.format(Locale.US,"%02d:%02d:%02d",seconds/3600L,(seconds%3600L)/60L,seconds%60L)
+    }else{
+     val elapsed=(-remaining)/1000L
+     counter.setTextColor(0xFFB3261E.toInt())
+     counter.text="Horario cumplido · +"+String.format(Locale.US,"%02d:%02d:%02d",elapsed/3600L,(elapsed%3600L)/60L,elapsed%60L)
+    }
+    if(dialog.isShowing)handler.postDelayed(this,1000L)
+   }
+  }
+  dialog.setOnDismissListener{handler.removeCallbacks(tick)}
+  dialog.setOnShowListener{handler.post(tick)}
+  dialog.show()
  }
  private fun showDeviceIdentity(){
   try{
