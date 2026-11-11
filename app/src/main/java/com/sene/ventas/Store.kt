@@ -254,6 +254,44 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
                     it.optDouble("subtotal", Double.NaN) < 0.0
             }) return false
 
+        // Reconcile the proposed stock snapshot against the currently persisted
+        // inventory. A caller cannot silently increase stock or sell more than
+        // available by supplying a forged/stale JSON snapshot.
+        val previousProducts = allProducts()
+        val previousByCode = HashMap<String, JSONObject>()
+        for (i in 0 until previousProducts.length()) {
+            val product = previousProducts.optJSONObject(i) ?: return false
+            val code = product.optString("code").trim()
+            if (code.isBlank() || previousByCode.put(code, product) != null) return false
+        }
+        val nextByCode = HashMap<String, JSONObject>()
+        for (i in 0 until array.length()) {
+            val product = array.optJSONObject(i) ?: return false
+            val code = product.optString("code").trim()
+            if (code.isBlank() || nextByCode.put(code, product) != null) return false
+        }
+        if (previousByCode.keys != nextByCode.keys) return false
+        val quantities = HashMap<String, Int>()
+        for (item in items) {
+            val code = item.optString("code").trim()
+            val qty = item.optInt("qty", 0)
+            val oldProduct = previousByCode[code] ?: return false
+            val price = oldProduct.optDouble("price", Double.NaN)
+            val itemPrice = item.optDouble("price", Double.NaN)
+            val subtotal = item.optDouble("subtotal", Double.NaN)
+            if (!price.isFinite() || price < 0.0 || !itemPrice.isFinite() ||
+                kotlin.math.abs(price - itemPrice) > 0.000001 ||
+                !subtotal.isFinite() ||
+                kotlin.math.abs(subtotal - price * qty) > 0.01) return false
+            quantities[code] = (quantities[code] ?: 0) + qty
+        }
+        for ((code, oldProduct) in previousByCode) {
+            val oldStock = oldProduct.optInt("stock", -1)
+            val newStock = nextByCode[code]?.optInt("stock", -1) ?: return false
+            val soldQty = quantities[code] ?: 0
+            if (oldStock < 0 || soldQty > oldStock || newStock != oldStock - soldQty) return false
+        }
+
         val db = writableDatabase
         db.beginTransaction()
         var inserted = false
