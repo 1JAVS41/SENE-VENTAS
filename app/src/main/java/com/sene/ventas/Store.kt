@@ -283,7 +283,9 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             val item = array.optJSONObject(i) ?: return false
             val code = item.optString("code").trim()
             val stock = item.optInt("stock", -1)
-            if (code.isBlank() || !codes.add(code) || stock < 0) return false
+            val price = item.optDouble("price", Double.NaN)
+            if (code.isBlank() || !codes.add(code) || stock < 0 ||
+                !price.isFinite() || price < 0.0) return false
         }
         return true
     }
