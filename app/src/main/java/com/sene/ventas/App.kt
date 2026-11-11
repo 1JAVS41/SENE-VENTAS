@@ -837,9 +837,54 @@ class MainActivity:Activity(){
         msg("Solicitud registrada. Abriendo WhatsApp para enviar el detalle al patrón…")
         if(!openWhatsAppText(this,message))msg("La solicitud quedó en SENE, pero no se pudo abrir WhatsApp para compartir el detalle.")
        }
-      }catch(e:Exception){runOnUiThread{msg("No se pudo solicitar la corrección: "+(e.message?:"Error"))}}}.start()
+      }catch(e:Exception){runOnUiThread{
+       AlertDialog.Builder(this)
+        .setTitle("SOLICITUD PENDIENTE")
+        .setMessage("No se pudo confirmar la solicitud. El borrador y su clave original se conservaron para reintentar sin duplicar el folio.\n\n"+(e.message?:"Error de conexión"))
+        .setPositiveButton("REINTENTAR"){_,_->retryCorrectionDraft(plan)}
+        .setNegativeButton("MÁS TARDE",null)
+        .show()
+      }}}.start()
      }.setNegativeButton("CANCELAR",null).show()
    }.setNegativeButton("CANCELAR",null).show()
+ }
+ private fun retryCorrectionDraft(plan:JSONObject){
+  val saleId=plan.optString("saleId")
+  val reason=plan.optString("reason")
+  val planHash=plan.optString("planHash")
+  val idempotencyKey=plan.optString("idempotencyKey")
+  val cashImpact=plan.optBoolean("cashImpact")
+  val cashReason=plan.optString("cashReason")
+  val correctionPrefs=getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE)
+  Thread{try{
+   val result=payrollApi().requestSaleCorrection(
+    saleId,reason,listOf(reason),planHash,cashImpact,cashReason,idempotencyKey
+   )
+   val requestId=result.optString("requestId")
+   check(requestId.isNotBlank()){"El servidor no devolvió el folio de corrección"}
+   plan.put("requestId",requestId)
+   check(correctionPrefs.edit()
+    .putString("plan_"+requestId,plan.toString())
+    .remove("draft_"+idempotencyKey).commit()){
+    "No se pudo guardar el folio local; conserva el borrador para reintentar."
+   }
+   val message="SENE VENTAS · SOLICITUD DE CORRECCIÓN\nVenta: "+saleId+
+    "\nMotivo: "+reason+"\nProducto actual: "+plan.optString("targetCode")+
+    "\nCantidad actual: "+plan.optInt("oldQty")+" · Precio actual: "+Store.money(plan.optDouble("oldPrice"))+
+    "\nDebe quedar: "+plan.optString("newCode")+" · "+plan.optInt("newQty")+" pzas · "+Store.money(plan.optDouble("newPrice"))+
+    "\nDetalle: "+plan.optString("description")+
+    "\nCambio de caja: "+(if(cashImpact)"Sí · "+cashReason else "No")+
+    "\n\nEl permiso se aplica una sola vez en SENE VENTAS después de la autorización."
+   runOnUiThread{
+    msg("Solicitud registrada con el folio "+requestId)
+    if(!openWhatsAppText(this,message))msg("La solicitud quedó registrada; comparte el detalle con el patrón por WhatsApp.")
+   }
+  }catch(e:Exception){runOnUiThread{
+   AlertDialog.Builder(this).setTitle("NO SE PUDO REINTENTAR")
+    .setMessage((e.message?:"Error de conexión")+"\n\nEl borrador sigue guardado.")
+    .setPositiveButton("REINTENTAR"){_,_->retryCorrectionDraft(plan)}
+    .setNegativeButton("CERRAR",null).show()
+  }}}.start()
  }
  private fun showWorkRequestDialog(){
   val labels=arrayOf("Préstamo","Consumo de producto","Permiso de ausencia","Aviso de llegada tarde","Cambio de horario","Vacaciones","Incidente","Faltante","Cambio de descanso","Adelanto de sueldo","Equipo dañado","Sugerencia")
