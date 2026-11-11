@@ -1722,7 +1722,9 @@ class MainActivity:Activity(){
   var exists=false
   for(i in 0 until queue.length())if(queue.optJSONObject(i)?.optString("shiftKey")==key)exists=true
   if(!exists)queue.put(JSONObject().put("shiftKey",key).put("report",payload))
-  prefs.edit().putString("shift_report_queue",queue.toString()).apply()
+  check(prefs.edit().putString("shift_report_queue",queue.toString()).commit()){
+   "No se pudo guardar el reporte pendiente; no se confirmó su envío."
+  }
   flushPendingShiftReports()
  }
  private fun flushPendingShiftReports(){
@@ -1744,10 +1746,24 @@ class MainActivity:Activity(){
     var current=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
     while(current.length()>0){
      val item=current.optJSONObject(0)?:break
-     api.sendShiftReport(item.optString("shiftKey"),item.optJSONObject("report")?:JSONObject(),device)
+     val sentKey=item.optString("shiftKey")
+     check(sentKey.isNotBlank()){"La cola contiene un reporte sin identificador de turno."}
+     api.sendShiftReport(sentKey,item.optJSONObject("report")?:JSONObject(),device)
+     // Read the latest persisted queue after the network call. A new report may
+     // have been appended while this request was in flight; never overwrite it
+     // with the stale snapshot captured before sending.
+     val latest=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
      val remaining=JSONArray()
-     for(i in 1 until current.length())remaining.put(current.get(i))
-     prefs.edit().putString("shift_report_queue",remaining.toString()).apply()
+     var removed=false
+     for(i in 0 until latest.length()){
+      val queued=latest.optJSONObject(i)
+      if(!removed && queued?.optString("shiftKey")==sentKey)removed=true
+      else remaining.put(latest.get(i))
+     }
+     check(removed){"El servidor recibió el reporte, pero no se encontró su entrada local para confirmar la cola."}
+     check(prefs.edit().putString("shift_report_queue",remaining.toString()).commit()){
+      "El reporte fue enviado, pero no se pudo confirmar su salida de la cola local."
+     }
      current=remaining
     }
    }catch(e:Exception){
