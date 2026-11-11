@@ -1440,9 +1440,6 @@ class MainActivity:Activity(){
   toolsPanel.addView(toolsHeader)
   toolsPanel.addView(scroll,LinearLayout.LayoutParams(-1,dp(510)))
   toolsDialog=AlertDialog.Builder(this).setView(toolsPanel).create()
-  toolsDialog?.setOnKeyListener{_,keyCode,event->
-   keyCode==android.view.KeyEvent.KEYCODE_BACK && event.action==android.view.KeyEvent.ACTION_UP
-  }
   toolsDialog?.show()
   toolsDialog?.window?.setLayout((resources.displayMetrics.widthPixels*0.94f).toInt(),-2)
  }
