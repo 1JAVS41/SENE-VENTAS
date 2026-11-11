@@ -129,10 +129,43 @@ private fun Activity.input(h:String,num:Boolean=false)=EditText(this).apply{
  val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(7);p.bottomMargin=dp(9);layoutParams=p
  setOnFocusChangeListener{view,hasFocus->if(hasFocus)view.postDelayed({var parent:android.view.ViewParent?=view.parent;while(parent!=null && parent !is ScrollView)parent=parent.parent;if(parent is ScrollView){val rect=Rect(0,0,view.width,view.height);parent.offsetDescendantRectToMyCoords(view,rect);val bottom=parent.height-parent.paddingBottom-dp(20);val delta=when{rect.bottom>bottom->rect.bottom-bottom+dp(28);rect.top<parent.scrollY+dp(12)->rect.top-parent.scrollY-dp(12);else->0};if(delta!=0)parent.smoothScrollBy(0,delta)}},250)}
 }
+
+private fun Activity.actionCard(label:String,description:String,icon:String,tint:Int=0xFFEAF2FF.toInt(),f:()->Unit)=LinearLayout(this).apply{
+ orientation=LinearLayout.HORIZONTAL
+ gravity=Gravity.CENTER_VERTICAL
+ setPadding(dp(13),dp(12),dp(14),dp(12))
+ background=rounded(tint,18,0xFFDCE5F2.toInt())
+ elevation=dp(2).toFloat()
+ isClickable=true;isFocusable=true
+ contentDescription=label+". "+description
+ val iconBox=FrameLayout(this@actionCard).apply{
+  background=rounded(0xFFFFFFFF.toInt(),15,0xFFE4EAF4.toInt())
+  addView(TextView(this@actionCard).apply{text=icon;textSize=25f;gravity=Gravity.CENTER},FrameLayout.LayoutParams(-1,-1))
+ }
+ addView(iconBox,LinearLayout.LayoutParams(dp(48),dp(48)))
+ val words=LinearLayout(this@actionCard).apply{
+  orientation=LinearLayout.VERTICAL
+  gravity=Gravity.CENTER_VERTICAL
+  setPadding(dp(12),0,dp(6),0)
+  addView(TextView(this@actionCard).apply{
+   text=label;textSize=15f;setTextColor(0xFF18345D.toInt())
+   typeface=Typeface.create("sans-serif",Typeface.BOLD);maxLines=2
+  })
+  addView(TextView(this@actionCard).apply{
+   text=description;textSize=11.5f;setTextColor(0xFF53647D.toInt())
+   setPadding(0,dp(3),0,0);maxLines=2
+  })
+ }
+ addView(words,LinearLayout.LayoutParams(0,-2,1f))
+ addView(TextView(this@actionCard).apply{text="›";textSize=28f;setTextColor(0xFF7183A2.toInt());gravity=Gravity.CENTER})
+ setOnClickListener{f()}
+ val lp=LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(6);lp.bottomMargin=dp(6);layoutParams=lp
+}
+
 private fun Activity.button(s:String,green:Boolean=true,f:()->Unit)=Button(this).apply{
  text=s;textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);isAllCaps=false;letterSpacing=.025f
- minHeight=dp(54);setPadding(dp(18),dp(12),dp(18),dp(12));setTextColor(if(green)-1 else 0xFF293A68.toInt())
- background=if(green)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF435FAD.toInt(),0xFF283D78.toInt())).apply{cornerRadius=dp(14).toFloat()} else rounded(0xFFFFFFFF.toInt(),14,0xFFD9E0F0.toInt())
+ minHeight=dp(58);setPadding(dp(18),dp(13),dp(18),dp(13));setTextColor(if(green)-1 else 0xFF293A68.toInt())
+ background=if(green)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF496CC0.toInt(),0xFF263D79.toInt())).apply{cornerRadius=dp(18).toFloat()} else rounded(0xFFFFFFFF.toInt(),18,0xFFD9E0F0.toInt())
  elevation=dp(if(green)3 else 0).toFloat()
  val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(7);p.bottomMargin=dp(7);layoutParams=p
  setOnClickListener{f()}
@@ -458,14 +491,31 @@ class InicioTurnoActivity:Activity(){
   }catch(e:Exception){AlertDialog.Builder(this).setTitle("No se pudo iniciar el turno").setMessage("No se pudo guardar el respaldo en INVENTARIO SENE. Verifica que la carpeta esté disponible y tenga permisos de escritura.\n\nDetalle: "+(e.message?:"Error desconocido.")).setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}.setNegativeButton("Cerrar",null).show()}
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
- private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
- val n=input("Nombre del trabajador");val p=input("Número de celular del trabajador",true);val cash=input("¿Con cuánto inicia caja chica? $",true);v.addView(n);v.addView(p);v.addView(cash)
- v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton};startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())})
- v.addView(button("Mi trabajo / Día de pago",false){startActivity(Intent(this,WorkerPortalActivity::class.java))})
- v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
- val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false};if(!inventoryReady){val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f);notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)}
- 
- v.addView(txt("Historial de Turnos"));val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f));display(v)}
+ private fun draw(){
+  val v=page("Inicio de Turno")
+  v.addView(actionCard("Hora del celular","Fecha y hora local del dispositivo","🕒",0xFFF1F3F8.toInt()){consultInternetTime()})
+  internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel)
+  v.addView(actionCard("Verificar hora de Internet","Comprobar sincronización de la hora","🌐",0xFFEAF7F7.toInt()){consultInternetTime()})
+  val n=input("Nombre del trabajador")
+  val p=input("Número de celular del trabajador",true)
+  val cash=input("¿Con cuánto inicia caja chica? $",true)
+  v.addView(txt("DATOS DEL TURNO",13f).apply{setTextColor(0xFF49618B.toInt());typeface=Typeface.DEFAULT_BOLD})
+  v.addView(n);v.addView(p);v.addView(cash)
+  v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){
+   if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton}
+   startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())
+  })
+  v.addView(actionCard("Mi trabajo / Día de pago","Solicitudes, respuestas y nómina","📋",0xFFEAF2FF.toInt()){startActivity(Intent(this,WorkerPortalActivity::class.java))})
+  v.addView(actionCard("Soy Patrón","Administrar inventario y configuración","👑",0xFFF2ECFF.toInt()){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
+  val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false}
+  if(!inventoryReady){
+   val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f)
+   notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)
+  }
+  v.addView(txt("HISTORIAL DE TURNOS",14f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF49618B.toInt())})
+  val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f))
+  display(v)
+ }
 }
 
 
@@ -482,15 +532,16 @@ class WorkerPortalActivity:Activity(){
  private fun draw(){
   val root=page("Mi trabajo")
   root.addView(txt("Consulta tus solicitudes y el reporte de nómina cuando lo necesites. Las solicitudes se envían a SENE PATRÓN; no modifican ventas, caja ni inventario.",14f))
-  root.addView(button("NUEVA SOLICITUD"){requestsMenu()})
-  root.addView(button("SOLICITAR CORRECCIÓN DE VENTA",false){chooseSaleForCorrection()})
-  root.addView(button("CORREGIR VENTA AUTORIZADA"){refreshCorrectionApprovals()})
-  root.addView(button("MIS SOLICITUDES",false){showHistory()})
-  root.addView(button("DÍA DE PAGO / REPORTE DE NÓMINA"){showPayroll()})
-  root.addView(button("VINCULAR CON SENE PATRÓN",false){pairing()})
-  root.addView(button("CONFIGURAR CONEXIÓN",false){config{draw()}})
-  root.addView(button("VOLVER",false){finish()})
+  root.addView(actionCard("Nueva solicitud","Préstamo, permiso, consumo y otros trámites","📝",0xFFEAF2FF.toInt()){requestsMenu()})
+  root.addView(actionCard("Solicitar corrección de venta","Reportar un error y elegir los productos","🧾",0xFFFFF3E5.toInt()){chooseSaleForCorrection()})
+  root.addView(actionCard("Corregir venta autorizada","Aplicar una corrección aprobada por el patrón","✏️",0xFFE8F7EF.toInt()){refreshCorrectionApprovals()})
+  root.addView(actionCard("Mis solicitudes","Consultar historial y respuestas","📬",0xFFF2ECFF.toInt()){showHistory()})
+  root.addView(actionCard("Día de pago / Nómina","Consultar historial y reporte de pago","📅",0xFFEAF7F7.toInt()){showPayroll()})
+  root.addView(actionCard("Vincular con SENE Patrón","Escanear el QR oficial de vinculación","🔗",0xFFE8F7EF.toInt()){pairing()})
+  root.addView(actionCard("Configurar conexión","Estado de conexión de SENE","⚙️",0xFFF1F3F8.toInt()){config{draw()}})
+  root.addView(actionCard("Volver","Regresar a la pantalla anterior","↩️",0xFFF1F3F8.toInt()){finish()})
   display(root)
+ }
  }
  override fun onCreate(b:Bundle?){super.onCreate(b);draw();prefs().edit().putBoolean("work_queue_sending",false).apply();flushQueue();flushCorrectionQueue();resumePreparedCorrections();handleIncomingTicketCorrection(intent)}
  private fun handleIncomingTicketCorrection(source:Intent?){
@@ -2255,17 +2306,26 @@ class MainActivity:Activity(){
   val opening=shift.optDouble("cash",0.0)
   val expenses=try{Store.providerExpenses(this,startTs)}catch(_:Exception){0.0}
   val cashNow=(opening+shiftSales-expenses).coerceAtLeast(0.0)
-  v.addView(txt("HOY\nDINERO EN CAJA: "+Store.money(cashNow)+"\nVENTAS DE HOY: "+Store.money(sum)+"  ·  $count ventas",16f).apply{gravity=Gravity.CENTER})
-  v.addView(button("ESCANEAR PRODUCTO"){openScanner()})
-  code=input("Código de barras");code.imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_DONE;code.setOnEditorActionListener{_,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){addCode(code.text.toString());code.setText("");true}else false};v.addView(code)
+  v.addView(txt("HOY\nDINERO EN CAJA: "+Store.money(cashNow)+"\nVENTAS DE HOY: "+Store.money(sum)+"  ·  $count ventas",16f).apply{
+   gravity=Gravity.CENTER;setPadding(dp(18),dp(18),dp(18),dp(18))
+   background=rounded(0xFFE8F0FF.toInt(),20,0xFFD5E1F5.toInt())
+  })
+  v.addView(actionCard("Escanear producto","Agregar artículos al ticket de venta","📷",0xFFE8F7EF.toInt()){openScanner()})
+  v.addView(txt("CÓDIGO DE PRODUCTO",13f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF49618B.toInt())})
+  code=input("Código de barras");code.imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+  code.setOnEditorActionListener{_,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){addCode(code.text.toString());code.setText("");true}else false}
+  v.addView(code)
   ticketView=txt("Ticket vacío",18f);v.addView(ticketView)
+  v.addView(txt("PAGO DEL CLIENTE",13f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF49618B.toInt())})
   paid=input("¿Cuánto te pagan?",true);v.addView(paid)
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
   sell=button("COBRAR"){sellTicket()};v.addView(sell)
-  countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
-  v.addView(button("TICKETS",false){pendingTicketScan=true;openScanner()})
+  countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))}
+  v.addView(countdownView)
+  v.addView(actionCard("Tickets","Escanear un ticket para verificarlo o solicitar corrección","🎟️",0xFFFFF3E5.toInt()){pendingTicketScan=true;openScanner()})
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
+ }
  }
 private fun reviewScannedCodes(codes:ArrayList<String>){
   if(codes.isEmpty()){msg("No se escanearon productos");return}
@@ -2588,7 +2648,25 @@ class AgregarInventarioActivity:Activity(){
  override fun onResume(){super.onResume();if(::deviceClock.isInitialized)clockHandler.post(clockTick)}
  override fun onPause(){clockHandler.removeCallbacks(clockTick);super.onPause()}
  private fun consultProviderInternetTime(){internetClock.text="Hora de Internet: consultando…";Thread{val value=internetTimeMillis();val text=value?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible";runOnUiThread{if(::internetClock.isInitialized)internetClock.text="Hora de Internet: "+text}}.start()}
- private fun draw(){val v=page("Agregar Inventario - Llegó proveedor");deviceClock=txt("Hora del celular: "+stamp(),14f);internetClock=txt("Hora de Internet: consultando…",14f);v.addView(deviceClock);v.addView(internetClock);val cashLabel=try{"CAJA DISPONIBLE: "+Store.money(Store.cashBalance(this))}catch(e:Exception){"CAJA NO DISPONIBLE: revisa el historial"};v.addView(txt(cashLabel,17f));v.addView(button("ACTUALIZAR HORA DE INTERNET",false){consultProviderInternetTime()});code=input("Escanea o escribe código");name=input("Descripción del producto");price=input("Precio de venta $",true);qty=input("¿Cuántos llegaron del proveedor?",true);providerPayment=input("¿Cuánto pagarás al proveedor? $",true);v.addView(code);v.addView(button("ESCANEAR CÓDIGO"){openScanner()});v.addView(button("Buscar producto",false){find()});v.addView(name);v.addView(price);v.addView(qty);v.addView(providerPayment);v.addView(txt("El pago se descontará de la caja al guardar. Si no pagarás ahora, escribe 0.",13f));v.addView(button("Continuar y confirmar"){confirm()});v.addView(button("Volver",false){finish()});display(v);consultProviderInternetTime()}
+ private fun draw(){
+  val v=page("Agregar Inventario - Llegó proveedor")
+  deviceClock=txt("Hora del celular: "+stamp(),14f);internetClock=txt("Hora de Internet: consultando…",14f)
+  v.addView(deviceClock);v.addView(internetClock)
+  val cashLabel=try{"CAJA DISPONIBLE: "+Store.money(Store.cashBalance(this))}catch(e:Exception){"CAJA NO DISPONIBLE: revisa el historial"}
+  v.addView(txt(cashLabel,17f))
+  v.addView(actionCard("Actualizar hora de Internet","Consultar la hora oficial disponible","🌐",0xFFEAF7F7.toInt()){consultProviderInternetTime()})
+  v.addView(txt("DATOS DEL PRODUCTO",13f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF49618B.toInt())})
+  code=input("Escanea o escribe código");name=input("Descripción del producto");price=input("Precio de venta $",true)
+  qty=input("¿Cuántos llegaron del proveedor?",true);providerPayment=input("¿Cuánto pagarás al proveedor? $",true)
+  v.addView(code)
+  v.addView(actionCard("Escanear código","Leer el código de barras del producto","📷",0xFFE8F7EF.toInt()){openScanner()})
+  v.addView(actionCard("Buscar producto","Comprobar si ya existe en el inventario","🔎",0xFFEAF2FF.toInt()){find()})
+  v.addView(name);v.addView(price);v.addView(qty);v.addView(providerPayment)
+  v.addView(txt("El pago se descontará de la caja al guardar. Si no pagarás ahora, escribe 0.",13f))
+  v.addView(actionCard("Continuar y confirmar","Revisar cantidad recibida y pago al proveedor","✓",0xFFFFF3E5.toInt()){confirm()})
+  v.addView(actionCard("Volver","Regresar a ventas sin guardar cambios","↩️",0xFFF1F3F8.toInt()){finish()})
+  display(v);consultProviderInternetTime()
+ }
  private fun find(){existing=null;val p=Store.products(this);for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==code.text.toString())existing=x};if(existing!=null){name.setText(existing!!.optString("name"));price.setText(existing!!.optDouble("price").toString());price.isEnabled=false;msg("Producto existente. El precio no se puede cambiar.")}else{price.isEnabled=true;name.setText("");price.setText("");msg("Producto nuevo. Captura descripción y precio.")}}
  private fun confirm(){val q=qty.text.toString().toIntOrNull();val payment=if(providerPayment.text.isBlank())0.0 else parseAmount(providerPayment.text.toString());val cash=try{Store.cashBalance(this)}catch(e:Exception){msg("No se puede validar el pago porque la caja tiene movimientos inválidos. Revisa el historial.");return};if(code.text.isBlank()||q==null||q<1){msg("Revisa código y cantidad");return};if(payment==null||!payment.isFinite()||payment<0){msg("Captura un pago válido");return};if(payment>cash){msg("El pago supera la caja disponible ("+Store.money(cash)+"). No se puede registrar.");return};if(existing==null&&(name.text.isBlank()||parseAmount(price.text.toString())==null)){msg("Captura descripción y precio");return};val old=existing?.optInt("stock")?:0;val summary="Código: "+code.text+"\nDescripción: "+name.text+"\nPrecio: "+price.text+"\nStock actual: "+old+"\nCantidad que llegó: "+q+"\nStock nuevo: "+(old+q)+"\n\nPago al proveedor: "+Store.money(payment)+"\nCaja antes del pago: "+Store.money(cash)+"\nCaja después del pago: "+Store.money(cash-payment)+"\n\nASEGÚRATE DE QUE LA CANTIDAD Y EL PAGO SEAN CORRECTOS. ESTA ACCIÓN NO SE PUEDE DESHACER."
  AlertDialog.Builder(this).setTitle("Confirmación 1 de 2").setMessage(summary).setPositiveButton("Sí, la cantidad es correcta"){_,_->AlertDialog.Builder(this).setTitle("¿Estás 100% seguro?").setMessage("Última oportunidad para revisar. Si guardas, ya no se puede deshacer.").setPositiveButton("SÍ, GUARDAR - YA REVISÉ"){_,_->save(q,payment)}.setNegativeButton("NO, ME EQUIVOQUÉ - REVISAR",null).show()}.setNegativeButton("No, revisar cantidad",null).show()}
@@ -2636,7 +2714,22 @@ class AgregarInventarioActivity:Activity(){
 class PatronActivity:Activity(){
  private var pendingInventorySave=false
  override fun onCreate(b:Bundle?){super.onCreate(b);pin{draw()}}
- private fun draw(){val v=page("Administrador - Patrón");v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
+ private fun draw(){
+  val v=page("Administrador - Patrón")
+  v.addView(actionCard("Hacer primer inventario","Registrar productos, cantidades y precios iniciales","📦",0xFFE8F7EF.toInt()){openFirstInventory()})
+  v.addView(actionCard("Agregar o modificar producto","Ajustar existencias o precio mediante escáner","🛠️",0xFFEAF2FF.toInt()){product()})
+  v.addView(actionCard("Cambiar número de WhatsApp","Actualizar el número del patrón para reportes","📱",0xFFEAF7F7.toInt()){
+   val e=input("Número con código de país");e.setText(Store.phone(this))
+   AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e)
+    .setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}
+    .setNegativeButton("Cancelar",null).show()
+  })
+  v.addView(actionCard("Ver inventario actual","Consultar productos, precios y existencias","🗃️",0xFFF2ECFF.toInt()){inventory()})
+  v.addView(actionCard("Guardar TXT del stock","Crear una copia del inventario","📄",0xFFFFF3E5.toInt()){export()})
+  v.addView(actionCard("Cargar inventario desde TXT","Importar un inventario guardado","📂",0xFFEAF2FF.toInt()){chooseInventoryFolder()})
+  v.addView(actionCard("Volver a ventas","Regresar a la pantalla de ventas","↩️",0xFFF1F3F8.toInt()){finish()})
+  display(v)
+ }
  private var pendingFirstInventory=false
  private var firstInventoryCode:EditText?=null
  private val firstInventoryItems=JSONArray()
@@ -2653,9 +2746,9 @@ class PatronActivity:Activity(){
   val root=page("Primer inventario");root.addView(txt("Escanea cada producto y captura su descripción, cantidad inicial y precio. Pulsa AGREGAR PRODUCTO para incluirlo en la lista."))
   val code=input("Código de barras / código del producto");firstInventoryCode=code
   val name=input("Descripción del producto");val qty=input("Cantidad inicial",true);val price=input("Precio de venta $",true)
-  root.addView(code);root.addView(button("ESCANEAR PRODUCTO"){openScanner()});root.addView(name);root.addView(qty);root.addView(price)
+  root.addView(code);root.addView(actionCard("Escanear producto","Leer el código de barras","📷",0xFFE8F7EF.toInt()){openScanner()});root.addView(name);root.addView(qty);root.addView(price)
   val list=LinearLayout(this).apply{orientation=1};val count=txt("Productos agregados: 0",15f);root.addView(count);root.addView(list)
-  root.addView(button("AGREGAR PRODUCTO"){
+  root.addView(actionCard("Agregar producto","Validar y añadir este producto a la lista","➕",0xFFEAF2FF.toInt()){
    val q=qty.text.toString().toIntOrNull();val p=parseAmount(price.text.toString())
    if(code.text.isBlank()||name.text.isBlank()||q==null||q<0||p==null||p<0){msg("Captura código, descripción, cantidad y precio válidos");return@button}
    for(i in 0 until firstInventoryItems.length())if(firstInventoryItems.optJSONObject(i)?.optString("code")==code.text.toString().trim()){msg("Ese código ya está en la lista");return@button}
@@ -2663,13 +2756,13 @@ class PatronActivity:Activity(){
    list.addView(txt(code.text.toString()+" | "+name.text.toString()+"\nCantidad: "+q+"   Precio: "+Store.money(p),14f));count.text="Productos agregados: "+firstInventoryItems.length()
    code.setText("");name.setText("");qty.setText("");price.setText("");code.requestFocus()
   })
-  root.addView(button("GUARDAR INVENTARIO"){
+  root.addView(actionCard("Guardar inventario","Guardar todos los productos en INVENTARIO SENE","💾",0xFFFFF3E5.toInt()){
    if(firstInventoryItems.length()==0){msg("Agrega por lo menos un producto antes de guardar");return@button}
    AlertDialog.Builder(this).setTitle("Guardar inventario").setMessage("Se guardarán "+firstInventoryItems.length()+" productos en INVENTARIO SENE con la fecha y hora actuales. ¿Continuar?")
     .setPositiveButton("GUARDAR"){_,_->try{if(InventoryArchive.save(this,firstInventoryItems)){Store.saveProducts(this,firstInventoryItems);getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).apply();msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}else msg("No se pudo guardar. Verifica el acceso a INVENTARIO SENE.")}catch(e:Exception){msg("Error al guardar: "+(e.message?:"desconocido"))}}
     .setNegativeButton("Revisar",null).show()
   })
-  root.addView(button("VOLVER",false){draw()});display(root)
+  root.addView(actionCard("Volver","Regresar al administrador","↩️",0xFFF1F3F8.toInt()){draw()});display(root)
  }
  private fun saveInventorySnapshot(){try{if(InventoryArchive.save(this,Store.products(this))){msg("Inventario guardado en INVENTARIO SENE");}else{pendingInventorySave=true;AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("En el selector, crea una carpeta nueva llamada INVENTARIO SENE, ábrela y selecciónala. Ahí se guardará tu primer inventario y los siguientes TXT.") .setPositiveButton("CREAR / SELECCIONAR CARPETA"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Después",null).show()}}catch(e:Exception){msg("No se pudo guardar el inventario en INVENTARIO SENE: "+(e.message?:"error"))}}
  private var waitingProductScan=false
