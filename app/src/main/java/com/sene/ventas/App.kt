@@ -1879,12 +1879,12 @@ class MainActivity:Activity(){
   val start=shift.optLong("startTs",0L)
   val moves=Store.moves(this)
   val rows=mutableListOf<String>()
-  var total=0.0
+  val total=try{Store.providerExpenses(this,start)}catch(e:Exception){msg("No se pueden mostrar los gastos con seguridad: "+(e.message?:"revisa el historial."));return}
   for(i in 0 until moves.length()){
-   val move=moves.optJSONObject(i)?:continue
+   val move=moves.optJSONObject(i)?:run{msg("Hay un movimiento dañado; no se puede mostrar un total confiable.");return}
    if(move.optString("type")!="PROVIDER_PAYMENT"||move.optLong("ts",0L)<start)continue
-   val amount=move.optDouble("amount",0.0)
-   total+=amount
+   val amount=move.optDouble("amount",Double.NaN)
+   if(!amount.isFinite()||amount<0.0){msg("Hay un pago a proveedor con importe inválido; revisa el historial.");return}
    rows.add(move.optString("time")+"\n"+move.optString("supplier","Proveedor")+" · "+move.optString("text")+"\nPago: "+Store.money(amount))
   }
   val view=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
@@ -2107,18 +2107,27 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  private var pendingReportText:String?=null
  private fun completeReport(final:Boolean,tree:Uri){
   val s=Store.shift(this)?:return
+  val original=try{JSONObject(s.toString())}catch(_:Exception){s}
+  var closeCommitted=false
   try{
-   if(final)queueShiftReportForServer()
-   if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
+   if(final && s.optLong("closingTs",0L)==0L){
+    s.put("closingTs",System.currentTimeMillis()).put("closed",stamp())
+    Store.saveShift(this,s)
+    closeCommitted=true
+   }
    val file=ReportFile.update(this)
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file)
+   if(final)queueShiftReportForServer()
    pendingShareUri=dailyUri
    pendingReportText=body
    pendingFinalShare=final
    launchPendingReportShare()
-  }catch(e:Exception){msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))}
+  }catch(e:Exception){
+   if(final && closeCommitted)try{Store.saveShift(this,original)}catch(_:Exception){}
+   msg("No se pudo guardar el reporte. El turno permanece abierto y las ventas no se reactivaron: "+(e.message?:"error"))
+  }
  }
  private fun launchPendingReportShare(){
   val uri=pendingShareUri?:return
@@ -2559,7 +2568,7 @@ object ReportFile {
   val data=root ?: try { if(pref==null)org.json.JSONObject() else org.json.JSONObject(pref) }
    catch(e:Exception){throw IllegalStateException("Los datos locales están dañados; no se generó un reporte incompleto.",e)}
   val shift=data.optJSONObject("shift") ?: org.json.JSONObject()
-  data.put("sales",Store.sales(c)).put("moves",Store.moves(c))
+  data.put("sales",Store.sales(c)).put("moves",Store.moves(c)).put("products",Store.products(c))
   val startTs=shift.optLong("startTs",0L)
   val opening=shift.optDouble("cash",Double.NaN)
   if(data.has("shift"))check(opening.isFinite()&&opening>=0.0){"La caja inicial es inválida; no se puede generar el reporte."}
