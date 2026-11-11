@@ -2332,10 +2332,10 @@ class AgregarInventarioActivity:Activity(){
   }
   // El permiso de la carpeta INVENTARIO SENE pertenece al teléfono del patrón.
   // El trabajador debe poder registrar la recepción en su propio dispositivo sin bloquearse por ese permiso.
-  val backup=StringBuilder("INVENTARIO_SENE_V1\\nActualizado: ").append(stamp()).append("\\nCódigo | Producto | Precio | Existencia")
+  val backup=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia")
   for(i in 0 until p.length()){
    val item=p.optJSONObject(i)?:continue
-   backup.append("\\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optDouble("price")).append(" | ").append(item.optInt("stock"))
+   backup.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optDouble("price")).append(" | ").append(item.optInt("stock"))
   }
   var savedInSharedFolder=false
   val tree=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
@@ -2716,7 +2716,7 @@ object ReportFile {
    stockByCode[product.optString("code")]=product.optInt("stock")
   }
   out.append("PRODUCTO".padEnd(24)).append("HORA DE VENTA".padEnd(21))
-   .append("CANT.".padEnd(7)).append("STOCK".padEnd(8)).append("IMPORTE\\n")
+   .append("CANT.".padEnd(7)).append("STOCK".padEnd(8)).append("IMPORTE\n")
   var total=0.0
   var saleCount=0
   for(i in 0 until sales.length()){
@@ -2731,11 +2731,11 @@ object ReportFile {
     val stock=stockByCode[x.optString("code")]?.toString()?: "N/D"
     out.append(productName.padEnd(24)).append(saleTime.padEnd(21))
      .append(qty.toString().padEnd(7)).append(stock.padEnd(8))
-     .append(Store.money(subtotal)).append("\\n")
+     .append(Store.money(subtotal)).append("\n")
     saleCount++
    }
   }
-  if(saleCount==0)out.append("Sin ventas registradas en este turno.\\n")
+  if(saleCount==0)out.append("Sin ventas registradas en este turno.\n")
   val moves=data.optJSONArray("moves")?:throw IllegalStateException("No se pudo leer el historial de movimientos.")
   var providerTotal=0.0
   for(i in 0 until moves.length()){
