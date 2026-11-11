@@ -16,6 +16,9 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.widget.*
 import androidx.core.content.FileProvider
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -285,6 +288,7 @@ private object PatronPin {
  private const val PREFS="sene_patron_pin"
  private const val HASH_KEY="hash"
  private const val SALT_KEY="salt"
+ private const val BIO_KEY="biometric_enabled"
  private const val ITERATIONS=150000
  private const val DEFAULT_PIN="2910"
  private fun derive(pin:String,salt:ByteArray):ByteArray {
@@ -292,26 +296,91 @@ private object PatronPin {
   return try{SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1").generateSecret(spec).encoded}finally{spec.clearPassword()}
  }
  private fun hex(bytes:ByteArray)=bytes.joinToString(""){"%02x".format(it)}
+ private fun save(activity:Activity,pin:String):Boolean{
+  val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}
+  return activity.getSharedPreferences(PREFS,0).edit().putString(SALT_KEY,hex(salt)).putString(HASH_KEY,hex(derive(pin,salt))).commit()
+ }
  fun verify(activity:Activity,pin:String):Boolean {
   val prefs=activity.getSharedPreferences(PREFS,0)
   val saved=prefs.getString(HASH_KEY,null)
   if(saved.isNullOrBlank()){
    if(pin!=DEFAULT_PIN)return false
-   val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}
-   return prefs.edit().putString(SALT_KEY,hex(salt)).putString(HASH_KEY,hex(derive(DEFAULT_PIN,salt))).commit()
+   return save(activity,DEFAULT_PIN)
   }
   val saltText=prefs.getString(SALT_KEY,null)?:return false
   val salt=try{saltText.chunked(2).map{it.toInt(16).toByte()}.toByteArray()}catch(_:Exception){return false}
   val expected=try{saved.chunked(2).map{it.toInt(16).toByte()}.toByteArray()}catch(_:Exception){return false}
   return java.security.MessageDigest.isEqual(expected,derive(pin,salt))
  }
+ fun change(activity:Activity,current:String,next:String):Boolean{
+  if(!verify(activity,current))return false
+  if(next.length !in 4..8 || next.any{!it.isDigit()})return false
+  return save(activity,next)
+ }
+ fun biometricEnabled(activity:Activity)=activity.getSharedPreferences(PREFS,0).getBoolean(BIO_KEY,false)
+ fun setBiometricEnabled(activity:Activity,enabled:Boolean)=activity.getSharedPreferences(PREFS,0).edit().putBoolean(BIO_KEY,enabled).commit()
 }
-private fun Activity.pin(ok:()->Unit){
+private fun Activity.showPatronPinDialog(ok:()->Unit){
  val e=input("PIN del patrón",true)
  e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
- AlertDialog.Builder(this).setTitle("Soy Patrón").setView(e)
+ AlertDialog.Builder(this).setTitle("Soy Patrón · Acceso con PIN").setView(e)
   .setPositiveButton("Entrar"){_,_->if(PatronPin.verify(this,e.text.toString()))ok()else msg("PIN incorrecto")}
   .setNegativeButton("Cancelar",null).show()
+}
+private fun Activity.pin(ok:()->Unit){
+ if(!PatronPin.biometricEnabled(this)){showPatronPinDialog(ok);return}
+ val manager=BiometricManager.from(this)
+ if(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)!=BiometricManager.BIOMETRIC_SUCCESS){
+  PatronPin.setBiometricEnabled(this,false)
+  msg("La huella ya no está disponible. Ingresa tu PIN para continuar.")
+  showPatronPinDialog(ok);return
+ }
+ val prompt=BiometricPrompt(this,ContextCompat.getMainExecutor(this),object:BiometricPrompt.AuthenticationCallback(){
+  override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){super.onAuthenticationSucceeded(result);ok()}
+  override fun onAuthenticationError(errorCode:Int,errString:CharSequence){
+   super.onAuthenticationError(errorCode,errString)
+   if(errorCode==BiometricPrompt.ERROR_NEGATIVE_BUTTON){showPatronPinDialog(ok)}
+   else if(errorCode!=BiometricPrompt.ERROR_USER_CANCELED)msg(errString.toString())
+  }
+ })
+ val info=BiometricPrompt.PromptInfo.Builder().setTitle("Soy Patrón").setSubtitle("Confirma tu identidad con la huella del dispositivo").setNegativeButtonText("Usar PIN").setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG).build()
+ prompt.authenticate(info)
+}
+private fun Activity.changePatronPin(){
+ val current=input("PIN actual",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+ val next=input("Nuevo PIN (4 a 8 dígitos)",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+ val confirm=input("Confirmar nuevo PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+ val panel=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(4));addView(current);addView(next);addView(confirm)}
+ AlertDialog.Builder(this).setTitle("Cambiar contraseña de Soy Patrón").setMessage("El nuevo PIN se guarda únicamente en este teléfono. Debe tener de 4 a 8 números.")
+  .setView(panel).setPositiveButton("GUARDAR PIN"){_,_->
+   val a=current.text.toString();val b=next.text.toString();val c=confirm.text.toString()
+   if(b.length !in 4..8||b.any{!it.isDigit()}){msg("El nuevo PIN debe contener de 4 a 8 dígitos.");return@setPositiveButton}
+   if(b!=c){msg("La confirmación no coincide.");return@setPositiveButton}
+   if(!PatronPin.change(this,a,b)){msg("El PIN actual es incorrecto o no se pudo guardar.");return@setPositiveButton}
+   msg("PIN de Soy Patrón actualizado en este dispositivo.")
+  }.setNegativeButton("Cancelar",null).show()
+}
+private fun Activity.configurePatronBiometric(){
+ if(PatronPin.biometricEnabled(this)){
+  AlertDialog.Builder(this).setTitle("Huella vinculada").setMessage("La huella está habilitada para entrar a Soy Patrón en este teléfono. ¿Deseas desvincularla?")
+   .setPositiveButton("DESVINCULAR"){_,_->PatronPin.setBiometricEnabled(this,false);msg("Huella desvinculada. Podrás entrar con tu PIN.")}
+   .setNegativeButton("Conservar",null).show();return
+ }
+ val manager=BiometricManager.from(this)
+ when(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)){
+  BiometricManager.BIOMETRIC_SUCCESS->{
+   val prompt=BiometricPrompt(this,ContextCompat.getMainExecutor(this),object:BiometricPrompt.AuthenticationCallback(){
+    override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){super.onAuthenticationSucceeded(result);PatronPin.setBiometricEnabled(this@configurePatronBiometric,true);msg("Huella vinculada para Soy Patrón en este teléfono.")}
+    override fun onAuthenticationError(errorCode:Int,errString:CharSequence){super.onAuthenticationError(errorCode,errString);msg("No se vinculó la huella: "+errString)}
+    override fun onAuthenticationFailed(){super.onAuthenticationFailed();msg("La huella no fue reconocida. Intenta nuevamente.")}
+   })
+   val info=BiometricPrompt.PromptInfo.Builder().setTitle("Vincular huella a Soy Patrón").setSubtitle("Confirma con una huella ya registrada en este teléfono").setNegativeButtonText("Cancelar").setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG).build()
+   prompt.authenticate(info)
+  }
+  BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED->msg("Primero registra tu huella en los ajustes de seguridad del teléfono.")
+  BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE->msg("Este teléfono no tiene sensor biométrico compatible.")
+  else->msg("La huella no está disponible en este momento.")
+ }
 }
 private object InventoryCrypto {
  private const val ALIAS="SENE_INVENTORY_AES_KEY"
@@ -2918,6 +2987,8 @@ class PatronActivity:Activity(){
   val v=page("Administrador - Patrón")
   v.addView(actionCard("Hacer primer inventario","Registrar productos, cantidades y precios iniciales","📦",0xFFE8F7EF.toInt()){openFirstInventory()})
   v.addView(actionCard("Agregar o modificar producto","Ajustar existencias o precio mediante escáner","🛠️",0xFFEAF2FF.toInt()){product()})
+  v.addView(actionCard("Cambiar PIN de Soy Patrón","Crear una contraseña local de 4 a 8 dígitos","🔐",0xFFEAF2FF.toInt()){changePatronPin()})
+  v.addView(actionCard(if(PatronPin.biometricEnabled(this))"Desvincular huella" else "Vincular huella del dispositivo",if(PatronPin.biometricEnabled(this))"La huella está activa para entrar al panel" else "Opcional: usar la huella para entrar a Soy Patrón","👆",0xFFE8F7EF.toInt()){configurePatronBiometric()})
   v.addView(actionCard("Cambiar número de WhatsApp","Actualizar el número del patrón para reportes","📱",0xFFEAF7F7.toInt()){
    val e=input("Número con código de país");e.setText(Store.phone(this))
    AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e)
