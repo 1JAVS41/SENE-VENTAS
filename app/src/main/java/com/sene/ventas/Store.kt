@@ -257,11 +257,20 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
         val result = JSONArray()
         readableDatabase.rawQuery("SELECT data FROM products ORDER BY id ASC", null).use { cursor ->
             while (cursor.moveToNext()) {
-                try {
-                    result.put(JSONObject(cursor.getString(0)))
-                } catch (_: Exception) {
-                    // Keep other valid products readable if one legacy row is damaged.
+                // Inventory is financial/stock-critical: never silently hide a
+                // corrupt row and let later sales operate on an incomplete list.
+                val raw = cursor.getString(0)
+                val product = try {
+                    JSONObject(raw)
+                } catch (error: Exception) {
+                    throw IllegalStateException("Hay un producto dañado en el inventario local. No se permiten ventas hasta revisarlo.", error)
                 }
+                val code = product.optString("code").trim()
+                val stock = product.optInt("stock", -1)
+                if (code.isBlank() || stock < 0) {
+                    throw IllegalStateException("Hay un producto con código o existencia inválidos. No se permiten ventas hasta revisarlo.")
+                }
+                result.put(product)
             }
         }
         return result
@@ -482,8 +491,11 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             }
             if (productRows.isEmpty()) return false
             fun productIndex(code: String): Int {
-                val matches = productRows.indices.filter { productRows[it].optString("code") == code }
-                return if (matches.size == 1) matches[0] else -1
+                val normalizedCode = code.trim()
+                val matches = productRows.indices.filter {
+                    productRows[it].optString("code").trim() == normalizedCode
+                }
+                return if (normalizedCode.isNotBlank() && matches.size == 1) matches[0] else -1
             }
 
             // Proyectar el inventario en dos fases: primero devolver todas las líneas
