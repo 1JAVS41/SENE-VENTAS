@@ -1704,22 +1704,33 @@ class MainActivity:Activity(){
     .setNegativeButton("Cerrar",null).show();return
   }
   flushPendingWorkRequests()
-  val labels=arrayOf("Préstamo","Consumo","Permiso para faltar","Llegar tarde","Cambio de horario","Vacaciones","Reportar incidencia","Reportar faltante","Cambio de descanso","Adelanto de sueldo","Equipo dañado","Sugerencia","Mis solicitudes")
+  val labels=arrayOf("Préstamo","Consumo","Permiso para faltar","Llegar tarde","Cambio de horario","Vacaciones","Reportar incidencia","Reportar faltante","Cambio de descanso","Adelanto de sueldo","Equipo dañado","Sugerencia")
   val types=arrayOf("LOAN","CONSUMPTION","ABSENCE_PERMISSION","LATE_ARRIVAL","SCHEDULE_CHANGE","VACATION","INCIDENT","SHORTAGE","REST_DAY_CHANGE","SALARY_ADVANCE","DAMAGED_EQUIPMENT","SUGGESTION")
+  val icons=arrayOf("💵","🛒","🗓️","⏰","🔄","🌴","⚠️","📦","📆","💰","🛠️","💡")
+  val tints=intArrayOf(0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFEAF2FF.toInt(),0xFFF2ECFF.toInt(),0xFFEAF7F7.toInt(),0xFFE8F7EF.toInt(),0xFFFFEEEE.toInt(),0xFFEAF2FF.toInt(),0xFFEAF7F7.toInt(),0xFFFFF3E5.toInt(),0xFFF1F3F8.toInt(),0xFFF2ECFF.toInt())
+  val descriptions=arrayOf("Solicitar un préstamo al patrón","Registrar un consumo pendiente","Pedir autorización para faltar","Avisar que llegarás tarde","Solicitar un ajuste de horario","Solicitar días de vacaciones","Informar una situación del trabajo","Reportar productos faltantes","Pedir cambio de día de descanso","Solicitar un adelanto","Informar equipo con daño","Compartir una propuesta")
+  val content=LinearLayout(this).apply{orientation=1;setPadding(dp(14),dp(8),dp(14),dp(8));background=rounded(0xFFF4F6FB.toInt(),20)}
+  val scroll=ScrollView(this).apply{isFillViewport=true;addView(content)}
+  for(i in labels.indices){
+   content.addView(actionCard(labels[i],descriptions[i],icons[i],tints[i]){showWorkRequestForm(types[i],labels[i])})
+  }
+  content.addView(actionCard("Mis solicitudes","Consultar estados y respuestas del patrón","📋",0xFFEAF2FF.toInt()){showMyRequests()})
   AlertDialog.Builder(this).setTitle("MI TRABAJO · SOLICITUDES")
-   .setItems(labels){_,which->
-    if(which==labels.lastIndex)showMyRequests()
-    else showWorkRequestForm(types[which],labels[which])
-   }.setNegativeButton("Cerrar",null).show()
+   .setView(scroll).setNegativeButton("CERRAR",null).show()
  }
  private fun showWorkRequestForm(type:String,label:String){
-  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(16),dp(12),dp(16),dp(12));background=rounded(0xFFF4F6FB.toInt(),18)}
+  box.addView(txt("DETALLES DE LA SOLICITUD",12f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF53647D.toInt());setPadding(dp(3),dp(2),0,dp(7))})
   val details=input("Describe tu solicitud")
   details.minLines=3;details.maxLines=5
   box.addView(details)
   val amountField=if(type in setOf("LOAN","CONSUMPTION","SALARY_ADVANCE")) input("Cantidad solicitada en pesos $",true) else null
-  amountField?.let{box.addView(it)}
-  AlertDialog.Builder(this).setTitle(label).setMessage("La solicitud se enviará a SENE PATRÓN. No modifica automáticamente caja, ventas ni inventario.")
+  amountField?.let{
+   box.addView(txt("CANTIDAD SOLICITADA",12f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF53647D.toInt());setPadding(dp(3),dp(12),0,dp(5))})
+   box.addView(it)
+  }
+  box.addView(txt("Se enviará a SENE PATRÓN. No modifica automáticamente caja, ventas ni inventario.",12f).apply{setTextColor(0xFF53647D.toInt());setPadding(dp(3),dp(10),dp(3),dp(2))})
+  AlertDialog.Builder(this).setTitle(label)
    .setView(box).setPositiveButton("ENVIAR SOLICITUD"){_,_->
     val description=details.text.toString().trim()
     if(description.isBlank()){msg("Escribe los detalles de tu solicitud");return@setPositiveButton}
