@@ -1,7 +1,7 @@
 name: Compilar APK SENE VENTAS-online
 on:
   push:
-    branches: [main, integration/ventas-completa]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
 # Push and pull_request can target the same commit; keep only one active build
 # per branch so duplicate runs do not congest Android SDK/Gradle setup.
 concurrency:
-  group: sene-ventas-apk-${{ github.head_ref || github.ref }}
+  group: sene-ventas-apk-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   build:
