@@ -330,7 +330,7 @@ private object PatronPin {
  fun markCustom(activity:Activity)=activity.getSharedPreferences(PREFS,0).edit().putBoolean(CUSTOM_KEY,true).commit()
 }
 
-private fun Activity.showPasswordOptions(){
+private fun FragmentActivity.showPasswordOptions(){
  val labels=arrayOf("Cambiar PIN de Soy Patrón","Vincular / desvincular huella")
  AlertDialog.Builder(this).setTitle("CONTRASEÑAS").setItems(labels){_,which->
   if(which==0)changePatronPin() else configurePatronBiometric()
@@ -357,7 +357,7 @@ private fun Activity.showPatronPinDialog(ok:()->Unit){
   .setPositiveButton("Entrar"){_,_->if(PatronPin.verify(this,e.text.toString()))ok()else msg("PIN incorrecto")}
   .setNegativeButton("Cancelar",null).show()
 }
-private fun Activity.pin(ok:()->Unit){
+private fun FragmentActivity.pin(ok:()->Unit){
  if(!PatronPin.biometricEnabled(this)){showPatronPinDialog(ok);return}
  val manager=BiometricManager.from(this)
  if(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)!=BiometricManager.BIOMETRIC_SUCCESS){
@@ -390,7 +390,7 @@ private fun Activity.changePatronPin(){
    msg("PIN de Soy Patrón actualizado en este dispositivo.")
   }.setNegativeButton("Cancelar",null).show()
 }
-private fun Activity.configurePatronBiometric(){
+private fun FragmentActivity.configurePatronBiometric(){
  if(PatronPin.biometricEnabled(this)){
   AlertDialog.Builder(this).setTitle("Huella vinculada").setMessage("La huella está habilitada para entrar a Soy Patrón en este teléfono. ¿Deseas desvincularla?")
    .setPositiveButton("DESVINCULAR"){_,_->PatronPin.setBiometricEnabled(this,false);msg("Huella desvinculada. Podrás entrar con tu PIN.")}
