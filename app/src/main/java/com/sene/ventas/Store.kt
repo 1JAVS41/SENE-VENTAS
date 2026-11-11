@@ -86,6 +86,14 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             } ?: return false
             if (existing.first != saleId) return false
             val payload = operation.toString()
+            val prepared = try { JSONObject(existing.third) } catch (_: Exception) { return false }
+            // Bind the consumed grant to the exact request, plan hash and change list
+            // that were durably prepared before contacting the server.
+            if (prepared.optString("opId") != opId ||
+                prepared.optString("saleId") != saleId ||
+                prepared.optString("requestId") != operation.optString("requestId") ||
+                prepared.optString("planHash") != operation.optString("planHash") ||
+                prepared.optJSONArray("changes")?.toString() != operation.optJSONArray("changes")?.toString()) return false
             // Repeated delivery is safe only when it repeats the exact consumed grant.
             if (existing.second == "grant_consumed") return existing.third == payload
             if (existing.second != "prepared") return false
