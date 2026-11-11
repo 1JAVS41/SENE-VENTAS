@@ -346,7 +346,7 @@ private fun Activity.showDefaultPinNotice(after:()->Unit={}){
  panel.addView(TextView(this).apply{text="EL PIN DE SOY PATRÓN VIENE CONFIGURADO DE FÁBRICA EN 2910.";textSize=18f;gravity=Gravity.CENTER;setTextColor(0xFF702B1B.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);setLineSpacing(dp(3).toFloat(),1f)})
  panel.addView(TextView(this).apply{text="Por seguridad, el dueño debe cambiarlo antes de comenzar a trabajar. No compartas el nuevo PIN con los trabajadores.";textSize=14f;gravity=Gravity.CENTER;setTextColor(0xFF663B30.toInt());setPadding(0,dp(12),0,dp(4));setLineSpacing(dp(2).toFloat(),1f)})
  val dialog=AlertDialog.Builder(this).setView(panel).setCancelable(false).setPositiveButton("MODIFICAR AHORA",null).setNegativeButton("CONSERVAR 2910",null).create()
- dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener{PatronPin.markNoticeShown(this);dialog.dismiss();changePatronPin()};dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener{PatronPin.markNoticeShown(this);dialog.dismiss();after()}}
+ dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener{dialog.dismiss();changePatronPin()};dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener{PatronPin.markNoticeShown(this);dialog.dismiss();after()}}
  dialog.show()
 }
 
