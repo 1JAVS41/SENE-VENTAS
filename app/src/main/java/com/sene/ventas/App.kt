@@ -1236,6 +1236,8 @@ class WorkerPortalActivity:Activity(){
 }
 
 class MainActivity:Activity(){
+ private var toolsDialog:AlertDialog?=null
+
  private lateinit var salesDeviceClock:TextView
  private lateinit var salesInternetClock:TextView
  private val salesClockHandler=Handler(Looper.getMainLooper())
@@ -1299,35 +1301,64 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el resumen del reporte como texto por WhatsApp. El archivo TXT se guarda por separado en INVENTARIO SENE.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Mi horario (8 horas)","Identidad de este equipo","Mi trabajo / Mis solicitudes","Vincular con SENE PATRÓN","Día de pago / Reporte de nómina","AYUDA OFICIAL SENE")
-  val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
-   override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
-    val row=super.getView(position,convertView,parent) as TextView
-    row.setTextColor(0xFF245DB8.toInt());row.textSize=16f
-    row.typeface=Typeface.create("sans-serif-medium",Typeface.BOLD)
-    row.setPadding(dp(20),dp(16),dp(16),dp(16))
-    return row
-   }
+  val items=arrayOf(
+   "Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores",
+   "Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT",
+   "Mi horario (8 horas)","Identidad de este equipo","Mi trabajo / Mis solicitudes",
+   "Vincular con SENE PATRÓN","Día de pago / Reporte de nómina","AYUDA OFICIAL SENE"
+  )
+  val icons=arrayOf("💰","📦","🧾","🗃️","👑","🔒","📄","🕒","📱","📋","🔗","📅","🛟")
+  val colors=intArrayOf(0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFEAF7F7.toInt(),0xFFF2ECFF.toInt(),0xFFFFEEEE.toInt(),0xFFEAF2FF.toInt(),0xFFEAF7F7.toInt(),0xFFF1F3F8.toInt(),0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFF2ECFF.toInt())
+  val descriptions=arrayOf("Resumen de ventas y caja","Registrar mercancía recibida","Consultar pagos y gastos","Existencias y precios","Funciones del patrón","Finalizar jornada","Guardar copia del reporte","Consultar entrada y salida","Comprobar este teléfono","Solicitudes y respuestas","Conectar con el patrón","Historial de pago","Contactar soporte verificado")
+  val actions:Array<()->Unit> = arrayOf(
+   {showCurrentSalesSummary()},
+   {startActivity(Intent(this,AgregarInventarioActivity::class.java))},
+   {showProviderExpenses()},
+   {stock()},
+   {pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}},
+   {requestCloseShift()},
+   {saveReportToPhone()},
+   {showWorkerSchedule()},
+   {showDeviceIdentity()},
+   {startActivity(Intent(this,WorkerPortalActivity::class.java))},
+   {showVentasPairing()},
+   {showPayrollReport()},
+   {showOfficialSupportContacts()}
+  )
+  val grid=android.widget.GridLayout(this).apply{
+   columnCount=2;useDefaultMargins=false;alignmentMode=android.widget.GridLayout.ALIGN_MARGINS
+   setPadding(dp(10),dp(8),dp(10),dp(8))
   }
-  AlertDialog.Builder(this).setTitle("SENE · HERRAMIENTAS").setAdapter(adapter){_,which->
-   when(which){
-    0->showCurrentSalesSummary()
-    1->startActivity(Intent(this,AgregarInventarioActivity::class.java))
-    2->showProviderExpenses()
-    3->stock()
-    4->pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}
-    5->requestCloseShift()
-    6->saveReportToPhone()
-    7->showWorkerSchedule()
-    8->showDeviceIdentity()
-    9->startActivity(Intent(this,WorkerPortalActivity::class.java))
-    10->showVentasPairing()
-    11->showPayrollReport()
-    12->showOfficialSupportContacts()
+  for(i in items.indices){
+   val tile=LinearLayout(this).apply{
+    orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
+    setPadding(dp(9),dp(10),dp(9),dp(9))
+    background=rounded(colors[i],16,0xFFDCE5F2.toInt())
+    isClickable=true;isFocusable=true
+    contentDescription=items[i]+". "+descriptions[i]
+    setOnClickListener{toolsDialog?.dismiss();actions[i].invoke()}
    }
-  }.setNegativeButton("Volver",null).show()
+   tile.addView(TextView(this).apply{text=icons[i];textSize=27f;gravity=Gravity.CENTER},LinearLayout.LayoutParams(-1,dp(36)))
+   tile.addView(TextView(this).apply{
+    text=items[i];textSize=13.5f;gravity=Gravity.CENTER
+    setTextColor(0xFF18345D.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);maxLines=2
+   },LinearLayout.LayoutParams(-1,-2))
+   tile.addView(TextView(this).apply{
+    text=descriptions[i];textSize=10.5f;gravity=Gravity.CENTER
+    setTextColor(0xFF53647D.toInt());setPadding(0,dp(4),0,0);maxLines=2
+   },LinearLayout.LayoutParams(-1,-2))
+   val params=android.widget.GridLayout.LayoutParams().apply{
+    width=0;height=dp(112);columnSpec=android.widget.GridLayout.spec(i%2,1f)
+    rowSpec=android.widget.GridLayout.spec(i/2);setMargins(dp(5),dp(5),dp(5),dp(5))
+   }
+   grid.addView(tile,params)
+  }
+  val scroll=ScrollView(this).apply{isFillViewport=true;addView(grid)}
+  toolsDialog=AlertDialog.Builder(this).setTitle("SENE · HERRAMIENTAS")
+   .setView(scroll).setNegativeButton("VOLVER",null).create()
+  toolsDialog?.show()
+  toolsDialog?.window?.setLayout((resources.displayMetrics.widthPixels*0.94f).toInt(),-2)
  }
-
 
  private fun showOfficialSupportContacts(){
   val base=seneServerPrefs().getString("server_base_url",null)
