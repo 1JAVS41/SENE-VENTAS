@@ -596,7 +596,7 @@ class WorkerPortalActivity:Activity(){
    if(code !in used&&(selectedCodes==null||code in selectedCodes)){rowIndexes.add(index);options.add(row.optString("name","Producto")+" · "+row.optInt("qty")+" pza. · "+Store.money(row.optDouble("subtotal")))}
   }
   if(selectedCodes==null)options.add("AGREGAR PRODUCTO OMITIDO")
-  if(options.isEmpty()){reviewCorrectionPlan(saleId,summary,primaryReason,detail,rows,plan);return}
+  if(options.isEmpty()){reviewCorrectionPlan(saleId,summary,primaryReason,detail,rows,plan,selectedCodes);return}
   AlertDialog.Builder(this).setTitle("AGREGAR CAMBIO A LA SOLICITUD")
    .setMessage("Puedes reunir varios cambios antes de enviar una sola solicitud al patrón.")
    .setItems(options.toTypedArray()){_,which->
@@ -605,7 +605,7 @@ class WorkerPortalActivity:Activity(){
      val source=rows[rowIndexes[which]]
      AlertDialog.Builder(this).setTitle(source.optString("name"))
       .setItems(arrayOf("Cambiar producto o cantidad","Eliminar este producto")){_,action->
-       if(action==0)choosePlanTarget(saleId,summary,primaryReason,detail,rows,plan,source)
+       if(action==0)choosePlanTarget(saleId,summary,primaryReason,detail,rows,plan,source,selectedCodes)
        else recordPlanChange(saleId,summary,primaryReason,detail,rows,plan,source,"",0,0L,"",selectedCodes)
       }.setNegativeButton("Cancelar",null).show()
     }
@@ -675,7 +675,7 @@ class WorkerPortalActivity:Activity(){
   return MessageDigest.getInstance("SHA-256").digest(canonical.toString().toByteArray(Charsets.UTF_8))
    .joinToString(""){"%02x".format(it.toInt() and 0xff)}
  }
- private fun reviewCorrectionPlan(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray){
+ private fun reviewCorrectionPlan(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,selectedCodes:Set<String>?=null){
   if(plan.length()==0){msg("Agrega al menos un cambio antes de enviar.");return}
   val catalog=Store.products(this);val productByCode=mutableMapOf<String,JSONObject>()
   for(i in 0 until catalog.length()){val p=catalog.optJSONObject(i)?:continue;val code=p.optString("code");if(code.isNotBlank()){if(productByCode.containsKey(code)){msg("El catálogo tiene códigos duplicados. Corrige el catálogo antes de continuar.");return};productByCode[code]=p}}
@@ -720,7 +720,7 @@ class WorkerPortalActivity:Activity(){
       .setItems(cashReasons){_,which->enqueueCorrectionPlan(saleId,summary,primaryReason,detail,plan,oldTotal,newTotal,cashReasons[which])}
       .setNegativeButton("Cancelar",null).show()
     }
-   }.setNegativeButton("Seguir editando"){_,_->addCorrectionPlanChange(saleId,summary,primaryReason,detail,rows,plan)}
+   }.setNegativeButton("Seguir editando"){_,_->addCorrectionPlanChange(saleId,summary,primaryReason,detail,rows,plan,selectedCodes)}
    .show()
  }
  private fun enqueueCorrectionPlan(saleId:String,summary:String,primaryReason:String,detail:String,plan:JSONArray,oldTotalCents:Long,newTotalCents:Long,cashReason:String){
@@ -2538,7 +2538,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    .setView(scroll).setPositiveButton("CERRAR",null).show()
  }
  private fun saveReportToPhone(){val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/plain";putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")};try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(_:Exception){msg("No se pudo abrir el selector para guardar")}}
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST){if(c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(pendingPairingScan){pendingPairingScan=false;finishVentasPairing(codes.last())}else if(pendingTicketScan){pendingTicketScan=false;handleTicketScan(codes)}else reviewScannedCodes(codes)}}else pendingPairingScan=false;return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST){if(c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(pendingPairingScan){pendingPairingScan=false;finishVentasPairing(codes.last())}else if(pendingTicketScan){pendingTicketScan=false;handleTicketScan(codes)}else reviewScannedCodes(codes)}else if(pendingTicketScan){pendingTicketScan=false;msg("No se escanearon códigos.")}}else{pendingPairingScan=false;pendingTicketScan=false};return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
 
 class AgregarInventarioActivity:Activity(){
