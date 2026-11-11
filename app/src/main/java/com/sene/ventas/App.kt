@@ -2060,10 +2060,10 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val all=Store.sales(this)
   val b=StringBuilder("SENE.VENTAS - "+if(final)"CIERRE DE TURNO" else "REPORTE")
   var sum=0.0
-  b.append("\\nTrabajador: ").append(s.optString("worker"))
-   .append("\\nFecha/hora celular: ").append(stamp())
-   .append("\\nCaja inicial: ").append(Store.money(opening))
-   .append("\\nVentas del turno")
+  b.append("\nTrabajador: ").append(s.optString("worker"))
+   .append("\nFecha/hora celular: ").append(stamp())
+   .append("\nCaja inicial: ").append(Store.money(opening))
+   .append("\nVentas del turno")
   for(i in 0 until all.length()){
    val x=all.optJSONObject(i)?:throw IllegalStateException("Hay una venta dañada en el historial; no se puede generar el reporte.")
    if(x.optLong("ts",0L)>=start){
@@ -2072,21 +2072,21 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     check(amount.isFinite()&&amount>=0.0&&qty>0){"Hay una venta con importe o cantidad inválidos; no se puede generar el reporte."}
     sum+=amount
     check(sum.isFinite()){"El total de ventas no es válido."}
-    b.append("\\n").append(x.optString("time")).append(" ").append(x.optString("name"))
+    b.append("\n").append(x.optString("time")).append(" ").append(x.optString("name"))
      .append(" x").append(qty).append(" = ").append(Store.money(amount))
    }
   }
   val expenses=Store.providerExpenses(this,start)
   val cash=opening+sum-expenses
   check(cash.isFinite()&&cash>=0.0){"El saldo de cierre no es válido; revisa ventas y pagos."}
-  b.append("\\nTotal: ").append(Store.money(sum))
-   .append("\\nPagos a proveedores: ").append(Store.money(expenses))
-   .append("\\nCaja ahora: ").append(Store.money(cash))
-   .append("\\nINVENTARIO_SENE_V1\\ncodigo | nombre | precio | stock")
+  b.append("\nTotal: ").append(Store.money(sum))
+   .append("\nPagos a proveedores: ").append(Store.money(expenses))
+   .append("\nCaja ahora: ").append(Store.money(cash))
+   .append("\nINVENTARIO_SENE_V1\ncodigo | nombre | precio | stock")
   val p=Store.products(this)
   for(i in 0 until p.length()){
    val x=p.optJSONObject(i)?:throw IllegalStateException("Hay un producto dañado; no se puede generar el reporte.")
-   b.append("\\n").append(x.optString("code")).append(" | ").append(x.optString("name"))
+   b.append("\n").append(x.optString("code")).append(" | ").append(x.optString("name"))
     .append(" | ").append(x.optDouble("price")).append(" | ").append(x.optInt("stock"))
   }
   return b.toString()
