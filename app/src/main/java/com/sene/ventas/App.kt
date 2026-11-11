@@ -1307,7 +1307,7 @@ class MainActivity:Activity(){
     2->showProviderExpenses()
     3->stock()
     4->pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}
-    5->AlertDialog.Builder(this).setTitle("Cerrar turno").setMessage("¿Enviar reporte final y cerrar turno?").setPositiveButton("Enviar y cerrar"){_,_->sendReport(true)}.setNegativeButton("Cancelar",null).show()
+    5->requestCloseShift()
     6->saveReportToPhone()
     7->showWorkerSchedule()
     8->showDeviceIdentity()
@@ -2197,8 +2197,37 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }
   return b.toString()
  }
+ private fun requestCloseShift(){
+  val shift=Store.shift(this)?:return
+  val start=shift.optLong("startTs",0L)
+  if(start<=0L){msg("No se puede cerrar el turno porque falta una hora de inicio válida.");return}
+  val allowedAt=start+8L*60L*60L*1000L
+  val remaining=allowedAt-System.currentTimeMillis()
+  if(remaining>0L){
+   val seconds=(remaining+999L)/1000L
+   val hours=seconds/3600L
+   val minutes=(seconds%3600L)/60L
+   val secs=seconds%60L
+   AlertDialog.Builder(this).setTitle("AÚN NO PUEDES FINALIZAR")
+    .setMessage("El turno debe cumplir 8 horas completas.\n\nPodrás finalizarlo a las: "+SimpleDateFormat("hh:mm a",Locale("es","MX")).format(Date(allowedAt))+"\n\nTiempo restante: "+String.format(Locale.US,"%02d:%02d:%02d",hours,minutes,secs))
+    .setPositiveButton("ENTENDIDO",null).show()
+   return
+  }
+  AlertDialog.Builder(this).setTitle("Cerrar turno")
+   .setMessage("Ya se cumplieron las 8 horas de trabajo. Primero se enviará al servidor el inventario y reporte final una sola vez; después se abrirá el chat de WhatsApp del patrón con el reporte en texto. El respaldo completo quedará guardado como TXT. ¿Deseas continuar?")
+   .setPositiveButton("ENVIAR Y CERRAR"){_,_->sendReport(true)}
+   .setNegativeButton("CANCELAR",null).show()
+ }
  private fun sendReport(final:Boolean){
   if(Store.shift(this)==null)return
+  if(final){
+   val start=Store.shift(this)?.optLong("startTs",0L)?:0L
+   val allowedAt=start+8L*60L*60L*1000L
+   if(start<=0L||System.currentTimeMillis()<allowedAt){
+    msg("No puedes finalizar el turno antes de completar 8 horas de trabajo.")
+    return
+   }
+  }
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
   if(saved.isNullOrBlank()){
    pendingFinalReport=final
@@ -2213,6 +2242,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  private var pendingReportText:String?=null
  private fun completeReport(final:Boolean,tree:Uri){
   val s=Store.shift(this)?:return
+  if(final){
+   val start=s.optLong("startTs",0L)
+   if(start<=0L||System.currentTimeMillis()<start+8L*60L*60L*1000L){
+    msg("No puedes finalizar el turno antes de completar 8 horas de trabajo.")
+    return
+   }
+  }
   val original=try{JSONObject(s.toString())}catch(_:Exception){s}
   var closeCommitted=false
   var dailyUri:Uri?=null
