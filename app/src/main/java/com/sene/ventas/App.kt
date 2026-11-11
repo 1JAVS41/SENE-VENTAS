@@ -8,6 +8,8 @@ import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.Network
 import android.provider.DocumentsContract
 import android.os.*
 import android.view.Gravity
@@ -38,11 +40,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 
 private const val GREEN=0xFF168B45.toInt()
-private const val PIN="2910"
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 private fun parseAmount(raw:String):Double? {
  val value=raw.trim().replace("$","").replace(" ","").replace("\u00A0","")
@@ -183,7 +188,38 @@ private fun Activity.display(v:LinearLayout){
  sc.viewTreeObserver.addOnGlobalLayoutListener{sc.post{revealFocused()}}
 }
 private fun Activity.msg(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
-private fun Activity.pin(ok:()->Unit){val e=input("PIN del patrón",true);e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;AlertDialog.Builder(this).setTitle("Soy Patrón").setView(e).setPositiveButton("Entrar"){_,_->if(e.text.toString()==PIN)ok()else msg("PIN incorrecto")}.setNegativeButton("Cancelar",null).show()}
+private object PatronPin {
+ private const val PREFS="sene_patron_pin"
+ private const val HASH_KEY="hash"
+ private const val SALT_KEY="salt"
+ private const val ITERATIONS=150000
+ private const val DEFAULT_PIN="2910"
+ private fun derive(pin:String,salt:ByteArray):ByteArray {
+  val spec=PBEKeySpec(pin.toCharArray(),salt,ITERATIONS,256)
+  return try{SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1").generateSecret(spec).encoded}finally{spec.clearPassword()}
+ }
+ private fun hex(bytes:ByteArray)=bytes.joinToString(""){"%02x".format(it)}
+ fun verify(activity:Activity,pin:String):Boolean {
+  val prefs=activity.getSharedPreferences(PREFS,0)
+  val saved=prefs.getString(HASH_KEY,null)
+  if(saved.isNullOrBlank()){
+   if(pin!=DEFAULT_PIN)return false
+   val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}
+   return prefs.edit().putString(SALT_KEY,hex(salt)).putString(HASH_KEY,hex(derive(DEFAULT_PIN,salt))).commit()
+  }
+  val saltText=prefs.getString(SALT_KEY,null)?:return false
+  val salt=try{saltText.chunked(2).map{it.toInt(16).toByte()}.toByteArray()}catch(_:Exception){return false}
+  val expected=try{saved.chunked(2).map{it.toInt(16).toByte()}.toByteArray()}catch(_:Exception){return false}
+  return java.security.MessageDigest.isEqual(expected,derive(pin,salt))
+ }
+}
+private fun Activity.pin(ok:()->Unit){
+ val e=input("PIN del patrón",true)
+ e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+ AlertDialog.Builder(this).setTitle("Soy Patrón").setView(e)
+  .setPositiveButton("Entrar"){_,_->if(PatronPin.verify(this,e.text.toString()))ok()else msg("PIN incorrecto")}
+  .setNegativeButton("Cancelar",null).show()
+}
 private object InventoryCrypto {
  private const val ALIAS="SENE_INVENTORY_AES_KEY"
  private val MAGIC="SENEENC1".toByteArray(Charsets.US_ASCII)
@@ -412,6 +448,8 @@ class InicioTurnoActivity:Activity(){
    if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body)
    else saveTextBackupLocal(this,"SENE-VENTAS-INICIO",body)
    Store.saveShift(this,shift)
+   getSharedPreferences("sene_ventas_server",0).edit()
+    .putString("worker_name",worker).putString("worker_phone",phone).apply()
    // Abrir el chat directo del patrón con el reporte completo ya preparado para enviar.
    pendingStartAfterWhatsApp=openWhatsAppText(this,body)
    if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado y el respaldo TXT está guardado en el teléfono, en SENE VENTAS / INVENTARIO SENE. Revisa el número de WhatsApp del patrón.")
@@ -421,10 +459,775 @@ class InicioTurnoActivity:Activity(){
  private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
  val n=input("Nombre del trabajador");val p=input("Número de celular del trabajador",true);val cash=input("¿Con cuánto inicia caja chica? $",true);v.addView(n);v.addView(p);v.addView(cash)
  v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton};startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())})
+ v.addView(button("Mi trabajo / Día de pago",false){startActivity(Intent(this,WorkerPortalActivity::class.java))})
  v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
  val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false};if(!inventoryReady){val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f);notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)}
- Protection.addBlindButton(this,v)
+ 
  v.addView(txt("Historial de Turnos"));val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f));display(v)}
+}
+
+
+class WorkerPortalActivity:Activity(){
+ private var pendingPairingScan=false
+ private fun prefs()=getSharedPreferences("sene_ventas_server",0)
+ private fun config(after:()->Unit){
+  val field=input("https://tu-worker.workers.dev")
+  field.setText(prefs().getString("server_base_url",""))
+  AlertDialog.Builder(this).setTitle("Conexión segura SENE")
+   .setMessage("Dirección HTTPS del servidor SENE.")
+   .setView(field).setPositiveButton("Guardar"){_,_->
+    val value=field.text.toString().trim().trimEnd('/')
+    val uri=Uri.parse(value)
+    if(!value.startsWith("https://")||uri.host.isNullOrBlank()||value.any{it.isWhitespace()}){msg("Dirección HTTPS no válida");return@setPositiveButton}
+    prefs().edit().putString("server_base_url",value).apply();after()
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun draw(){
+  val root=page("Mi trabajo")
+  root.addView(txt("Consulta tus solicitudes y el reporte de nómina cuando lo necesites. Las solicitudes se envían a SENE PATRÓN; no modifican ventas, caja ni inventario.",14f))
+  root.addView(button("NUEVA SOLICITUD"){requestsMenu()})
+  root.addView(button("SOLICITAR CORRECCIÓN DE VENTA",false){chooseSaleForCorrection()})
+  root.addView(button("CORREGIR VENTA AUTORIZADA"){refreshCorrectionApprovals()})
+  root.addView(button("MIS SOLICITUDES",false){showHistory()})
+  root.addView(button("DÍA DE PAGO / REPORTE DE NÓMINA"){showPayroll()})
+  root.addView(button("VINCULAR CON SENE PATRÓN",false){pairing()})
+  root.addView(button("CONFIGURAR CONEXIÓN",false){config{draw()}})
+  root.addView(button("VOLVER",false){finish()})
+  display(root)
+ }
+ override fun onCreate(b:Bundle?){super.onCreate(b);draw();prefs().edit().putBoolean("work_queue_sending",false).apply();flushQueue();flushCorrectionQueue();resumePreparedCorrections()}
+ override fun onResume(){super.onResume();flushQueue();flushCorrectionQueue();resumePreparedCorrections()}
+ private fun pairing(){
+  if(prefs().getString("server_base_url",null).isNullOrBlank()){config{pairing()};return}
+  AlertDialog.Builder(this).setTitle("Vincular SENE VENTAS")
+   .setMessage("Genera el QR en SENE PATRÓN y escanéalo aquí.")
+   .setPositiveButton("ESCANEAR QR"){_,_->pendingPairingScan=true;openScanner()}
+   .setNegativeButton("Cerrar",null).show()
+ }
+ private fun requestsMenu(){
+  val labels=arrayOf("Préstamo","Consumo","Permiso para faltar","Llegar tarde","Cambio de horario","Vacaciones","Reportar incidencia","Reportar faltante","Cambio de descanso","Adelanto de sueldo","Equipo dañado","Sugerencia")
+  val types=arrayOf("LOAN","CONSUMPTION","ABSENCE_PERMISSION","LATE_ARRIVAL","SCHEDULE_CHANGE","VACATION","INCIDENT","SHORTAGE","REST_DAY_CHANGE","SALARY_ADVANCE","DAMAGED_EQUIPMENT","SUGGESTION")
+  AlertDialog.Builder(this).setTitle("NUEVA SOLICITUD").setItems(labels){_,which->requestForm(types[which],labels[which])}.setNegativeButton("Cerrar",null).show()
+ }
+ private fun requestForm(type:String,label:String){
+  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val description=input("Describe tu solicitud");description.minLines=3;description.maxLines=5;box.addView(description)
+  val amount=if(type in setOf("LOAN","CONSUMPTION","SALARY_ADVANCE"))input("Cantidad solicitada en pesos $",true)else null
+  amount?.let{box.addView(it)}
+  AlertDialog.Builder(this).setTitle(label).setMessage("Se enviará a SENE PATRÓN. No cambia automáticamente caja ni inventario.")
+   .setView(box).setPositiveButton("ENVIAR"){_,_->
+    val text=description.text.toString().trim()
+    if(text.isBlank()){msg("Describe tu solicitud");return@setPositiveButton}
+    val details=JSONObject().put("description",text).put("requestedAt",System.currentTimeMillis())
+    if(amount!=null){
+     val value=amount.text.toString().trim().replace(",",".").toDoubleOrNull()
+     if(value==null||value<=0||value>1_000_000){msg("Cantidad no válida");return@setPositiveButton}
+     details.put("amountCents",Math.round(value*100.0))
+    }
+    val queue=prefs().getString("work_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    queue.put(JSONObject().put("key",UUID.randomUUID().toString()).put("type",type).put("label",label).put("details",details))
+    prefs().edit().putString("work_queue",queue.toString()).apply()
+    flushQueue(showFeedback = true)
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun correctionStatusLabel(status:String):String=when(status.lowercase(Locale.ROOT)){
+  "pending"->"Pendiente"
+  "approved"->"Autorizada"
+  "rejected"->"Rechazada"
+  "consumed"->"Utilizada"
+  else->status.ifBlank{"Sin estado"}
+ }
+ private fun chooseSaleForCorrection(){
+  val sales=Store.sales(this)
+  val grouped=linkedMapOf<String,MutableList<JSONObject>>()
+  for(i in 0 until sales.length()){
+   val item=sales.optJSONObject(i)?:continue
+   val ts=item.optLong("ts",0L);if(ts<=0L)continue
+   val id=item.optString("saleId").takeIf{it.isNotBlank()}?:("legacy-"+ts)
+   grouped.getOrPut(id){mutableListOf()}.add(item)
+  }
+  if(grouped.isEmpty()){msg("Todavía no hay ventas registradas para solicitar una corrección.");return}
+  val ids=grouped.keys.toList().asReversed()
+  val labels=ids.map{id->
+   val rows=grouped[id].orEmpty();var total=0.0
+   for(row in rows)total+=row.optDouble("subtotal",0.0)
+   rows.firstOrNull()?.optString("time").orEmpty()+" · "+rows.size+" renglón(es) · "+Store.money(total)
+  }
+  AlertDialog.Builder(this).setTitle("ELIGE LA VENTA")
+   .setItems(labels.toTypedArray()){_,which->correctionReason(ids[which],labels[which])}
+   .setNegativeButton("Cancelar",null).show()
+ }
+ private fun correctionReason(saleId:String,summary:String){
+  val categories=arrayOf("Devolución","Ajuste de precio","Eliminación de producto","Corrección de cantidad","Producto equivocado","Producto omitido","Otro")
+  AlertDialog.Builder(this).setTitle("MOTIVO DE LA CORRECCIÓN")
+   .setMessage("La solicitud será una sola por venta. Primero reúne todos los cambios necesarios; después el patrón aprobará el plan completo. Los productos, códigos, cantidades y precios nunca se envían al servidor.")
+   .setItems(categories){_,which->
+    val category=categories[which]
+    val detail=input("Describe brevemente qué debe corregirse")
+    detail.minLines=2;detail.maxLines=4
+    detail.filters=arrayOf(android.text.InputFilter.LengthFilter(500))
+    AlertDialog.Builder(this).setTitle(category).setView(detail)
+     .setPositiveButton("CONTINUAR"){_,_->
+      val localDetail=detail.text.toString().trim()
+      if(localDetail.isBlank()){msg("Describe brevemente la corrección");return@setPositiveButton}
+      startCorrectionPlan(saleId,summary,category,localDetail)
+     }.setNegativeButton("Cancelar",null).show()
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun correctionSaleRows(saleId:String):MutableList<JSONObject>{
+  val result=mutableListOf<JSONObject>();val sales=Store.sales(this)
+  for(i in 0 until sales.length()){
+   val row=sales.optJSONObject(i)?:continue
+   if(row.optString("saleId")==saleId)result.add(JSONObject(row.toString()))
+  }
+  return result
+ }
+ private fun startCorrectionPlan(saleId:String,summary:String,reason:String,detail:String){
+  if(saleId.isBlank()||saleId.startsWith("legacy-")){msg("La venta no tiene un folio válido para solicitar autorización.");return}
+  val rows=correctionSaleRows(saleId)
+  if(rows.isEmpty()){msg("La venta ya no está disponible en el historial local.");return}
+  if(rows.any{it.has("correctionOpId")}){msg("Esta venta ya fue corregida.");return}
+  val plan=JSONArray()
+  addCorrectionPlanChange(saleId,summary,reason,detail,rows,plan)
+ }
+ private fun addCorrectionPlanChange(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray){
+  val used=mutableSetOf<String>()
+  for(i in 0 until plan.length())used.add(plan.optJSONObject(i)?.optString("fromCode").orEmpty())
+  val options=mutableListOf<String>();val rowIndexes=mutableListOf<Int>()
+  rows.forEachIndexed{index,row->
+   val code=row.optString("code")
+   if(code !in used){rowIndexes.add(index);options.add(row.optString("name","Producto")+" · "+row.optInt("qty")+" pza. · "+Store.money(row.optDouble("subtotal")))}
+  }
+  options.add("AGREGAR PRODUCTO OMITIDO")
+  if(options.isEmpty()){reviewCorrectionPlan(saleId,summary,primaryReason,detail,rows,plan);return}
+  AlertDialog.Builder(this).setTitle("AGREGAR CAMBIO A LA SOLICITUD")
+   .setMessage("Puedes reunir varios cambios antes de enviar una sola solicitud al patrón.")
+   .setItems(options.toTypedArray()){_,which->
+    if(which==rowIndexes.size)choosePlanTarget(saleId,summary,primaryReason,detail,rows,plan,null)
+    else{
+     val source=rows[rowIndexes[which]]
+     AlertDialog.Builder(this).setTitle(source.optString("name"))
+      .setItems(arrayOf("Cambiar producto o cantidad","Eliminar este producto")){_,action->
+       if(action==0)choosePlanTarget(saleId,summary,primaryReason,detail,rows,plan,source)
+       else recordPlanChange(saleId,summary,primaryReason,detail,rows,plan,source,"",0,0L)
+      }.setNegativeButton("Cancelar",null).show()
+    }
+   }.setNegativeButton("Terminar después",null).show()
+ }
+ private fun choosePlanTarget(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,source:JSONObject?){
+  val products=Store.products(this);val candidates=mutableListOf<JSONObject>()
+  for(i in 0 until products.length()){
+   val p=products.optJSONObject(i)?:continue
+   val code=p.optString("code").trim()
+   if(code.isBlank())continue
+   if(source!=null&&code==source.optString("code")){candidates.add(JSONObject(p.toString()));continue}
+   if(p.optInt("stock",-1)>0)candidates.add(JSONObject(p.toString()))
+  }
+  if(candidates.isEmpty()){msg("No hay productos disponibles en el catálogo.");return}
+  val labels=candidates.map{it.optString("name")+" · "+it.optString("code")+" · "+Store.money(it.optDouble("price"))+" · existencia "+it.optInt("stock")}
+  AlertDialog.Builder(this).setTitle(if(source==null)"PRODUCTO OMITIDO" else "PRODUCTO CORRECTO")
+   .setItems(labels.toTypedArray()){_,which->
+    val target=candidates[which];val qty=input("Cantidad nueva",true)
+    qty.inputType=android.text.InputType.TYPE_CLASS_NUMBER
+    qty.setText(if(source!=null)source.optInt("qty").toString() else "1")
+    AlertDialog.Builder(this).setTitle("CANTIDAD")
+     .setMessage("Precio actual del catálogo: "+Store.money(target.optDouble("price")))
+     .setView(qty).setPositiveButton("AGREGAR CAMBIO"){_,_->
+      val count=qty.text.toString().trim().toIntOrNull()
+      if(count==null||count !in 1..100000){msg("La cantidad debe ser un entero mayor que cero.");return@setPositiveButton}
+      val cents=kotlin.math.round(target.optDouble("price")*100.0).toLong()
+      if(cents<0L){msg("El precio del producto no es válido.");return@setPositiveButton}
+      recordPlanChange(saleId,summary,primaryReason,detail,rows,plan,source,target.optString("code"),count,cents,target.optString("name"))
+     }.setNegativeButton("Cancelar",null).show()
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun recordPlanChange(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,source:JSONObject?,targetCode:String,newQty:Int,targetPriceCents:Long=0L,targetName:String=""){
+  val categories=arrayOf("Devolución","Ajuste de precio","Eliminación de producto","Corrección de cantidad","Producto equivocado","Producto omitido","Otro")
+  AlertDialog.Builder(this).setTitle("MOTIVO DE ESTE CAMBIO")
+   .setItems(categories){_,which->
+    val from=source?.optString("code").orEmpty()
+    val change=JSONObject().put("fromCode",from).put("toCode",targetCode).put("newQty",newQty)
+     .put("targetPriceCents",targetPriceCents).put("reason",categories[which])
+     .put("fromName",source?.optString("name").orEmpty()).put("toName",targetName)
+     .put("oldQty",source?.optInt("qty",0)?:0)
+     .put("oldSubtotalCents",kotlin.math.round((source?.optDouble("subtotal",0.0)?:0.0)*100.0).toLong())
+    plan.put(change)
+    AlertDialog.Builder(this).setTitle("CAMBIO AGREGADO")
+     .setMessage("Se guardó localmente. ¿Deseas agregar otro cambio a la misma solicitud?")
+     .setPositiveButton("AGREGAR OTRO"){_,_->addCorrectionPlanChange(saleId,summary,primaryReason,detail,rows,plan)}
+     .setNegativeButton("REVISAR SOLICITUD"){_,_->reviewCorrectionPlan(saleId,summary,primaryReason,detail,rows,plan)}
+     .show()
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun correctionPlanHash(plan:JSONArray):String{
+  val canonical=JSONArray()
+  for(i in 0 until plan.length()){
+   val x=plan.optJSONObject(i)?:continue
+   // Vincular todos los campos del cambio, incluidos los valores originales
+   // y los nombres locales, para que ninguna parte del plan pueda alterarse
+   // después de que el patrón haya autorizado su huella.
+   canonical.put(JSONObject().put("fromCode",x.optString("fromCode"))
+    .put("toCode",x.optString("toCode")).put("newQty",x.optInt("newQty"))
+    .put("targetPriceCents",x.optLong("targetPriceCents"))
+    .put("oldQty",x.optInt("oldQty"))
+    .put("oldSubtotalCents",x.optLong("oldSubtotalCents"))
+    .put("fromName",x.optString("fromName"))
+    .put("toName",x.optString("toName"))
+    .put("reason",x.optString("reason")))
+  }
+  return MessageDigest.getInstance("SHA-256").digest(canonical.toString().toByteArray(Charsets.UTF_8))
+   .joinToString(""){"%02x".format(it.toInt() and 0xff)}
+ }
+ private fun reviewCorrectionPlan(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray){
+  if(plan.length()==0){msg("Agrega al menos un cambio antes de enviar.");return}
+  val catalog=Store.products(this);val productByCode=mutableMapOf<String,JSONObject>()
+  for(i in 0 until catalog.length()){val p=catalog.optJSONObject(i)?:continue;val code=p.optString("code");if(code.isNotBlank()){if(productByCode.containsKey(code)){msg("El catálogo tiene códigos duplicados. Corrige el catálogo antes de continuar.");return};productByCode[code]=p}}
+  val sourceCodes=mutableSetOf<String>();val finalCodes=rows.map{it.optString("code")}.toMutableList()
+  val stockDelta=mutableMapOf<String,Int>();var oldTotal=0L;var newTotal=0L
+  for(row in rows){val cents=kotlin.math.round(row.optDouble("subtotal")*100.0).toLong();if(cents<0L){msg("El total original no es válido.");return};oldTotal+=cents;newTotal+=cents}
+  for(i in 0 until plan.length()){
+   val x=plan.optJSONObject(i)?:continue
+   val from=x.optString("fromCode");val to=x.optString("toCode");val qty=x.optInt("newQty")
+   if(from.isNotBlank()){
+    if(!sourceCodes.add(from)){msg("No puedes modificar dos veces el mismo renglón.");return}
+    val row=rows.firstOrNull{it.optString("code")==from}?:run{msg("Un renglón de la venta ya no existe.");return}
+    val oldCents=kotlin.math.round(row.optDouble("subtotal")*100.0).toLong()
+    newTotal-=oldCents;stockDelta[from]=(stockDelta[from]?:0)+row.optInt("qty")
+    finalCodes.remove(from)
+   }
+   if(to.isNotBlank()){
+    val p=productByCode[to]?:run{msg("Un producto del plan ya no existe en el catálogo.");return}
+    val currentCents=kotlin.math.round(p.optDouble("price")*100.0).toLong()
+    if(currentCents!=x.optLong("targetPriceCents")){msg("Cambió el precio del catálogo de "+p.optString("name")+". Crea una solicitud nueva con el precio vigente.");return}
+    if(qty !in 1..100000){msg("Una cantidad del plan no es válida.");return}
+    newTotal+=currentCents*qty;stockDelta[to]=(stockDelta[to]?:0)-qty;finalCodes.add(to)
+   }
+  }
+  if(finalCodes.size!=finalCodes.toSet().size){msg("El plan dejaría productos duplicados en el ticket. Ajusta los cambios antes de enviar.");return}
+  for((code,delta) in stockDelta){
+   val p=productByCode[code]?:run{msg("No se encontró existencia para un producto del plan.");return}
+   if(p.optInt("stock",-1)+delta<0){msg("La existencia no alcanza para aplicar todos los cambios juntos. No se envió la solicitud.");return}
+  }
+  if(newTotal<0L){msg("El total corregido no puede ser negativo.");return}
+  val delta=newTotal-oldTotal
+  val changesText=(0 until plan.length()).joinToString("\n"){i->val x=plan.optJSONObject(i)!!;"• "+(x.optString("fromName").ifBlank{"Producto omitido"})+" → "+(x.optString("toName").ifBlank{"Eliminado"})+" · cantidad "+x.optInt("newQty")+" · "+x.optString("reason")}
+  val impact=if(delta>0)"\nSe cobrará una diferencia de "+Store.money(delta/100.0) else if(delta<0)"\nSe devolverá "+Store.money(kotlin.math.abs(delta)/100.0) else "\nNo cambia el total de la venta."
+  AlertDialog.Builder(this).setTitle("REVISAR PLAN COMPLETO")
+   .setMessage("Folio: "+saleId+"\nCambios: "+plan.length()+"\nTotal original: "+Store.money(oldTotal/100.0)+"\nTotal corregido: "+Store.money(newTotal/100.0)+impact+"\n\n"+changesText+"\n\nSENE PATRÓN aprobará o rechazará este plan completo. Los detalles comerciales permanecerán en este teléfono.")
+   .setPositiveButton("CONTINUAR"){_,_->
+    if(delta==0L)enqueueCorrectionPlan(saleId,summary,primaryReason,detail,plan,oldTotal,newTotal,"")
+    else{
+     val cashReasons=arrayOf("Devolución al cliente","Diferencia por precio vigente","Cantidad corregida","Producto eliminado o incorrecto","Producto omitido","Otro")
+     AlertDialog.Builder(this).setTitle("MOTIVO DEL CAMBIO EN CAJA")
+      .setMessage("Como el total cambia, selecciona por qué habrá un cobro o devolución. Este motivo también lo verá el patrón.")
+      .setItems(cashReasons){_,which->enqueueCorrectionPlan(saleId,summary,primaryReason,detail,plan,oldTotal,newTotal,cashReasons[which])}
+      .setNegativeButton("Cancelar",null).show()
+    }
+   }.setNegativeButton("Seguir editando"){_,_->addCorrectionPlanChange(saleId,summary,primaryReason,detail,rows,plan)}
+   .show()
+ }
+ private fun enqueueCorrectionPlan(saleId:String,summary:String,primaryReason:String,detail:String,plan:JSONArray,oldTotalCents:Long,newTotalCents:Long,cashReason:String){
+  val reasons=JSONArray();val seen=mutableSetOf<String>()
+  if(primaryReason.isNotBlank()){seen.add(primaryReason);reasons.put(primaryReason)}
+  for(i in 0 until plan.length()){val reason=plan.optJSONObject(i)?.optString("reason").orEmpty();if(reason.isNotBlank()&&seen.add(reason))reasons.put(reason)}
+  val hash=correctionPlanHash(plan)
+  val item=JSONObject().put("saleId",saleId).put("reason",primaryReason).put("detail",detail)
+   .put("summary",summary).put("key",UUID.randomUUID().toString()).put("plan",plan)
+   .put("planHash",hash).put("reasons",reasons).put("cashImpact",oldTotalCents!=newTotalCents)
+   .put("cashReason",cashReason).put("oldTotalCents",oldTotalCents).put("newTotalCents",newTotalCents)
+  synchronized(prefs()){
+   val queue=prefs().getString("correction_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+   queue.put(item);prefs().edit().putString("correction_queue",queue.toString()).commit()
+  }
+  flushCorrectionQueue(true)
+ }
+ private fun refreshCorrectionApprovals(){
+  val base=prefs().getString("server_base_url",null)
+  if(base.isNullOrBlank()){config{refreshCorrectionApprovals()};return}
+  if(prefs().getString("device_id",null).isNullOrBlank()){pairing();return}
+  Thread{
+   try{
+    val since=prefs().getLong("work_updates_since",0L)
+    val updates=SeneApiClient(this,base).requestUpdates(since)
+    val corrections=updates.optJSONArray("corrections")?:JSONArray()
+    var newest=since
+    synchronized(prefs()){
+     val history=prefs().getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+     for(i in 0 until corrections.length()){
+      val item=corrections.optJSONObject(i)?:continue
+      val id=item.optString("requestId")
+      if(id.isBlank())continue
+      var found=false
+      for(j in 0 until history.length()){
+       val old=history.optJSONObject(j)?:continue
+       if(old.optString("requestId")==id){
+        old.put("status",item.optString("status"))
+        if(!item.isNull("grantId"))old.put("grantId",item.optString("grantId"))
+        old.put("serverPlanHash",item.optString("planHash"))
+        old.put("serverCashImpact",item.optBoolean("cashImpact"))
+        old.put("serverCashReason",item.optString("cashReason"))
+        old.put("decidedAt",item.optLong("decidedAt",0L))
+        found=true
+       }
+      }
+      if(!found)history.put(JSONObject().put("requestId",id).put("saleId",item.optString("saleId"))
+       .put("reason",item.optString("reason")).put("status",item.optString("status"))
+       .put("grantId",item.optString("grantId")).put("planHash",item.optString("planHash"))
+       .put("serverPlanHash",item.optString("planHash")).put("cashImpact",item.optBoolean("cashImpact"))
+       .put("serverCashImpact",item.optBoolean("cashImpact")).put("cashReason",item.optString("cashReason"))
+       .put("serverCashReason",item.optString("cashReason")).put("reasons",item.optJSONArray("reasons")?:JSONArray())
+       .put("createdAt",item.optLong("createdAt",0L)).put("decidedAt",item.optLong("decidedAt",0L)))
+      newest=maxOf(newest,item.optLong("decidedAt",0L))
+     }
+     prefs().edit().putString("correction_history",history.toString())
+      .putLong("work_updates_since",maxOf(0L,newest-1L)).commit()
+    }
+    runOnUiThread{showApprovedCorrectionPicker()}
+   }catch(e:Exception){runOnUiThread{msg("No se pudieron consultar las autorizaciones. Revisa la conexión e inténtalo de nuevo.")}}
+  }.start()
+ }
+ private fun showApprovedCorrectionPicker(){
+  val history=prefs().getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+  val approved=mutableListOf<JSONObject>()
+  for(i in 0 until history.length()){
+   val item=history.optJSONObject(i)?:continue
+   if(item.optString("status")=="approved"&&item.optString("grantId").isNotBlank()&&item.optString("requestId").isNotBlank()&&item.optJSONArray("plan")?.length()?.let{it>0}==true&&item.optString("planHash").isNotBlank())approved.add(JSONObject(item.toString()))
+  }
+  if(approved.isEmpty()){msg("No hay correcciones autorizadas pendientes de realizar.");return}
+  val labels=approved.map{it.optString("reason","Corrección")+" · "+it.optString("saleId")}
+  AlertDialog.Builder(this).setTitle("CORRECCIONES AUTORIZADAS")
+   .setItems(labels.toTypedArray()){_,which->beginApprovedCorrection(approved[which])}
+   .setNegativeButton("Cerrar",null).show()
+ }
+ private fun beginApprovedCorrection(request:JSONObject){
+  val saleId=request.optString("saleId")
+  val plan=request.optJSONArray("plan")?:JSONArray()
+  val expectedHash=request.optString("planHash")
+  if(saleId.isBlank()||saleId.startsWith("legacy-")||plan.length()==0||expectedHash.isBlank()){
+   msg("La autorización no contiene el plan local completo. No se puede ejecutar con seguridad.");return
+  }
+  if(correctionPlanHash(plan)!=expectedHash||request.optString("serverPlanHash",expectedHash)!=expectedHash||
+   request.optBoolean("serverCashImpact",request.optBoolean("cashImpact"))!=request.optBoolean("cashImpact")||
+   request.optString("serverCashReason",request.optString("cashReason"))!=request.optString("cashReason")){
+   msg("El plan o el motivo de caja local no coincide con lo registrado por SENE PATRÓN. No se consumió la autorización.");return
+  }
+  val rows=correctionSaleRows(saleId)
+  if(rows.isEmpty()){msg("La venta autorizada no se encuentra en el historial local.");return}
+  if(rows.any{it.has("correctionOpId")}){msg("Esta venta ya tiene una corrección aplicada.");return}
+  val pending=Store.pendingCorrectionOperations(this)
+  for(i in 0 until pending.length()){
+   val op=pending.optJSONObject(i)?:continue
+   if(op.optString("saleId")==saleId){msg("Esta venta ya tiene una corrección en proceso. Revisa su estado.");return}
+  }
+  var oldTotal=0L;var newTotal=0L
+  for(row in rows){val cents=kotlin.math.round(row.optDouble("subtotal")*100.0).toLong();if(cents<0L){msg("El total original no es válido.");return};oldTotal+=cents;newTotal+=cents}
+  val catalog=Store.products(this);val byCode=mutableMapOf<String,JSONObject>()
+  for(i in 0 until catalog.length()){val p=catalog.optJSONObject(i)?:continue;val code=p.optString("code");if(code.isNotBlank())byCode[code]=p}
+  val changedSources=mutableSetOf<String>()
+  for(i in 0 until plan.length()){
+   val change=plan.optJSONObject(i)?:run{msg("El plan contiene un cambio inválido.");return}
+   val from=change.optString("fromCode");val to=change.optString("toCode");val qty=change.optInt("newQty")
+   if(from.isNotBlank()){
+    if(!changedSources.add(from)){msg("El plan repite un renglón de origen.");return}
+    val source=rows.firstOrNull{it.optString("code")==from}?:run{msg("El renglón original ya no coincide con el plan.");return}
+    val oldCents=kotlin.math.round(source.optDouble("subtotal")*100.0).toLong()
+    if(oldCents!=change.optLong("oldSubtotalCents")||source.optInt("qty")!=change.optInt("oldQty")){
+     msg("La venta cambió desde que se solicitó la autorización. Se necesita una solicitud nueva.");return
+    }
+    newTotal-=oldCents
+   }
+   if(to.isNotBlank()){
+    val target=byCode[to]?:run{msg("Un producto autorizado ya no existe en el catálogo.");return}
+    val currentPrice=kotlin.math.round(target.optDouble("price")*100.0).toLong()
+    if(currentPrice!=change.optLong("targetPriceCents")){msg("Cambió el precio del catálogo desde la aprobación. Solicita una nueva autorización.");return}
+    if(qty !in 1..100000){msg("Una cantidad del plan no es válida.");return}
+    newTotal+=currentPrice*qty
+   }
+  }
+  val delta=newTotal-oldTotal
+  if(request.optBoolean("cashImpact")!=(delta!=0L)|| (delta!=0L&&request.optString("cashReason").isBlank())){
+   msg("El impacto de caja ya no coincide con el plan aprobado. No se consumió la autorización.");return
+  }
+  val changesText=(0 until plan.length()).joinToString("\n"){i->val x=plan.optJSONObject(i)!!;"• "+x.optString("fromName").ifBlank{"Producto omitido"}+" → "+x.optString("toName").ifBlank{"Eliminado"}+" · "+x.optInt("newQty")+" pza."}
+  val cashText=if(delta>0)"\nCobrar diferencia: "+Store.money(delta/100.0) else if(delta<0)"\nDevolver: "+Store.money(kotlin.math.abs(delta)/100.0) else "\nSin cambio de caja."
+  AlertDialog.Builder(this).setTitle("EJECUTAR CORRECCIÓN AUTORIZADA")
+   .setMessage("SENE PATRÓN aprobó este plan completo.\nFolio: "+saleId+"\nCambios: "+plan.length()+"\nTotal anterior: "+Store.money(oldTotal/100.0)+"\nTotal corregido: "+Store.money(newTotal/100.0)+cashText+"\nMotivo de caja: "+request.optString("cashReason","No aplica")+"\n\n"+changesText+"\n\nNo agregues ni cambies renglones después de la aprobación.")
+   .setPositiveButton(if(delta==0L)"APLICAR PLAN" else "REGISTRAR COBRO / DEVOLUCIÓN"){_,_->
+    if(delta==0L)persistAndConsumeCorrectionPlan(request,plan,null)
+    else collectCashEvidenceForPlan(request,plan,delta)
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun collectCashEvidenceForPlan(request:JSONObject,plan:JSONArray,deltaCents:Long){
+  val labels=arrayOf("Efectivo","Tarjeta","Transferencia","Otro")
+  val methods=arrayOf("cash","card","transfer","other")
+  AlertDialog.Builder(this).setTitle(if(deltaCents>0)"CONFIRMAR COBRO DE DIFERENCIA" else "CONFIRMAR DEVOLUCIÓN")
+   .setMessage("Importe neto exacto: "+Store.money(kotlin.math.abs(deltaCents)/100.0)+"\nMotivo aprobado: "+request.optString("cashReason")+"\n\nContinúa únicamente después de recibir o entregar realmente el dinero.")
+   .setItems(labels){_,which->
+    val reference=input("Referencia o nota del movimiento")
+    reference.setText(if(methods[which]=="cash")"Efectivo confirmado" else "")
+    AlertDialog.Builder(this).setTitle("EVIDENCIA LOCAL DE CAJA").setView(reference)
+     .setMessage("La referencia y el importe exacto se guardarán solo en este teléfono.")
+     .setPositiveButton("CONFIRMAR MOVIMIENTO REAL"){_,_->
+      val note=reference.text.toString().trim()
+      if(note.length !in 3..120){msg("La referencia debe tener entre 3 y 120 caracteres.");return@setPositiveButton}
+      val evidence=JSONObject().put("method",methods[which]).put("reference",note)
+       .put("amountCents",kotlin.math.abs(deltaCents)).put("confirmedAt",System.currentTimeMillis())
+      persistAndConsumeCorrectionPlan(request,plan,evidence)
+     }.setNegativeButton("Cancelar",null).show()
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun persistAndConsumeCorrectionPlan(request:JSONObject,plan:JSONArray,evidence:JSONObject?){
+  val base=prefs().getString("server_base_url",null);val device=prefs().getString("device_id",null)
+  if(base.isNullOrBlank()||device.isNullOrBlank()){msg("No se puede ejecutar sin conexión segura con SENE PATRÓN.");return}
+  val requestId=request.optString("requestId");val grantId=request.optString("grantId");val saleId=request.optString("saleId")
+  val planHash=request.optString("planHash")
+  if(requestId.isBlank()||grantId.isBlank()||saleId.isBlank()||planHash.isBlank()||correctionPlanHash(plan)!=planHash){
+   msg("Falta la autorización exacta del plan. No se consumió el permiso.");return
+  }
+  val changes=JSONArray()
+  for(i in 0 until plan.length()){
+   val x=plan.optJSONObject(i)?:continue
+   changes.put(JSONObject().put("fromCode",x.optString("fromCode"))
+    .put("toCode",x.optString("toCode")).put("newQty",x.optInt("newQty")))
+  }
+  val operation=JSONObject().put("opId",UUID.randomUUID().toString())
+   .put("requestId",requestId).put("grantId",grantId).put("saleId",saleId).put("planHash",planHash)
+   .put("reason",request.optString("reason","Otro")).put("detail",request.optString("detail").take(1000))
+   .put("cashReason",request.optString("cashReason")).put("state","prepared")
+   .put("cashConfirmed",evidence!=null).put("changes",changes).put("preparedAt",System.currentTimeMillis())
+  if(evidence!=null)operation.put("cashEvidence",evidence)
+  if(!Store.saveCorrectionOperation(this,operation)){msg("No se pudo guardar la operación local. No se consumió la autorización.");return}
+  Thread{
+   try{
+    val result=SeneApiClient(this,base).consumeCorrectionGrant(requestId,grantId,saleId,planHash,device)
+    if(!result.optBoolean("authorized",false)||result.optString("requestId")!=requestId||
+     result.optString("grantId")!=grantId||result.optString("saleId")!=saleId||result.optString("planHash")!=planHash)
+     throw IllegalStateException("El servidor no confirmó el permiso para este plan exacto.")
+    val consumed=JSONObject(operation.toString()).put("state","grant_consumed")
+     .put("consumedAt",result.optLong("consumedAt",System.currentTimeMillis()/1000)*1000L)
+    if(!Store.updateCorrectionOperation(this,operation.optString("opId"),"grant_consumed",consumed))
+     throw IllegalStateException("El permiso se consumió, pero el registro local se recuperará al reintentar.")
+    if(!Store.applySaleCorrection(this,consumed))
+     throw IllegalStateException("La autorización se consumió, pero la transacción local no pasó las validaciones. No se alteró la venta.")
+    synchronized(prefs()){
+     val history=prefs().getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+     for(i in 0 until history.length()){val item=history.optJSONObject(i)?:continue;if(item.optString("requestId")==requestId)item.put("status","consumed")}
+     prefs().edit().putString("correction_history",history.toString()).commit()
+    }
+    runOnUiThread{msg("Plan completo aplicado. Venta, inventario y auditoría local actualizados con un solo ajuste neto de caja.")}
+   }catch(e:Exception){runOnUiThread{msg("No se pudo completar: "+(e.message?:"error de conexión")+". La operación quedó guardada para recuperación segura.")}}
+  }.start()
+ }
+ private fun resumePreparedCorrections(){
+  val base=prefs().getString("server_base_url",null)?:return
+  val device=prefs().getString("device_id",null)?:return
+  val pending=Store.pendingCorrectionOperations(this)
+  if(pending.length()==0)return
+  Thread{
+   for(i in 0 until pending.length()){
+    val operation=pending.optJSONObject(i)?:continue
+    val state=operation.optString("state")
+    if(state !in setOf("prepared","grant_consumed"))continue
+    val requestId=operation.optString("requestId");val grantId=operation.optString("grantId");val saleId=operation.optString("saleId")
+    if(requestId.isBlank()||grantId.isBlank()||saleId.isBlank())continue
+    try{
+     var ready=JSONObject(operation.toString())
+     if(state=="prepared"){
+      val result=SeneApiClient(this,base).consumeCorrectionGrant(requestId,grantId,saleId,operation.optString("planHash"),device)
+      if(!result.optBoolean("authorized",false)||result.optString("grantId")!=grantId||result.optString("saleId")!=saleId||result.optString("planHash")!=operation.optString("planHash"))continue
+      ready.put("state","grant_consumed").put("consumedAt",result.optLong("consumedAt",System.currentTimeMillis()/1000)*1000L)
+      if(!Store.updateCorrectionOperation(this,operation.optString("opId"),"grant_consumed",ready))continue
+     }
+     if(Store.applySaleCorrection(this,ready)){
+      synchronized(prefs()){
+       val history=prefs().getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+       for(j in 0 until history.length()){
+        val item=history.optJSONObject(j)?:continue
+        if(item.optString("requestId")==requestId)item.put("status","consumed")
+       }
+       prefs().edit().putString("correction_history",history.toString()).commit()
+      }
+     }
+    }catch(_:Exception){}
+   }
+  }.start()
+ }
+ private fun flushCorrectionQueue(showFeedback:Boolean=false){
+  val base=prefs().getString("server_base_url",null)
+  if(base.isNullOrBlank()||prefs().getString("device_id",null).isNullOrBlank()){
+   if(showFeedback)msg("La solicitud quedó guardada. Configura y vincula SENE VENTAS para enviarla.")
+   return
+  }
+  // Reclamo atómico: evita que onResume y varios callbacks lancen remitentes simultáneos.
+  // Un lease vencido permite recuperarse si Android mata el proceso mientras enviaba.
+  val senderToken=UUID.randomUUID().toString()
+  val claimed=synchronized(prefs()){
+   val now=System.currentTimeMillis()
+   val active=prefs().getBoolean("correction_queue_sending",false)
+   val started=prefs().getLong("correction_queue_sending_at",0L)
+   if(active && started>0L && now-started<5*60*1000L)false
+   else{
+    val pending=prefs().getString("correction_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    if(pending.length()==0)false
+    else prefs().edit().putBoolean("correction_queue_sending",true)
+     .putLong("correction_queue_sending_at",now)
+     .putString("correction_queue_sender_token",senderToken).commit()
+   }
+  }
+  if(!claimed)return
+  Thread{
+   var sent=0
+   try{
+    val api=SeneApiClient(this,base)
+    var current=prefs().getString("correction_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    while(current.length()>0){
+     // Renueva el lease antes de cada petición y abandona si otro remitente lo recuperó.
+     val ownsLease=synchronized(prefs()){
+      if(prefs().getString("correction_queue_sender_token",null)==senderToken){
+       prefs().edit().putLong("correction_queue_sending_at",System.currentTimeMillis()).commit()
+       true
+      }else false
+     }
+     if(!ownsLease)break
+     val item=current.optJSONObject(0)?:break
+     // El texto libre puede contener productos, códigos, cantidades o importes.
+     // El detalle queda local; al servidor solo se envía un motivo genérico.
+     // Compatibilidad segura con solicitudes antiguas en cola: nunca enviar al servidor
+     // texto libre que pudiera contener productos, códigos, cantidades o importes.
+     val allowedReasons=setOf("Devolución","Ajuste de precio","Eliminación de producto",
+      "Corrección de cantidad","Producto equivocado","Producto omitido","Otro")
+     val safeReason=item.optString("reason").takeIf{it in allowedReasons}?: "Otro"
+     val result=api.createCorrectionRequest(
+      item.optString("saleId"),
+      safeReason,
+      item.optString("key"),
+      item.optString("planHash"),
+      item.optJSONArray("reasons") ?: JSONArray().put(safeReason),
+      item.optBoolean("cashImpact",false),
+      item.optString("cashReason")
+     )
+     // Un HTTP exitoso sin identificador no demuestra que la solicitud quedó registrada.
+     // Mantenerla en cola para reintentar con la misma clave idempotente.
+     if(result.optString("requestId").isBlank())throw IllegalStateException("El servidor no confirmó el identificador de la solicitud")
+     // Actualizar historial y cola bajo el mismo bloqueo que usa la consulta de respuestas.
+     // Así una respuesta aprobada/grantId nunca se pisa con el estado "pending" del envío.
+     val remaining=JSONArray()
+     synchronized(prefs()){
+      val history=prefs().getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+      val requestId=result.optString("requestId")
+      var exists=false
+      for(i in 0 until history.length())if(history.optJSONObject(i)?.optString("requestId")==requestId)exists=true
+      if(!exists)history.put(JSONObject().put("requestId",requestId).put("saleId",item.optString("saleId"))
+       .put("reason",item.optString("reason")).put("detail",item.optString("detail"))
+       .put("summary",item.optString("summary")).put("plan",item.optJSONArray("plan") ?: JSONArray())
+       .put("planHash",item.optString("planHash")).put("reasons",item.optJSONArray("reasons") ?: JSONArray())
+       .put("cashImpact",item.optBoolean("cashImpact",false)).put("cashReason",item.optString("cashReason"))
+       .put("oldTotalCents",item.optLong("oldTotalCents")).put("newTotalCents",item.optLong("newTotalCents"))
+       .put("status",result.optString("status","pending")).put("createdAt",result.optLong("createdAt",System.currentTimeMillis()/1000)))
+      val latest=prefs().getString("correction_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+      for(i in 0 until latest.length()){
+       val queued=latest.optJSONObject(i)?:continue
+       if(queued.optString("key")!=item.optString("key"))remaining.put(queued)
+      }
+      prefs().edit().putString("correction_history",history.toString()).putString("correction_queue",remaining.toString()).commit()
+     }
+     current=remaining;sent++
+    }
+   }catch(_:Exception){
+    if(showFeedback)runOnUiThread{msg("No se pudo enviar todavía. La solicitud quedó guardada y se reintentará al volver a Mi trabajo.")}
+   }finally{
+    // Solo el remitente dueño del lease puede liberarlo; uno antiguo no borra
+    // el bloqueo de un remitente nuevo tras una recuperación por timeout.
+    synchronized(prefs()){
+     if(prefs().getString("correction_queue_sender_token",null)==senderToken){
+      prefs().edit().putBoolean("correction_queue_sending",false)
+       .remove("correction_queue_sending_at").remove("correction_queue_sender_token").commit()
+     }
+    }
+    if(sent>0&&showFeedback)runOnUiThread{msg("Solicitud de corrección enviada a SENE PATRÓN.")}
+   }
+  }.start()
+ }
+ private fun flushQueue(showFeedback:Boolean=false){
+  val base=prefs().getString("server_base_url",null)
+  if(base.isNullOrBlank()){
+   if(showFeedback)msg("Solicitud guardada en este teléfono. Configura la conexión para enviarla al patrón.")
+   return
+  }
+  if(prefs().getString("device_id",null).isNullOrBlank()){
+   if(showFeedback)msg("Solicitud guardada. Vincula SENE VENTAS con el QR de SENE PATRÓN para enviarla.")
+   return
+  }
+  if(prefs().getBoolean("work_queue_sending",false))return
+  val queue=prefs().getString("work_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+  if(queue.length()==0)return
+  prefs().edit().putBoolean("work_queue_sending",true).apply()
+  Thread{
+   var sent=0
+   try{
+    val api=SeneApiClient(this,base)
+    var current=prefs().getString("work_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    var index=0
+    while(index<current.length()){
+     val item=current.optJSONObject(index)
+     if(item==null){index++;continue}
+     val result=api.submitWorkRequest(item.optString("type"),item.optJSONObject("details")?:JSONObject(),item.optString("key"))
+     val history=prefs().getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+     history.put(JSONObject().put("requestId",result.optString("requestId")).put("type",item.optString("label")).put("details",item.optJSONObject("details")?:JSONObject()).put("status",result.optString("status","pending")).put("createdAt",result.optLong("createdAt",System.currentTimeMillis()/1000)))
+     val remaining=JSONArray()
+     for(i in 0 until current.length())if(i!=index)remaining.put(current.get(i))
+     prefs().edit().putString("work_history",history.toString()).putString("work_queue",remaining.toString()).apply()
+     current=remaining;sent++
+    }
+   }catch(_:Exception){
+    if(showFeedback)runOnUiThread{msg("No se pudo enviar ahora. La solicitud quedó guardada y se reintentará al volver a abrir Mi trabajo.")}
+   }finally{
+    prefs().edit().putBoolean("work_queue_sending",false).apply()
+    if(sent>0&&showFeedback)runOnUiThread{msg("Solicitud enviada a SENE PATRÓN.")}
+   }
+  }.start()
+ }
+ private fun compactHistory(source:JSONArray):JSONArray{
+  val result=JSONArray()
+  for(i in maxOf(0,source.length()-30) until source.length()){
+   val item=source.optJSONObject(i)?:continue
+   result.put(JSONObject().put("requestId",item.optString("requestId"))
+    .put("type",item.optString("type"))
+    .put("details",JSONObject().put("description",item.optJSONObject("details")?.optString("description").orEmpty().take(200)))
+    .put("status",item.optString("status"))
+    .put("decisionDetails",item.optJSONObject("decisionDetails")?:JSONObject())
+    .put("createdAt",item.optLong("createdAt",0L))
+    .put("decidedAt",item.optLong("decidedAt",0L)))
+  }
+  return result
+ }
+ private fun showHistory(){
+  val base=prefs().getString("server_base_url",null)
+  if(base.isNullOrBlank()){config{showHistory()};return}
+  if(prefs().getString("device_id",null).isNullOrBlank()){pairing();return}
+  Thread{
+   try{
+    val since=prefs().getLong("work_updates_since",0L)
+    val updates=SeneApiClient(this,base).requestUpdates(since)
+    val decisions=updates.optJSONArray("items")?:JSONArray()
+    val corrections=updates.optJSONArray("corrections")?:JSONArray()
+    var history=JSONArray()
+    var correctionHistory=JSONArray()
+    var newest=since
+    synchronized(prefs()){
+     history=prefs().getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+     correctionHistory=prefs().getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+     for(i in 0 until decisions.length()){
+      val item=decisions.getJSONObject(i);val id=item.optString("requestId")
+      for(j in 0 until history.length()){
+       val old=history.optJSONObject(j)?:continue
+       if(old.optString("requestId")==id){
+        old.put("status",item.optString("status"))
+        old.put("decisionDetails",item.optJSONObject("decisionDetails")?:JSONObject())
+        old.put("decidedAt",item.optLong("decidedAt"))
+       }
+      }
+      newest=maxOf(newest,item.optLong("decidedAt",0L))
+     }
+     for(i in 0 until corrections.length()){
+      val item=corrections.optJSONObject(i)?:continue;val id=item.optString("requestId")
+      for(j in 0 until correctionHistory.length()){
+       val old=correctionHistory.optJSONObject(j)?:continue
+       if(old.optString("requestId")==id){
+        old.put("status",item.optString("status"))
+        old.put("decidedAt",item.optLong("decidedAt",0L))
+        if(!item.isNull("grantId"))old.put("grantId",item.optString("grantId"))
+       }
+      }
+      newest=maxOf(newest,item.optLong("decidedAt",0L))
+     }
+     prefs().edit().putString("work_history",history.toString()).putString("correction_history",correctionHistory.toString())
+      .putLong("work_updates_since",maxOf(0L,newest-1L)).commit()
+    }
+    val displayText=buildString{
+     if(history.length()==0&&correctionHistory.length()==0)append("Todavía no tienes solicitudes registradas.")
+     for(i in history.length()-1 downTo 0){
+      val item=history.optJSONObject(i)?:continue
+      append(item.optString("type")).append("\nEstado: ").append(item.optString("status")).append("\n")
+      append(item.optJSONObject("details")?.optString("description").orEmpty()).append("\n\n")
+     }
+     if(correctionHistory.length()>0)append("CORRECCIONES DE VENTA\n")
+     for(i in correctionHistory.length()-1 downTo 0){
+      val item=correctionHistory.optJSONObject(i)?:continue
+      append(item.optString("summary")).append("\nEstado: ").append(correctionStatusLabel(item.optString("status"))).append("\n")
+      append("Motivo: ").append(item.optString("reason")).append("\n\n")
+     }
+    }
+    runOnUiThread{AlertDialog.Builder(this).setTitle("MIS SOLICITUDES").setMessage(displayText).setPositiveButton("CERRAR",null).show()}
+   }catch(e:Exception){
+    val local=prefs().getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+    val localCorrections=prefs().getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+    val queuedCorrections=prefs().getString("correction_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    val localText=buildString{
+     if(local.length()==0&&localCorrections.length()==0&&queuedCorrections.length()==0)append("Todavía no tienes solicitudes registradas.")
+     for(i in local.length()-1 downTo 0){
+      val item=local.optJSONObject(i)?:continue
+      append(item.optString("type")).append("\nEstado: ").append(item.optString("status")).append("\n")
+      append(item.optJSONObject("details")?.optString("description").orEmpty()).append("\n\n")
+     }
+     if(localCorrections.length()>0)append("CORRECCIONES DE VENTA\n")
+     for(i in localCorrections.length()-1 downTo 0){
+      val item=localCorrections.optJSONObject(i)?:continue
+      append(item.optString("summary")).append("\nEstado: ").append(correctionStatusLabel(item.optString("status"))).append("\n")
+      append("Motivo: ").append(item.optString("reason")).append("\n\n")
+     }
+     if(queuedCorrections.length()>0)append("Correcciones pendientes de envío: ").append(queuedCorrections.length()).append("\n")
+     append("\nSin conexión: se muestra el historial guardado en este teléfono.")
+    }
+    runOnUiThread{AlertDialog.Builder(this).setTitle("MIS SOLICITUDES").setMessage(localText).setPositiveButton("CERRAR",null).show()}
+   }
+  }.start()
+ }
+ private fun showPayroll(){
+  val full=prefs().getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+  val history=compactHistory(full)
+  val worker=prefs().getString("worker_name","").orEmpty()
+  val phone=prefs().getString("worker_phone","").orEmpty()
+  val period=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
+  val report=JSONObject().put("worker",worker).put("workerPhone",phone).put("periodKey",period).put("generatedAt",System.currentTimeMillis()).put("requests",history)
+  prefs().edit().putString("payroll_local_$period",report.toString()).apply()
+  val base=prefs().getString("server_base_url",null)
+  val device=prefs().getString("device_id",null)
+  AlertDialog.Builder(this).setTitle("DÍA DE PAGO · NÓMINA")
+   .setMessage("Trabajador: "+worker.ifBlank{"No registrado"}+"\nSolicitudes: "+history.length()+"\nFecha: "+period+"\n\nPuedes consultar este reporte cuando quieras. El servidor solo lo recibe en la fecha configurada por el patrón.")
+   .setNeutralButton("CONSULTAR"){_,_->AlertDialog.Builder(this).setTitle("REPORTE "+period).setMessage(report.toString(2)).setPositiveButton("CERRAR",null).show()}
+   .setPositiveButton(if(base.isNullOrBlank()||device.isNullOrBlank())"VINCULAR PARA ENVIAR" else "ENVIAR AL SERVIDOR"){_,_->
+    if(base.isNullOrBlank()||device.isNullOrBlank()){pairing();return@setPositiveButton}
+    Thread{
+     try{
+      val result=SeneApiClient(this,base).sendPayrollReport(period,report,device)
+      runOnUiThread{msg(if(result.optBoolean("duplicate"))"El reporte ya estaba registrado." else "Reporte enviado a SENE PATRÓN.")}
+     }catch(e:Exception){
+      val detail=(e as? SeneVentasApiException)?.responseBody.orEmpty()
+      val friendly=when{
+       detail.contains("INVALID_PAYROLL_PERIOD")->"La fecha del teléfono no coincide con la fecha del servidor. Verifica la hora del celular."
+       detail.contains("PAYROLL_NOT_DUE")->"Hoy no es fecha de pago. Puedes consultar el reporte local."
+       detail.contains("PAYROLL_NOT_CONFIGURED")->"El patrón aún no configuró sueldo y fecha de pago."
+       else->"No se pudo enviar el reporte. Revisa la conexión."
+      }
+      runOnUiThread{msg(friendly)}
+     }
+    }.start()
+   }.setNegativeButton("CERRAR",null).show()
+ }
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){
+  super.onActivityResult(r,c,d)
+  if(r==SCAN_REQUEST){
+   if(c==RESULT_OK){
+    val codes=d?.getStringArrayListExtra(SCAN_CODES)
+    if(pendingPairingScan&&!codes.isNullOrEmpty()){
+     pendingPairingScan=false
+     val base=prefs().getString("server_base_url",null)?:return
+     Thread{try{val result=SeneApiClient(this,base).pair(codes.last());runOnUiThread{msg("SENE VENTAS vinculado. Espacio: "+result.optString("slot"));flushQueue()}}catch(e:Exception){runOnUiThread{msg("No se pudo vincular: "+(e.message?:"Error"))}}}.start()
+    }
+   }else pendingPairingScan=false
+  }
+ }
 }
 
 class MainActivity:Activity(){
@@ -443,7 +1246,13 @@ class MainActivity:Activity(){
   }
   salesClockHandler.postDelayed(this,1000L)
  }}
- private val ticket=linkedMapOf<String,Int>();private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private val h=Handler(Looper.getMainLooper())
+ private val ticket=linkedMapOf<String,Int>();private val checklistScannedCodes=mutableListOf<String>();private val checklistUncheckedCodes=mutableListOf<String>();private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private val h=Handler(Looper.getMainLooper())
+ private var connectivityManager:ConnectivityManager?=null
+ private val connectivityCallback=object:ConnectivityManager.NetworkCallback(){
+  override fun onAvailable(network:Network){
+   runOnUiThread{flushPendingShiftReports();flushPendingWorkRequests()}
+  }
+ }
  private var reportDialog:AlertDialog?=null
  private lateinit var countdownView:TextView
  private var pendingFinalReport=false
@@ -451,12 +1260,19 @@ class MainActivity:Activity(){
  private var pendingFinalShare=false
  private var confirmingReport=false
  private var refreshAfterPatron=false
+ private var pendingPairingScan=false
  private val lock=object:Runnable{override fun run(){if(::sell.isInitialized){updateReportCountdown();if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}};h.postDelayed(this,1000)}}
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(7200000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=7200000}
- override fun onCreate(b:Bundle?){super.onCreate(b);if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock()}
- override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
- override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
+ override fun onCreate(b:Bundle?){super.onCreate(b);if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();seneServerPrefs().edit().putBoolean("shift_reports_sending",false).putBoolean("work_queue_sending",false).apply();flushPendingShiftReports();flushPendingWorkRequests();watchConnectivity()}
+ override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();flushPendingShiftReports();flushPendingWorkRequests();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
+ override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);try{connectivityManager?.unregisterNetworkCallback(connectivityCallback)}catch(_:Exception){};super.onDestroy()}
+ private fun watchConnectivity(){
+  try{
+   connectivityManager=getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+   connectivityManager?.registerDefaultNetworkCallback(connectivityCallback)
+  }catch(_:Exception){connectivityManager=null}
+ }
  private fun refreshSalesInternetClock(){
   salesInternetText="Consultando…"
   if(::salesInternetClock.isInitialized)salesInternetClock.text="Hora de Internet: "+salesInternetText
@@ -477,7 +1293,7 @@ class MainActivity:Activity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT")
+  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT","Mi horario (8 horas)","Identidad de este equipo","Mi trabajo / Mis solicitudes","Vincular con SENE PATRÓN","Día de pago / Reporte de nómina","AYUDA OFICIAL SENE")
   val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
    override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
     val row=super.getView(position,convertView,parent) as TextView
@@ -496,8 +1312,430 @@ class MainActivity:Activity(){
     4->pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}
     5->AlertDialog.Builder(this).setTitle("Cerrar turno").setMessage("¿Enviar reporte final y cerrar turno?").setPositiveButton("Enviar y cerrar"){_,_->sendReport(true)}.setNegativeButton("Cancelar",null).show()
     6->saveReportToPhone()
+    7->showWorkerSchedule()
+    8->showDeviceIdentity()
+    9->startActivity(Intent(this,WorkerPortalActivity::class.java))
+    10->showVentasPairing()
+    11->showPayrollReport()
+    12->showOfficialSupportContacts()
    }
   }.setNegativeButton("Volver",null).show()
+ }
+
+
+ private fun showOfficialSupportContacts(){
+  val base=seneServerPrefs().getString("server_base_url",null)
+  if(base.isNullOrBlank()){msg("Conecta primero SENE VENTAS con SENE PATRÓN para consultar la AYUDA oficial.");return}
+  msg("Consultando y verificando la firma digital de AYUDA…")
+  Thread{
+   try{
+    val contacts=SeneApiClient(this,base).officialSupportContacts()
+    val email=contacts.getString("officialEmail")
+    val phone1=contacts.getString("helpPhone1")
+    val phone2=contacts.getString("helpPhone2")
+    runOnUiThread{
+     AlertDialog.Builder(this)
+      .setTitle("CONTACTOS OFICIALES SENE · VERIFICADOS")
+      .setMessage("Datos comprobados con la firma digital del servidor. Revisión: "+contacts.getLong("revision")+
+       "\n\nAYUDA 1: "+phone1+"\nAYUDA 2: "+phone2+"\nCorreo: "+email)
+      .setItems(arrayOf("Abrir WhatsApp · AYUDA 1","Abrir WhatsApp · AYUDA 2","Enviar correo oficial")){_,which->
+       val uri=when(which){
+        0->Uri.parse("https://wa.me/"+phone1.filter{it.isDigit()})
+        1->Uri.parse("https://wa.me/"+phone2.filter{it.isDigit()})
+        else->Uri.parse("mailto:"+email)
+       }
+       try{startActivity(Intent(Intent.ACTION_VIEW,uri))}
+       catch(_:Exception){msg("No se pudo abrir la aplicación correspondiente.")}
+      }
+      .setPositiveButton("CERRAR",null).show()
+    }
+   }catch(e:Exception){
+    runOnUiThread{
+     AlertDialog.Builder(this)
+      .setTitle("AYUDA OFICIAL NO VERIFICADA")
+      .setMessage("Por seguridad, SENE no mostrará ni utilizará números o correos que no pueda verificar con la firma digital del servidor.\n\nDetalle: "+(e.message?:"Error de verificación"))
+      .setPositiveButton("ENTENDIDO",null).show()
+    }
+   }
+  }.start()
+ }
+
+ private fun seneServerPrefs()=getSharedPreferences("sene_ventas_server",0)
+
+
+ private fun compactPayrollHistory(source:JSONArray):JSONArray{
+  val result=JSONArray()
+  val start=maxOf(0,source.length()-30)
+  for(i in start until source.length()){
+   val item=source.optJSONObject(i)?:continue
+   val details=item.optJSONObject("details")?:JSONObject()
+   val description=details.optString("description").take(200)
+   val compactDetails=JSONObject().put("description",description)
+   if(details.has("amountCents"))compactDetails.put("amountCents",details.optLong("amountCents"))
+   val compact=JSONObject()
+    .put("requestId",item.optString("requestId"))
+    .put("type",item.optString("type"))
+    .put("details",compactDetails)
+    .put("status",item.optString("status"))
+    .put("decisionDetails",item.optJSONObject("decisionDetails")?:JSONObject())
+    .put("createdAt",item.optLong("createdAt",0L))
+    .put("decidedAt",item.optLong("decidedAt",0L))
+   result.put(compact)
+  }
+  return result
+ }
+ private fun showPayrollReport(){
+  val prefs=seneServerPrefs()
+  val base=prefs.getString("server_base_url",null)
+  val device=prefs.getString("device_id",null)
+  val worker=prefs.getString("worker_name",Store.shift(this)?.optString("worker").orEmpty()).orEmpty()
+  val phone=prefs.getString("worker_phone",Store.shift(this)?.optString("phone").orEmpty()).orEmpty()
+  fun reportedRequestIds():Set<String>{
+   val ids=prefs.getString("payroll_reported_request_ids","[]")?.let{JSONArray(it)}?:JSONArray()
+   val result=LinkedHashSet<String>()
+   for(i in 0 until ids.length())ids.optString(i).takeIf{it.isNotBlank()}?.let{result.add(it)}
+   return result
+  }
+  var history=JSONArray()
+  var payrollRequestIds=emptyList<String>()
+  fun refreshPayrollScope(source:JSONArray){
+   history=compactPayrollHistory(source)
+   val sent=reportedRequestIds()
+   val ids=ArrayList<String>()
+   for(i in 0 until history.length()){
+    val id=history.optJSONObject(i)?.optString("requestId").orEmpty()
+    if(id.isNotBlank()&&id !in sent)ids.add(id)
+   }
+   payrollRequestIds=ids
+  }
+  refreshPayrollScope(prefs.getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray())
+  fun syncDecisions(api:SeneApiClient):Boolean{
+   return try{
+    val since=prefs.getLong("work_updates_since",0L)
+    val updates=api.requestUpdates(since,device!!)
+    val decisions=updates.optJSONArray("items")?:JSONArray()
+    val full=prefs.getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+    var newest=since
+    for(i in 0 until decisions.length()){
+     val item=decisions.optJSONObject(i)?:continue
+     val id=item.optString("requestId")
+     for(j in 0 until full.length()){
+      val old=full.optJSONObject(j)?:continue
+      if(old.optString("requestId")==id){
+       old.put("status",item.optString("status"))
+       old.put("decisionDetails",item.optJSONObject("decisionDetails")?:JSONObject())
+       old.put("decidedAt",item.optLong("decidedAt",0L))
+      }
+     }
+     newest=maxOf(newest,item.optLong("decidedAt",0L))
+    }
+    prefs.edit().putString("work_history",full.toString())
+     .putLong("work_updates_since",maxOf(0L,newest-1L)).apply()
+    refreshPayrollScope(full)
+    true
+   }catch(_:Exception){false}
+  }
+  fun reportFor(periodKey:String):JSONObject{
+   val report=JSONObject()
+    .put("worker",worker)
+    .put("workerPhone",phone)
+    .put("periodKey",periodKey)
+    .put("generatedAt",System.currentTimeMillis())
+    .put("requests",history)
+    .put("payrollRequestIds",JSONArray(payrollRequestIds))
+   prefs.edit().putString("payroll_local_$periodKey",report.toString()).apply()
+   return report
+  }
+  fun showReport(periodKey:String,report:JSONObject,canSend:Boolean,statusMessage:String){
+   val message=buildString{
+    append("Trabajador: ").append(worker.ifBlank{"No registrado"}).append("\n")
+    append("Solicitudes incluidas: ").append(history.length()).append("\n")
+    append("Fecha del reporte (servidor): ").append(periodKey).append("\n\n")
+    append(statusMessage).append("\n\n")
+    append("Este reporte no se envía por WhatsApp. Actualiza primero Mis solicitudes para incluir las respuestas recientes del patrón.")
+   }
+   val builder=AlertDialog.Builder(this).setTitle("DÍA DE PAGO · NÓMINA").setMessage(message)
+    .setNeutralButton("CONSULTAR REPORTE"){_,_->
+     AlertDialog.Builder(this).setTitle("REPORTE DE NÓMINA · $periodKey")
+      .setMessage(report.toString(2))
+      .setPositiveButton("CERRAR",null).show()
+    }
+   if(canSend)builder.setPositiveButton("ENVIAR AL SERVIDOR"){_,_->
+    Thread{
+     try{
+      val submissionKey="payroll_submission_$periodKey"
+      val savedSubmission=prefs.getString(submissionKey,null)
+      val submission=savedSubmission?.let{JSONObject(it)}?:report
+      if(savedSubmission==null&&!prefs.edit().putString(submissionKey,submission.toString()).commit()){
+       throw IllegalStateException("No se pudo guardar el reporte pendiente")
+      }
+      val result=SeneApiClient(this,base!!).sendPayrollReport(periodKey,submission,device!!)
+      val storedReport=result.optJSONObject("report")?:submission
+      val storedRequests=storedReport.optJSONArray("requests")?:JSONArray()
+      val payrollIds=storedReport.optJSONArray("payrollRequestIds")?:JSONArray()
+      val sentIds=LinkedHashSet<String>().apply{addAll(reportedRequestIds())}
+      val requestStates=HashMap<String,String>()
+      for(i in 0 until storedRequests.length()){
+       val item=storedRequests.optJSONObject(i)?:continue
+       requestStates[item.optString("requestId")]=item.optString("status")
+      }
+      for(i in 0 until payrollIds.length()){
+       val id=payrollIds.optString(i)
+       val state=requestStates[id]
+       if(id.isNotBlank()&&(state=="approved"||state=="rejected"))sentIds.add(id)
+      }
+      val idArray=JSONArray()
+      sentIds.toList().takeLast(1000).forEach{idArray.put(it)}
+      prefs.edit().putString("payroll_reported_request_ids",idArray.toString()).apply()
+      runOnUiThread{
+       msg(if(result.optBoolean("duplicate"))"El reporte de este día ya estaba registrado; se recuperó su contenido original." else "Reporte de nómina enviado a SENE PATRÓN.")
+      }
+     }catch(e:Exception){
+      val detail=(e as? SeneVentasApiException)?.responseBody.orEmpty()
+      val friendly=when{
+       detail.contains("INVALID_PAYROLL_PERIOD")->"La fecha del servidor cambió. Actualiza el reporte e inténtalo de nuevo."
+       detail.contains("PAYROLL_NOT_DUE")->"Hoy no es una fecha de pago configurada por el patrón."
+       detail.contains("PAYROLL_NOT_CONFIGURED")->"El patrón todavía no configuró sueldo y día de pago."
+       else->"No se pudo enviar el reporte. Revisa la conexión."
+      }
+      runOnUiThread{msg(friendly)}
+     }
+    }.start()
+   }
+   builder.setNegativeButton("CERRAR",null).show()
+  }
+  if(base.isNullOrBlank()||device.isNullOrBlank()){
+   val period=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
+   val report=reportFor(period)
+   showReport(period,report,false,"Vincula SENE VENTAS para consultar la fecha de pago y habilitar el envío.")
+   return
+  }
+  Thread{
+   try{
+    val api=SeneApiClient(this,base)
+    val session=api.session(device)
+    val historyFresh=syncDecisions(api)
+    val serverTime=session.optLong("serverTime",System.currentTimeMillis()/1000)
+    val dateFormat=SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{timeZone=TimeZone.getTimeZone("America/Mexico_City")}
+    val period=dateFormat.format(Date(serverTime*1000))
+    val report=reportFor(period)
+    val payroll=session.optJSONObject("payroll")
+    val configured=payroll?.optBoolean("configured",false)==true
+    val due=payroll?.optBoolean("dueToday",false)==true
+    val canSend=due && historyFresh
+    val status=when{
+     !configured->"El patrón todavía no configuró el sueldo y la fecha de pago de este equipo. El envío permanece deshabilitado."
+     !due->"Hoy no es fecha de pago de este equipo. Puedes consultar el reporte; el envío está deshabilitado."
+     !historyFresh->"No se pudieron actualizar las respuestas del patrón. Actualiza Mis solicitudes; el envío queda deshabilitado para no mandar datos incompletos."
+     else->"Hoy es fecha de pago confirmada por el servidor y las respuestas están actualizadas. El envío está habilitado."
+    }
+    runOnUiThread{showReport(period,report,canSend,status)}
+   }catch(e:Exception){
+    val period=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
+    val report=reportFor(period)
+    runOnUiThread{showReport(period,report,false,"No se pudo validar la fecha con el servidor. Por seguridad, el envío está deshabilitado.")}
+   }
+  }.start()
+ }
+ private fun showVentasServerConfig(after:()->Unit){
+  val prefs=seneServerPrefs()
+  val field=input("https://tu-worker.workers.dev")
+  field.setText(prefs.getString("server_base_url",""))
+  AlertDialog.Builder(this).setTitle("Conexión segura SENE")
+   .setMessage("Dirección HTTPS del servidor SENE. No uses la dirección de prueba Hello World.")
+   .setView(field).setPositiveButton("Guardar"){_,_->
+    val value=field.text.toString().trim().trimEnd('/')
+    val uri=Uri.parse(value)
+    if(!value.startsWith("https://")||uri.host.isNullOrBlank()||value.any{it.isWhitespace()}){
+     msg("Dirección HTTPS no válida");return@setPositiveButton
+    }
+    prefs.edit().putString("server_base_url",value).apply()
+    after()
+   }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun showVentasPairing(){
+  val prefs=seneServerPrefs()
+  if(prefs.getString("server_base_url",null).isNullOrBlank()){
+   showVentasServerConfig{showVentasPairing()};return
+  }
+  AlertDialog.Builder(this).setTitle("Vincular SENE VENTAS")
+   .setMessage("En SENE PATRÓN genera el código QR para este equipo. Después pulsa ESCANEAR QR aquí. La vinculación usa el espacio libre de Equipo 1 o Equipo 2.")
+   .setPositiveButton("ESCANEAR QR"){_,_->pendingPairingScan=true;openScanner()}
+   .setNeutralButton("Cambiar servidor"){_,_->showVentasServerConfig{showVentasPairing()}}
+   .setNegativeButton("Cerrar",null).show()
+ }
+ private fun finishVentasPairing(qr:String){
+  val base=seneServerPrefs().getString("server_base_url",null)?:return
+  Thread{
+   try{
+    val result=SeneApiClient(this,base).pair(qr)
+    runOnUiThread{msg("SENE VENTAS vinculado correctamente. Espacio: "+result.optString("slot"));flushPendingShiftReports();flushPendingWorkRequests()}
+   }catch(e:Exception){
+    runOnUiThread{msg("No se pudo vincular: "+(e.message?:"Error de conexión"))}
+   }
+  }.start()
+ }
+ private fun showWorkerRequestsMenu(){
+  if(seneServerPrefs().getString("device_id",null).isNullOrBlank()){
+   AlertDialog.Builder(this).setTitle("SENE VENTAS no está vinculado")
+    .setMessage("Primero vincula este teléfono con el QR generado desde SENE PATRÓN.")
+    .setPositiveButton("VINCULAR"){_,_->showVentasPairing()}
+    .setNegativeButton("Cerrar",null).show();return
+  }
+  flushPendingWorkRequests()
+  val labels=arrayOf("Préstamo","Consumo","Permiso para faltar","Llegar tarde","Cambio de horario","Vacaciones","Reportar incidencia","Reportar faltante","Cambio de descanso","Adelanto de sueldo","Equipo dañado","Sugerencia","Mis solicitudes")
+  val types=arrayOf("LOAN","CONSUMPTION","ABSENCE_PERMISSION","LATE_ARRIVAL","SCHEDULE_CHANGE","VACATION","INCIDENT","SHORTAGE","REST_DAY_CHANGE","SALARY_ADVANCE","DAMAGED_EQUIPMENT","SUGGESTION")
+  AlertDialog.Builder(this).setTitle("MI TRABAJO · SOLICITUDES")
+   .setItems(labels){_,which->
+    if(which==labels.lastIndex)showMyRequests()
+    else showWorkRequestForm(types[which],labels[which])
+   }.setNegativeButton("Cerrar",null).show()
+ }
+ private fun showWorkRequestForm(type:String,label:String){
+  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val details=input("Describe tu solicitud")
+  details.minLines=3;details.maxLines=5
+  box.addView(details)
+  val amountField=if(type in setOf("LOAN","CONSUMPTION","SALARY_ADVANCE")) input("Cantidad solicitada en pesos $",true) else null
+  amountField?.let{box.addView(it)}
+  AlertDialog.Builder(this).setTitle(label).setMessage("La solicitud se enviará a SENE PATRÓN. No modifica automáticamente caja, ventas ni inventario.")
+   .setView(box).setPositiveButton("ENVIAR SOLICITUD"){_,_->
+    val description=details.text.toString().trim()
+    if(description.isBlank()){msg("Escribe los detalles de tu solicitud");return@setPositiveButton}
+    val key=UUID.randomUUID().toString()
+    val payload=JSONObject().put("description",description).put("requestedAt",System.currentTimeMillis())
+    if(amountField!=null){
+     val amountValue=amountField.text.toString().trim().replace(",", ".").toDoubleOrNull()
+     if(amountValue==null||amountValue<=0||amountValue>1_000_000){msg("Captura una cantidad válida");return@setPositiveButton}
+     payload.put("amountCents",Math.round(amountValue*100.0))
+    }
+    val prefs=seneServerPrefs()
+    val queue=prefs.getString("work_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    queue.put(JSONObject().put("key",key).put("type",type).put("label",label).put("details",payload))
+    prefs.edit().putString("work_queue",queue.toString()).apply()
+    flushPendingWorkRequests()
+   }.setNegativeButton("Cancelar",null).show()
+ }
+
+ private fun flushPendingWorkRequests(){
+  val prefs=seneServerPrefs()
+  if(prefs.getBoolean("work_queue_sending",false))return
+  val base=prefs.getString("server_base_url",null)?:return
+  val queue=prefs.getString("work_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+  if(queue.length()==0)return
+  prefs.edit().putBoolean("work_queue_sending",true).apply()
+  Thread{
+   var sent=0
+   try{
+    val api=SeneApiClient(this,base)
+    var current=prefs.getString("work_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    var index=0
+    while(index<current.length()){
+     val item=current.optJSONObject(index)
+     if(item==null){index++;continue}
+     val result=api.submitWorkRequest(item.optString("type"),item.optJSONObject("details")?:JSONObject(),item.optString("key"))
+     val history=prefs.getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+     val requestId=result.optString("requestId")
+     var exists=false
+     for(j in 0 until history.length())if(history.optJSONObject(j)?.optString("requestId")==requestId)exists=true
+     if(!exists)history.put(JSONObject().put("requestId",requestId).put("type",item.optString("label")).put("details",item.optJSONObject("details")?:JSONObject()).put("status",result.optString("status","pending")).put("createdAt",result.optLong("createdAt",System.currentTimeMillis()/1000)))
+     val remaining=JSONArray()
+     for(j in 0 until current.length())if(j!=index)remaining.put(current.get(j))
+     prefs.edit().putString("work_history",history.toString()).putString("work_queue",remaining.toString()).apply()
+     current=remaining
+     sent++
+    }
+   }catch(_:Exception){}finally{
+    prefs.edit().putBoolean("work_queue_sending",false).apply()
+    if(sent>0)runOnUiThread{if(!isFinishing)Toast.makeText(this,"Solicitud enviada a SENE PATRÓN.",Toast.LENGTH_LONG).show()}
+   }
+  }.start()
+ }
+ private fun showMyRequests(){
+  val prefs=seneServerPrefs()
+  val base=prefs.getString("server_base_url",null)
+  if(base.isNullOrBlank()){showVentasServerConfig{showMyRequests()};return}
+  Thread{
+   try{
+    val since=prefs.getLong("work_updates_since",0L)
+    val updates=SeneApiClient(this,base).requestUpdates(since)
+    val items=updates.optJSONArray("items")?:JSONArray()
+    val history=prefs.getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+    var newest=since
+    for(i in 0 until items.length()){
+     val item=items.getJSONObject(i);val id=item.optString("requestId")
+     for(j in 0 until history.length()){
+      val old=history.optJSONObject(j)?:continue
+      if(old.optString("requestId")==id){old.put("status",item.optString("status"));old.put("decisionDetails",item.optJSONObject("decisionDetails")?:JSONObject());old.put("decidedAt",item.optLong("decidedAt"))}
+     }
+     newest=maxOf(newest,item.optLong("decidedAt",0L))
+    }
+    prefs.edit().putString("work_history",history.toString()).putLong("work_updates_since",maxOf(0L,newest-1L)).apply()
+    val message=buildString{
+     if(history.length()==0)append("Todavía no tienes solicitudes registradas.")
+     for(i in history.length()-1 downTo 0){
+      val item=history.optJSONObject(i)?:continue
+      append(item.optString("type")).append("\nEstado: ").append(item.optString("status")).append("\n")
+      append(item.optJSONObject("details")?.optString("description").orEmpty()).append("\n\n")
+     }
+    }
+    runOnUiThread{AlertDialog.Builder(this).setTitle("MIS SOLICITUDES").setMessage(message).setPositiveButton("Actualizar",null).setNegativeButton("Cerrar",null).show()}
+   }catch(e:Exception){runOnUiThread{msg("No se pudo actualizar el historial: "+(e.message?:"Error"))}}
+  }.start()
+ }
+
+ private fun queueShiftReportForServer(){
+  val shift=Store.shift(this)?:return
+  val start=shift.optLong("startTs",0L)
+  if(start<=0L)return
+  val key="shift-$start"
+  val sales=Store.sales(this)
+  var total=0.0
+  var tickets=0
+  for(i in 0 until sales.length()){
+   val item=sales.optJSONObject(i)?:continue
+   if(item.optLong("ts",0L)>=start){total+=item.optDouble("subtotal",0.0);tickets++}
+  }
+  val expenses=Store.providerExpenses(this,start)
+  val payload=JSONObject()
+   .put("worker",shift.optString("worker"))
+   .put("shiftStartedAt",start)
+   .put("shiftClosedAt",System.currentTimeMillis())
+   .put("openingCash",shift.optDouble("cash",0.0))
+   .put("salesTotal",total)
+   .put("salesLines",tickets)
+   .put("supplierExpenses",expenses)
+   .put("cashAtClose",shift.optDouble("cash",0.0)+total-expenses)
+  val prefs=seneServerPrefs()
+  val queue=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+  var exists=false
+  for(i in 0 until queue.length())if(queue.optJSONObject(i)?.optString("shiftKey")==key)exists=true
+  if(!exists)queue.put(JSONObject().put("shiftKey",key).put("report",payload))
+  prefs.edit().putString("shift_report_queue",queue.toString()).apply()
+  flushPendingShiftReports()
+ }
+ private fun flushPendingShiftReports(){
+  val prefs=seneServerPrefs()
+  if(prefs.getBoolean("shift_reports_sending",false))return
+  val base=prefs.getString("server_base_url",null)?:return
+  val device=prefs.getString("device_id",null)?:return
+  val queue=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+  if(queue.length()==0)return
+  prefs.edit().putBoolean("shift_reports_sending",true).apply()
+  Thread{
+   try{
+    val api=SeneApiClient(this,base)
+    var current=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
+    while(current.length()>0){
+     val item=current.optJSONObject(0)?:break
+     api.sendShiftReport(item.optString("shiftKey"),item.optJSONObject("report")?:JSONObject(),device)
+     val remaining=JSONArray()
+     for(i in 1 until current.length())remaining.put(current.get(i))
+     prefs.edit().putString("shift_report_queue",remaining.toString()).apply()
+     current=remaining
+    }
+   }catch(_:Exception){}finally{prefs.edit().putBoolean("shift_reports_sending",false).apply()}
+  }.start()
  }
  private fun showCurrentSalesSummary(){
   val shift=Store.shift(this)?:JSONObject()
@@ -549,6 +1787,75 @@ class MainActivity:Activity(){
   AlertDialog.Builder(this).setTitle("VENTAS HASTA EL MOMENTO").setView(report)
    .setPositiveButton("CERRAR",null).show()
  }
+
+ private fun showWorkerSchedule(){
+  val shift=Store.shift(this)
+  if(shift==null){
+   AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage("No hay un turno activo. Inicia tu turno para consultar tu hora de entrada y tu salida estimada.").setPositiveButton("CERRAR",null).show()
+   return
+  }
+  val start=shift.optLong("startTs",0L)
+  if(start<=0L){
+   AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage("Este turno no tiene una hora de entrada válida registrada.").setPositiveButton("CERRAR",null).show()
+   return
+  }
+  val end=start+8L*60L*60L*1000L
+  val now=System.currentTimeMillis()
+  val format=SimpleDateFormat("EEEE dd/MM/yyyy · HH:mm",Locale("es","MX"))
+  val remaining=end-now
+  val status=if(remaining>0L){
+   val total=remaining/60000L
+   "Tiempo restante estimado: "+(total/60L)+" h "+(total%60L)+" min"
+  }else{
+   val late=(-remaining)/60000L
+   "La jornada estimada de 8 horas ya se cumplió hace "+(late/60L)+" h "+(late%60L)+" min."
+  }
+  val message="TRABAJADOR: "+shift.optString("worker","-")+
+   "\nENTRADA REGISTRADA: "+format.format(Date(start))+
+   "\nSALIDA ESTIMADA (8 HORAS): "+format.format(Date(end))+
+   "\n\n"+status+
+   "\n\nLa salida se calcula sumando 8 horas exactas a la entrada registrada. No es una marcación de salida ni una confirmación del patrón. La hora se toma del reloj del teléfono."
+  AlertDialog.Builder(this).setTitle("MI HORARIO").setMessage(message).setPositiveButton("CERRAR",null).show()
+ }
+ private fun showDeviceIdentity(){
+  try{
+   val identity=DeviceIdentity.get(this)
+   // Autocomprobación local: confirma que Android Keystore puede firmar
+   // y que la clave pública corresponde a la privada de esta instalación.
+   // No registra ni autoriza el dispositivo en ningún servidor.
+   val challenge=ByteArray(32).also{java.security.SecureRandom().nextBytes(it)}
+   val signature=DeviceIdentity.signChallenge(this,challenge)
+   val validSignature=DeviceIdentity.verifyChallenge(identity,challenge,signature)
+   val alteredChallenge=challenge.copyOf().also{
+    it[0]=(it[0].toInt() xor 1).toByte()
+   }
+   val alteredChallengeRejected=!DeviceIdentity.verifyChallenge(identity,alteredChallenge,signature)
+   val alteredSignature=android.util.Base64.decode(signature,android.util.Base64.NO_WRAP).also{
+    it[it.lastIndex]=(it.last().toInt() xor 1).toByte()
+   }
+   val alteredSignatureRejected=!DeviceIdentity.verifyChallenge(
+    identity,challenge,android.util.Base64.encodeToString(alteredSignature,android.util.Base64.NO_WRAP)
+   )
+   val alteredFingerprint=identity.copy(fingerprint=identity.fingerprint.reversed())
+   val alteredFingerprintRejected=!DeviceIdentity.verifyChallenge(alteredFingerprint,challenge,signature)
+   val integrityOk=validSignature&&alteredChallengeRejected&&alteredSignatureRejected&&alteredFingerprintRejected
+   val integrityText=if(integrityOk)"CORRECTA" else "NO SUPERADA"
+   val message="APLICACIÓN: SENE VENTAS"+
+    "\nESTADO: NO VINCULADO"+
+    "\nESPACIO: PENDIENTE DE ASIGNAR (EQUIPO 1 O EQUIPO 2)"+
+    "\nPRUEBA LOCAL DE IDENTIDAD: "+integrityText+
+    "\nRETO ALTERADO: "+(if(alteredChallengeRejected)"RECHAZADO" else "ACEPTADO")+
+    "\nFIRMA ALTERADA: "+(if(alteredSignatureRejected)"RECHAZADA" else "ACEPTADA")+
+    "\nHUELLA ALTERADA: "+(if(alteredFingerprintRejected)"RECHAZADA" else "ACEPTADA")+
+    "\n\nID DE ESTA INSTALACIÓN:\n"+identity.installationId+
+    "\n\nID DE CONTINUIDAD DEL DISPOSITIVO:\n"+identity.continuityId+
+    "\n\nHUELLA DE SU CLAVE:\n"+identity.fingerprint+
+    "\n\nEl ID de continuidad permite reconocer este mismo teléfono después de reinstalar SENE VENTAS, mientras Android conserve su identificador de dispositivo y se mantengan el perfil y la firma de la app. La clave criptográfica sí se renueva al desinstalar y volver a instalar. El servidor deberá localizar la vinculación anterior y exigir autenticación y una nueva comprobación antes de recuperarla. Todavía no se ha registrado en Firebase ni autorizado por SENE PATRÓN."
+   AlertDialog.Builder(this).setTitle("IDENTIDAD DEL EQUIPO").setMessage(message).setPositiveButton("CERRAR",null).show()
+  }catch(e:Exception){
+   AlertDialog.Builder(this).setTitle("IDENTIDAD DEL EQUIPO").setMessage("No se pudo crear, firmar o comprobar la identidad segura de este teléfono.\n\nDetalle: "+(e.message?:"Error desconocido")).setPositiveButton("CERRAR",null).show()
+  }
+ }
  private fun showProviderExpenses(){
   val shift=Store.shift(this)?:JSONObject()
   val start=shift.optLong("startTs",0L)
@@ -568,6 +1875,86 @@ class MainActivity:Activity(){
   view.addView(txt(if(rows.isEmpty())"Aún no hay pagos a proveedores registrados en este turno." else rows.asReversed().joinToString("\n\n"),14f))
   AlertDialog.Builder(this).setTitle("GASTOS A PROVEEDORES").setView(view).setPositiveButton("CERRAR",null).show()
  }
+ private fun showTickets(){
+  val sales=Store.sales(this)
+  val groups=linkedMapOf<String,MutableList<JSONObject>>()
+  for(i in 0 until sales.length()){
+   val row=sales.optJSONObject(i)?:continue
+   val ts=row.optLong("ts",0L)
+   val id=row.optString("saleId").takeIf{it.isNotBlank()}?:("legacy-"+ts)
+   groups.getOrPut(id){mutableListOf()}.add(row)
+  }
+  if(groups.isEmpty()){msg("Todavía no hay tickets de ventas realizadas");return}
+  val entries=groups.entries.toList().asReversed()
+  val labels=entries.map{entry->
+   val rows=entry.value
+   val first=rows.first()
+   val total=first.optDouble("saleTotal",rows.sumOf{it.optDouble("subtotal",0.0)})
+   first.optString("time","Fecha no disponible")+" · "+rows.size+" productos · "+Store.money(total)
+  }.toTypedArray()
+  AlertDialog.Builder(this).setTitle("TICKETS DE VENTAS")
+   .setItems(labels){_,which->
+    val rows=entries[which].value
+    val first=rows.first()
+    val body=buildString{
+     append("VENTA REALIZADA\n").append(first.optString("time","Fecha no disponible"))
+     append("\nFolio: ").append(first.optString("saleId","Venta anterior sin folio"))
+     append("\n\nPRODUCTOS\n")
+     for(row in rows)append("• ").append(row.optString("name","Producto"))
+      .append(" x").append(row.optInt("qty"))
+      .append(" · ").append(Store.money(row.optDouble("subtotal"))).append("\n")
+     append("\nTOTAL ACTUAL DEL TICKET: ").append(Store.money(first.optDouble("saleTotal",rows.sumOf{it.optDouble("subtotal",0.0)})))
+     append("\nPago recibido al realizar la venta: ").append(Store.money(first.optDouble("amountPaid")))
+     append("\nCambio entregado originalmente: ").append(Store.money(first.optDouble("change")))
+     val correctionMoves=Store.moves(this@MainActivity)
+     val ticketCorrections=(0 until correctionMoves.length()).mapNotNull{idx->correctionMoves.optJSONObject(idx)}
+      .filter{it.optString("type")=="CORRECTION_AUDIT" && it.optString("saleId")==first.optString("saleId")}
+      .sortedBy{it.optLong("ts",0L)}
+     if(ticketCorrections.isNotEmpty()){
+      append("\n\nAJUSTES POSTERIORES REGISTRADOS")
+      for(audit in ticketCorrections){
+       val evidence=audit.optJSONObject("cashEvidence")?:JSONObject()
+       val method=when(evidence.optString("method").lowercase()){
+        "cash"->"Efectivo";"card"->"Tarjeta";"transfer"->"Transferencia";"other"->"Otro";else->"No indicado"
+       }
+       val at=audit.optLong("ts",0L)
+       append("\n\n").append(if(at>0)SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(at)) else "Fecha no disponible")
+       append("\nMotivo: ").append(audit.optString("reason","Sin motivo"))
+       if(audit.optString("detail").isNotBlank())append("\nDetalle: ").append(audit.optString("detail"))
+       append("\nTotal anterior: ").append(Store.money(audit.optDouble("previousTotal")))
+       append("\nTotal corregido: ").append(Store.money(audit.optDouble("newTotal")))
+       when(audit.optString("direction")){
+        "COBRO"->append("\nDiferencia cobrada después: ").append(Store.money(audit.optDouble("amount")))
+        "DEVOLUCION"->append("\nDiferencia devuelta después: ").append(Store.money(audit.optDouble("amount")))
+        else->append("\nSin movimiento adicional de dinero")
+       }
+       if(audit.optDouble("amount",0.0)>0.0){
+        append("\nConfirmación: ").append(if(audit.optBoolean("cashConfirmed"))"Registrada" else "No registrada")
+        append("\nMedio: ").append(method)
+        append("\nReferencia: ").append(evidence.optString("reference","-"))
+       }
+       if(audit.optString("cashReason").isNotBlank())append("\nMotivo del ajuste de caja: ").append(audit.optString("cashReason"))
+      }
+      append("\n\nNota: el total corregido ya está reflejado en el total actual de la venta. Los ajustes posteriores se muestran como evidencia y no deben sumarse otra vez.")
+     }
+     val checklist=first.optString("checklistStatus","")
+     append("\n\nVERIFICACIÓN DE PRODUCTOS: ").append(when(checklist){"COMPLETO"->"COMPLETA";"INCOMPLETO"->"INCOMPLETA";"NO_REALIZADO"->"NO REALIZADA";else->"SIN DATOS (VENTA ANTERIOR)"})
+     val scanned=first.optJSONArray("checklistScannedCodes")?:JSONArray()
+     val unchecked=first.optJSONArray("checklistUncheckedCodes")?:JSONArray()
+     if(scanned.length()>0){
+      append("\nCódigos revisados: ")
+      for(i in 0 until scanned.length()){if(i>0)append(", ");append(scanned.optString(i))}
+     }
+     if(unchecked.length()>0){
+      append("\nCódigos que quedaron sin marcar: ")
+      for(i in 0 until unchecked.length()){if(i>0)append(", ");append(unchecked.optString(i))}
+     }
+     append("\n\nEsta consulta es solo de lectura. Para solicitar una corrección, usa la opción de correcciones; no se modifica la venta desde aquí.")
+    }
+    AlertDialog.Builder(this).setTitle("DETALLE DEL TICKET").setMessage(body)
+     .setPositiveButton("CERRAR",null).show()
+   }.setNegativeButton("CERRAR",null).show()
+ }
  private fun draw(){
   val v=page("VENTAS"){showToolsMenu()}
   val sales=Store.sales(this);var sum=0.0;var count=0
@@ -581,9 +1968,10 @@ class MainActivity:Activity(){
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
   sell=button("COBRAR Y REGISTRAR VENTA"){sellTicket()};v.addView(sell)
-  v.addView(button("Limpiar ticket",false){ticket.clear();refresh()})
-  Protection.addBlindButton(this,v)
+  v.addView(button("Limpiar ticket",false){ticket.clear();checklistScannedCodes.clear();checklistUncheckedCodes.clear();refresh()})
+  
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
+  v.addView(button("TICKETS",false){showTickets()})
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
  }
 private fun reviewScannedCodes(codes:ArrayList<String>){
@@ -608,7 +1996,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    .setView(scroll)
    .setPositiveButton("Agregar seleccionados"){_,_->
     var selected=0
-    for(i in codes.indices){if(boxes[i].isChecked){selected++;addCode(codes[i])}}
+    for(i in codes.indices){checklistScannedCodes.add(codes[i]);if(boxes[i].isChecked){selected++;addCode(codes[i])}else checklistUncheckedCodes.add(codes[i])}
     if(selected==0)msg("No seleccionaste productos verificados")
    }
    .setNegativeButton("Cancelar",null)
@@ -641,10 +2029,10 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  private fun sellTicket(){if(due()){showReportAlert();return};if(ticket.isEmpty()){msg("Ticket vacio. Escanea un producto.");return}
  val p=Store.products(this);val list=mutableListOf<Pair<JSONObject,Int>>();var sum=0.0
  for((c,q) in ticket){var found:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i);if(x?.optString("code")==c){found=x;break}};if(found==null){msg("Producto no encontrado: "+c);return};if(found.optInt("stock")<q){msg("Stock insuficiente: "+found.optString("name")+". Quedan "+found.optInt("stock"));return};list.add(found to q);sum+=found.optDouble("price")*q}
- val pay=paid.text.toString().toDoubleOrNull()?:0.0;if(pay<sum){msg("Falta dinero");return};val s=Store.shift(this)?:JSONObject()
- val saleTime=stamp();val saleTs=System.currentTimeMillis();val saleItems=ArrayList<JSONObject>()
- for((x,q) in list){x.put("stock",x.optInt("stock")-q);saleItems.add(JSONObject().put("ts",saleTs).put("time",saleTime).put("code",x.optString("code")).put("name",x.optString("name")).put("qty",q).put("price",x.optDouble("price")).put("subtotal",x.optDouble("price")*q).put("worker",s.optString("worker")))}
- Store.saveProducts(this,p);Store.addSales(this,saleItems);val change=pay-sum;val n=list.size;ticket.clear();paid.setText("");msg("Venta guardada: "+n+" productos | Total "+Store.money(sum)+" | Cambio "+Store.money(change));draw()}
+ val pay=parseAmount(paid.text.toString())?:0.0;if(pay<sum){msg("Falta dinero");return};val s=Store.shift(this)?:JSONObject()
+ val saleTime=stamp();val saleTs=System.currentTimeMillis();val saleId=UUID.randomUUID().toString();val saleItems=ArrayList<JSONObject>()
+ for((x,q) in list){x.put("stock",x.optInt("stock")-q);saleItems.add(JSONObject().put("saleId",saleId).put("ts",saleTs).put("time",saleTime).put("code",x.optString("code")).put("name",x.optString("name")).put("qty",q).put("price",x.optDouble("price")).put("subtotal",x.optDouble("price")*q).put("worker",s.optString("worker")).put("saleTotal",sum).put("amountPaid",pay).put("change",pay-sum).put("saleItemCount",list.size).put("checklistScannedCount",checklistScannedCodes.size).put("checklistCheckedCount",checklistScannedCodes.size-checklistUncheckedCodes.size).put("checklistStatus",if(checklistScannedCodes.isEmpty())"NO_REALIZADO" else if(checklistUncheckedCodes.isEmpty())"COMPLETO" else "INCOMPLETO").put("checklistComplete",checklistScannedCodes.isNotEmpty()&&checklistUncheckedCodes.isEmpty()).put("checklistScannedCodes",JSONArray(checklistScannedCodes)).put("checklistUncheckedCodes",JSONArray(checklistUncheckedCodes)))}
+ if(!Store.recordSale(this,p,saleItems)){msg("Esta venta ya quedó registrada o no se pudo validar su folio. Revisa Tickets antes de intentarlo de nuevo.");return};val change=pay-sum;val n=list.size;ticket.clear();checklistScannedCodes.clear();checklistUncheckedCodes.clear();paid.setText("");msg("Venta guardada: "+n+" productos | Total "+Store.money(sum)+" | Cambio "+Store.money(change));draw()}
  private fun reportText(final:Boolean):String{val s=Store.shift(this)?:JSONObject();val all=Store.sales(this);val b=StringBuilder("SENE.VENTAS - "+if(final)"CIERRE DE TURNO" else "REPORTE");var sum=0.0;b.append("\nTrabajador: ").append(s.optString("worker")).append("\nFecha/hora celular: ").append(stamp()).append("\nCaja inicial: ").append(Store.money(s.optDouble("cash"))).append("\nVentas del turno")
  for(i in 0 until all.length()){val x=all.optJSONObject(i)?:continue;if(x.optLong("ts")>=s.optLong("startTs",0)){sum+=x.optDouble("subtotal");b.append("\n").append(x.optString("time")).append(" ").append(x.optString("name")).append(" x").append(x.optInt("qty")).append(" = ").append(Store.money(x.optDouble("subtotal")))}}
  val expenses=Store.providerExpenses(this,s.optLong("startTs",0L))
@@ -668,6 +2056,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
    val file=ReportFile.update(this)
+   if(final)queueShiftReportForServer()
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file)
@@ -678,8 +2067,10 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }catch(e:Exception){msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))}
  }
  private fun launchPendingReportShare(){
-  val body=pendingReportText?:return
-  openWhatsAppText(this,body)
+  val uri=pendingShareUri?:return
+  if(!openWhatsAppDocument(this,uri,"Reporte SENE VENTAS")){
+   msg("El reporte TXT quedó guardado, pero no se pudo abrir WhatsApp para adjuntarlo. Verifica que WhatsApp esté instalado e inténtalo de nuevo.")
+  }
  }
  private fun confirmReportSent(){
   if(confirmingReport||pendingShareUri==null)return
@@ -719,7 +2110,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private fun stock(){val p=Store.products(this);val b=StringBuilder();for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;b.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Stock ").append(x.optInt("stock")).append("\n")};AlertDialog.Builder(this).setTitle("Stock actual").setMessage(if(b.isEmpty())"Sin productos" else b.toString()).setPositiveButton("Cerrar",null).show()}
  private fun saveReportToPhone(){val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/plain";putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")};try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(_:Exception){msg("No se pudo abrir el selector para guardar")}}
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty())reviewScannedCodes(codes);return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST){if(c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(pendingPairingScan){pendingPairingScan=false;finishVentasPairing(codes.last())}else reviewScannedCodes(codes)}}else pendingPairingScan=false;return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
 
 class AgregarInventarioActivity:Activity(){
@@ -1085,7 +2476,26 @@ private fun openWhatsAppText(activity:Activity,body:String):Boolean {
  return false
 }
 
-private fun openWhatsAppDocument(activity:Activity,uri:Uri,subject:String){ openWhatsAppText(activity,subject+REPORT_BACKUP_NOTE) }
+private fun openWhatsAppDocument(activity:Activity,uri:Uri,subject:String):Boolean {
+ val share=Intent(Intent.ACTION_SEND).apply {
+  type="text/plain"
+  putExtra(Intent.EXTRA_STREAM,uri)
+  putExtra(Intent.EXTRA_SUBJECT,subject)
+  putExtra(Intent.EXTRA_TEXT,subject)
+  clipData=android.content.ClipData.newUri(activity.contentResolver,subject,uri)
+  addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+ }
+ for(pkg in listOf("com.whatsapp","com.whatsapp.w4b")){
+  try{
+   activity.startActivity(Intent(share).setPackage(pkg))
+   return true
+  }catch(_:Exception){}
+ }
+ return try{
+  activity.startActivity(Intent.createChooser(share,"Enviar reporte TXT"))
+  true
+ }catch(_:Exception){false}
+}
 
 object ReportFile {
  @Synchronized fun update(c:android.content.Context, root:org.json.JSONObject?=null):java.io.File {
@@ -1100,7 +2510,36 @@ object ReportFile {
   var providerTotal=0.0
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optString("type")=="PROVIDER_PAYMENT"&&x.optLong("ts",0L)>=shift.optLong("startTs",0L))providerTotal+=x.optDouble("amount",0.0)}
   out.append("TOTAL VENDIDO: ").append(Store.money(total)).append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal)).append("\nCAJA ACTUAL: ").append(Store.money(shift.optDouble("cash")+total-providerTotal)).append("\n\nMOVIMIENTOS DE INVENTARIO Y GASTOS\n")
-  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;out.append(x.optString("time")).append(" | ").append(x.optString("text")).append("\n")}
+   for(i in 0 until moves.length()){
+    val x=moves.optJSONObject(i)?:continue
+    if(x.optString("type")=="CORRECTION_AUDIT"){
+     val ts=x.optLong("ts",0L)
+     val date=if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Fecha no disponible"
+     val evidence=x.optJSONObject("cashEvidence")?:org.json.JSONObject()
+     val method=when(evidence.optString("method").lowercase()){
+      "cash"->"Efectivo";"card"->"Tarjeta";"transfer"->"Transferencia";"other"->"Otro";else->"No indicado"
+     }
+     out.append(date).append(" | CORRECCIÓN DE VENTA | Folio: ").append(x.optString("saleId","-"))
+      .append("\nMotivo: ").append(x.optString("reason","Sin motivo"))
+     if(x.optString("detail").isNotBlank())out.append("\nDetalle: ").append(x.optString("detail"))
+     out.append("\nTotal anterior: ").append(Store.money(x.optDouble("previousTotal")))
+      .append(" | Total corregido: ").append(Store.money(x.optDouble("newTotal")))
+     when(x.optString("direction")){
+      "COBRO"->out.append("\nDiferencia cobrada: ").append(Store.money(x.optDouble("amount")))
+      "DEVOLUCION"->out.append("\nDiferencia devuelta: ").append(Store.money(x.optDouble("amount")))
+      else->out.append("\nSin movimiento adicional de dinero")
+     }
+     if(x.optDouble("amount",0.0)>0.0){
+      out.append("\nConfirmación: ").append(if(x.optBoolean("cashConfirmed"))"Registrada" else "No registrada")
+       .append(" | Medio: ").append(method)
+       .append(" | Referencia: ").append(evidence.optString("reference","-"))
+     }
+     if(x.optString("cashReason").isNotBlank())out.append("\nMotivo de caja: ").append(x.optString("cashReason"))
+     out.append("\nNota: el total corregido ya está incluido en VENTAS; este registro es evidencia y no debe sumarse nuevamente.\n\n")
+    }else{
+     out.append(x.optString("time")).append(" | ").append(x.optString("text")).append("\n")
+    }
+   }
   out.append("\nSTOCK ACTUAL\n");val products=data.optJSONArray("products") ?: org.json.JSONArray()
   for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Existencia: ").append(x.optInt("stock")).append("\n")}
   val dir=c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir
