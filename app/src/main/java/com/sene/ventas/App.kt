@@ -794,12 +794,27 @@ class MainActivity:Activity(){
       val hash=java.security.MessageDigest.getInstance("SHA-256")
        .digest(plan.toString().toByteArray(Charsets.UTF_8))
        .joinToString(""){"%02x".format(it.toInt() and 0xFF)}
+      // Persistir el plan y la clave idempotente ANTES de contactar al servidor.
+      // Si Android se cierra o la red falla, el mismo intento no debe crear solicitudes duplicadas.
+      val idempotencyKey=UUID.randomUUID().toString()
+      plan.put("planHash",hash).put("idempotencyKey",idempotencyKey)
+      val correctionPrefs=getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE)
+      if(!correctionPrefs.edit().putString("draft_"+idempotencyKey,plan.toString()).commit()){
+       msg("No se pudo guardar el borrador de corrección; no se envió ninguna solicitud")
+       return@setPositiveButton
+      }
       Thread{try{
-       val result=payrollApi().requestSaleCorrection(saleId,reason,listOf(reason),hash,cashImpact,cashWhy)
+       val result=payrollApi().requestSaleCorrection(
+        saleId,reason,listOf(reason),hash,cashImpact,cashWhy,idempotencyKey
+       )
        val requestId=result.optString("requestId")
-       plan.put("requestId",requestId).put("planHash",hash)
-       getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE).edit()
-        .putString("plan_"+requestId,plan.toString()).apply()
+       check(requestId.isNotBlank()){"El servidor no devolvió el folio de corrección"}
+       plan.put("requestId",requestId)
+       check(correctionPrefs.edit()
+        .putString("plan_"+requestId,plan.toString())
+        .remove("draft_"+idempotencyKey).commit()){
+        "La solicitud se creó, pero no se pudo guardar el folio local. Conservamos el borrador para recuperación."
+       }
        val message="SENE VENTAS · SOLICITUD DE CORRECCIÓN\nVenta: "+saleId+
         "\nMotivo: "+reason+"\nProducto actual: "+target.optString("code")+" · "+target.optString("name")+
         "\nCantidad actual: "+target.optInt("qty")+" · Precio actual: "+Store.money(target.optDouble("price"))+
