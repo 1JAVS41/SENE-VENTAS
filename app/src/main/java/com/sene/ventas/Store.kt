@@ -873,9 +873,14 @@ object Store {
         val all = moves(context)
         var total = 0.0
         for (i in 0 until all.length()) {
-            val item = all.optJSONObject(i) ?: continue
+            val item = all.optJSONObject(i) ?: throw IllegalStateException("Hay un movimiento dañado; no se puede calcular la caja con seguridad.")
             if (item.optString("type") == "PROVIDER_PAYMENT" && item.optLong("ts", 0L) >= since) {
-                total += item.optDouble("amount", 0.0)
+                val amount = item.optDouble("amount", Double.NaN)
+                check(amount.isFinite() && amount >= 0.0) {
+                    "Hay un pago a proveedor con importe inválido; revisa el historial antes de calcular la caja."
+                }
+                total += amount
+                check(total.isFinite()) { "El total de pagos a proveedores no es válido; revisa el historial." }
             }
         }
         return total
@@ -884,13 +889,26 @@ object Store {
     fun cashBalance(context: Context): Double {
         val shift = shift(context) ?: return 0.0
         val start = shift.optLong("startTs", 0L)
+        val openingCash = shift.optDouble("cash", Double.NaN)
+        check(openingCash.isFinite() && openingCash >= 0.0) {
+            "La caja inicial del turno tiene un importe inválido; no se puede calcular el saldo."
+        }
         val all = sales(context)
         var sold = 0.0
         for (i in 0 until all.length()) {
-            val item = all.optJSONObject(i) ?: continue
-            if (item.optLong("ts", 0L) >= start) sold += item.optDouble("subtotal", 0.0)
+            val item = all.optJSONObject(i) ?: throw IllegalStateException("Hay una venta dañada; no se puede calcular la caja con seguridad.")
+            if (item.optLong("ts", 0L) >= start) {
+                val subtotal = item.optDouble("subtotal", Double.NaN)
+                check(subtotal.isFinite() && subtotal >= 0.0) {
+                    "Hay una venta con subtotal inválido; revisa el historial antes de calcular la caja."
+                }
+                sold += subtotal
+                check(sold.isFinite()) { "El total vendido no es válido; revisa el historial." }
+            }
         }
-        return shift.optDouble("cash", 0.0) + sold - providerExpenses(context, start)
+        val balance = openingCash + sold - providerExpenses(context, start)
+        check(balance.isFinite()) { "El saldo de caja no es válido; revisa los movimientos del turno." }
+        return balance
     }
 
     fun money(value: Double) = "$" + String.format(java.util.Locale.US, "%.2f", value)
