@@ -1,7 +1,9 @@
 name: Compilar APK SENE VENTAS-online
 on:
   push:
-    branches: [main, sene-ventas-rebuild, sene-ventas-preparacion-patron]
+    branches: [main, integration/ventas-completa]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
