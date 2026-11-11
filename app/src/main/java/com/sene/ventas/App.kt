@@ -2773,14 +2773,14 @@ class PatronActivity:Activity(){
   val list=LinearLayout(this).apply{orientation=1};val count=txt("Productos agregados: 0",15f);root.addView(count);root.addView(list)
   root.addView(actionCard("Agregar producto","Validar y añadir este producto a la lista","➕",0xFFEAF2FF.toInt()){
    val q=qty.text.toString().toIntOrNull();val p=parseAmount(price.text.toString())
-   if(code.text.isBlank()||name.text.isBlank()||q==null||q<0||p==null||p<0){msg("Captura código, descripción, cantidad y precio válidos");return@button}
-   for(i in 0 until firstInventoryItems.length())if(firstInventoryItems.optJSONObject(i)?.optString("code")==code.text.toString().trim()){msg("Ese código ya está en la lista");return@button}
+   if(code.text.isBlank()||name.text.isBlank()||q==null||q<0||p==null||p<0){msg("Captura código, descripción, cantidad y precio válidos");return@actionCard}
+   for(i in 0 until firstInventoryItems.length())if(firstInventoryItems.optJSONObject(i)?.optString("code")==code.text.toString().trim()){msg("Ese código ya está en la lista");return@actionCard}
    firstInventoryItems.put(JSONObject().put("code",code.text.toString().trim()).put("name",name.text.toString().trim()).put("stock",q).put("price",p))
    list.addView(txt(code.text.toString()+" | "+name.text.toString()+"\nCantidad: "+q+"   Precio: "+Store.money(p),14f));count.text="Productos agregados: "+firstInventoryItems.length()
    code.setText("");name.setText("");qty.setText("");price.setText("");code.requestFocus()
   })
   root.addView(actionCard("Guardar inventario","Guardar todos los productos en INVENTARIO SENE","💾",0xFFFFF3E5.toInt()){
-   if(firstInventoryItems.length()==0){msg("Agrega por lo menos un producto antes de guardar");return@button}
+   if(firstInventoryItems.length()==0){msg("Agrega por lo menos un producto antes de guardar");return@actionCard}
    AlertDialog.Builder(this).setTitle("Guardar inventario").setMessage("Se guardarán "+firstInventoryItems.length()+" productos en INVENTARIO SENE con la fecha y hora actuales. ¿Continuar?")
     .setPositiveButton("GUARDAR"){_,_->try{if(InventoryArchive.save(this,firstInventoryItems)){Store.saveProducts(this,firstInventoryItems);getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).apply();msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}else msg("No se pudo guardar. Verifica el acceso a INVENTARIO SENE.")}catch(e:Exception){msg("Error al guardar: "+(e.message?:"desconocido"))}}
     .setNegativeButton("Revisar",null).show()
