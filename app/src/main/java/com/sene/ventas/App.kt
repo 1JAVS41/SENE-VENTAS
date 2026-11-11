@@ -1,7 +1,4 @@
 package com.sene.ventas
-
-private object ShiftReportSendLock
-
 import android.app.*
 import android.content.*
 import android.graphics.Typeface
@@ -365,6 +362,8 @@ private object InventoryReader {
  }
 }
 private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
+
+private object ShiftReportSendLock
 
 class InicioTurnoActivity:Activity(){
  private var internet="Consultando internet…"
