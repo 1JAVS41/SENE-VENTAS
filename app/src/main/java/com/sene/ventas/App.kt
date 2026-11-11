@@ -2179,7 +2179,15 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    resolver.openOutputStream(target,"w")?.use{out->source.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el TXT")
    return target
   }catch(e:Exception){
-   try{DocumentsContract.deleteDocument(resolver,target)}catch(_:Exception){}
+   try{
+    if(!DocumentsContract.deleteDocument(resolver,target)){
+     throw java.io.IOException("El proveedor de archivos rechazó la eliminación del TXT parcial")
+    }
+   }catch(cleanup:Exception){
+    val failure=java.io.IOException("No se pudo escribir el TXT y tampoco se pudo eliminar el archivo parcial; revisa la carpeta del día.",e)
+    failure.addSuppressed(cleanup)
+    throw failure
+   }
    throw e
   }
  }
