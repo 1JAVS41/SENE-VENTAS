@@ -83,6 +83,63 @@ private fun internetTimeMillis():Long?{
  }
  return null
 }
+
+
+// Reloj compartido para todas las pantallas construidas con page().
+// La hora de Internet se estima con elapsedRealtime(), por lo que sigue avanzando
+// aunque cambie la hora del teléfono o se reconstruya una pantalla.
+private object SeneInternetClock {
+ @Volatile var baseMillis:Long=0L
+ @Volatile var baseElapsed:Long=0L
+ @Volatile private var lastAttemptElapsed:Long=0L
+ @Volatile private var syncing=false
+ fun ensureSync(force:Boolean=false){
+  val now=SystemClock.elapsedRealtime()
+  synchronized(this){
+   if(syncing)return
+   if(!force && baseMillis>0L && now-lastAttemptElapsed<900000L)return
+   if(!force && baseMillis==0L && lastAttemptElapsed>0L && now-lastAttemptElapsed<60000L)return
+   syncing=true
+   lastAttemptElapsed=now
+  }
+  Thread{
+   val value=internetTimeMillis()
+   synchronized(this){
+    if(value!=null){baseMillis=value;baseElapsed=SystemClock.elapsedRealtime()}
+    syncing=false
+   }
+  }.start()
+ }
+ fun currentMillis():Long?{
+  val base=baseMillis
+  if(base<=0L)return null
+  return base+(SystemClock.elapsedRealtime()-baseElapsed)
+ }
+}
+
+private class SeneLiveClockStrip(context:Context):LinearLayout(context){
+ private val local=TextView(context)
+ private val internet=TextView(context)
+ private val handler=Handler(Looper.getMainLooper())
+ private val tick=object:Runnable{override fun run(){
+  local.text="🕒  CELULAR   "+SimpleDateFormat("dd/MM/yyyy  HH:mm:ss",Locale("es","MX")).format(Date())
+  val online=SeneInternetClock.currentMillis()
+  internet.text=if(online!=null)"🌐  INTERNET   "+SimpleDateFormat("dd/MM/yyyy  HH:mm:ss",Locale("es","MX")).format(Date(online)) else "🌐  INTERNET   Sincronizando…"
+  SeneInternetClock.ensureSync()
+  handler.postDelayed(this,1000L)
+ }}
+ init{
+  orientation=VERTICAL
+  setPadding((12*resources.displayMetrics.density).toInt(),(8*resources.displayMetrics.density).toInt(),(12*resources.displayMetrics.density).toInt(),(8*resources.displayMetrics.density).toInt())
+  background=GradientDrawable().apply{setColor(0xFFEAF2FF.toInt());cornerRadius=16*resources.displayMetrics.density;setStroke((1*resources.displayMetrics.density).toInt(),0xFFD7E2F2.toInt())}
+  fun style(view:TextView){view.textSize=12.5f;view.setTextColor(0xFF18345D.toInt());view.typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL);view.setPadding(0,(3*resources.displayMetrics.density).toInt(),0,(3*resources.displayMetrics.density).toInt())}
+  style(local);style(internet)
+  addView(local,LayoutParams(-1,-2));addView(internet,LayoutParams(-1,-2))
+ }
+ override fun onAttachedToWindow(){super.onAttachedToWindow();SeneInternetClock.ensureSync();handler.removeCallbacks(tick);tick.run()}
+ override fun onDetachedFromWindow(){handler.removeCallbacks(tick);super.onDetachedFromWindow()}
+}
+
 private fun day()=SimpleDateFormat("dd/MM/yyyy",Locale("es","MX")).format(Date())
 private fun Activity.dp(n:Int)=(n*resources.displayMetrics.density).toInt()
 private fun Activity.rounded(color:Int,radius:Int=18,stroke:Int=0)=GradientDrawable().apply{setColor(color);cornerRadius=dp(radius).toFloat();if(stroke!=0)setStroke(dp(1),stroke)}
@@ -108,6 +165,9 @@ private fun Activity.page(title:String,logoAction:(()->Unit)?=null):LinearLayout
  brandColumn.addView(TextView(this).apply{text="GESTIÓN INTELIGENTE";textSize=10f;letterSpacing=.16f;setTextColor(0xFFB9C9F8.toInt());setPadding(0,dp(5),0,0)})
  top.addView(brandColumn,LinearLayout.LayoutParams(0,-2,1f))
  v.addView(top,LinearLayout.LayoutParams(-1,-2))
+ val liveClock=SeneLiveClockStrip(this)
+ val clockParams=LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(9)}
+ v.addView(liveClock,clockParams)
  val accent=View(this).apply{background=rounded(0xFFFFB547.toInt(),3)}
  val accentParams=LinearLayout.LayoutParams(dp(42),dp(5));accentParams.topMargin=dp(23);accentParams.bottomMargin=dp(10);v.addView(accent,accentParams)
  v.addView(TextView(this).apply{text=title;textSize=27f;setTextColor(0xFF17213D.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);setPadding(0,0,0,dp(3))})
