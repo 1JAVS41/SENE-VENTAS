@@ -492,7 +492,16 @@ class WorkerPortalActivity:Activity(){
   root.addView(button("VOLVER",false){finish()})
   display(root)
  }
- override fun onCreate(b:Bundle?){super.onCreate(b);draw();prefs().edit().putBoolean("work_queue_sending",false).apply();flushQueue();flushCorrectionQueue();resumePreparedCorrections()}
+ override fun onCreate(b:Bundle?){super.onCreate(b);draw();prefs().edit().putBoolean("work_queue_sending",false).apply();flushQueue();flushCorrectionQueue();resumePreparedCorrections();handleIncomingTicketCorrection(intent)}
+ private fun handleIncomingTicketCorrection(source:Intent?){
+  if(source?.getBooleanExtra("ticket_correction_request",false)!=true)return
+  source.removeExtra("ticket_correction_request")
+  val saleId=source.getStringExtra("ticket_sale_id").orEmpty()
+  val summary=source.getStringExtra("ticket_sale_summary").orEmpty()
+  val detail=source.getStringExtra("ticket_correction_detail").orEmpty()
+  val selected=source.getStringArrayListExtra("ticket_selected_codes")?.toSet().orEmpty()
+  startActivity(Intent(this,WorkerPortalActivity::class.java).apply{putExtra("ticket_correction_request",true);putExtra("ticket_sale_id",saleId);putExtra("ticket_sale_summary",summary);putExtra("ticket_correction_detail",detail);putStringArrayListExtra("ticket_selected_codes",ArrayList(selected))})
+ }
  override fun onResume(){super.onResume();flushQueue();flushCorrectionQueue();resumePreparedCorrections()}
  private fun pairing(){
   if(prefs().getString("server_base_url",null).isNullOrBlank()){config{pairing()};return}
