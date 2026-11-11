@@ -2237,7 +2237,7 @@ class MainActivity:Activity(){
     if(selected.isEmpty()){msg("Marca al menos un producto que necesite corrección.");return@setPositiveButton}
     if(detail.isBlank()){msg("Escribe el motivo de la corrección.");return@setPositiveButton}
     val summary=rows.firstOrNull()?.optString("time","Venta original")+" · Folio "+saleId
-    startCorrectionPlanForSelectedRows(saleId,summary,detail,selected)
+    startActivity(Intent(this,WorkerPortalActivity::class.java).apply{putExtra("ticket_correction_request",true);putExtra("ticket_sale_id",saleId);putExtra("ticket_sale_summary",summary);putExtra("ticket_correction_detail",detail);putStringArrayListExtra("ticket_selected_codes",ArrayList(selected))})
    }.setNegativeButton("CANCELAR",null).show()
  }
  private fun handleTicketScan(codes:ArrayList<String>){
