@@ -587,31 +587,31 @@ class WorkerPortalActivity:Activity(){
   val plan=JSONArray()
   addCorrectionPlanChange(saleId,summary,reason,detail,rows,plan)
  }
- private fun addCorrectionPlanChange(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray){
+ private fun addCorrectionPlanChange(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,selectedCodes:Set<String>?=null){
   val used=mutableSetOf<String>()
   for(i in 0 until plan.length())used.add(plan.optJSONObject(i)?.optString("fromCode").orEmpty())
   val options=mutableListOf<String>();val rowIndexes=mutableListOf<Int>()
   rows.forEachIndexed{index,row->
    val code=row.optString("code")
-   if(code !in used){rowIndexes.add(index);options.add(row.optString("name","Producto")+" · "+row.optInt("qty")+" pza. · "+Store.money(row.optDouble("subtotal")))}
+   if(code !in used&&(selectedCodes==null||code in selectedCodes)){rowIndexes.add(index);options.add(row.optString("name","Producto")+" · "+row.optInt("qty")+" pza. · "+Store.money(row.optDouble("subtotal")))}
   }
-  options.add("AGREGAR PRODUCTO OMITIDO")
+  if(selectedCodes==null)options.add("AGREGAR PRODUCTO OMITIDO")
   if(options.isEmpty()){reviewCorrectionPlan(saleId,summary,primaryReason,detail,rows,plan);return}
   AlertDialog.Builder(this).setTitle("AGREGAR CAMBIO A LA SOLICITUD")
    .setMessage("Puedes reunir varios cambios antes de enviar una sola solicitud al patrón.")
    .setItems(options.toTypedArray()){_,which->
-    if(which==rowIndexes.size)choosePlanTarget(saleId,summary,primaryReason,detail,rows,plan,null)
+    if(which==rowIndexes.size)choosePlanTarget(saleId,summary,primaryReason,detail,rows,plan,null,selectedCodes)
     else{
      val source=rows[rowIndexes[which]]
      AlertDialog.Builder(this).setTitle(source.optString("name"))
       .setItems(arrayOf("Cambiar producto o cantidad","Eliminar este producto")){_,action->
        if(action==0)choosePlanTarget(saleId,summary,primaryReason,detail,rows,plan,source)
-       else recordPlanChange(saleId,summary,primaryReason,detail,rows,plan,source,"",0,0L)
+       else recordPlanChange(saleId,summary,primaryReason,detail,rows,plan,source,"",0,0L,"",selectedCodes)
       }.setNegativeButton("Cancelar",null).show()
     }
    }.setNegativeButton("Terminar después",null).show()
  }
- private fun choosePlanTarget(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,source:JSONObject?){
+ private fun choosePlanTarget(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,source:JSONObject?,selectedCodes:Set<String>?=null){
   val products=Store.products(this);val candidates=mutableListOf<JSONObject>()
   for(i in 0 until products.length()){
    val p=products.optJSONObject(i)?:continue
@@ -634,11 +634,11 @@ class WorkerPortalActivity:Activity(){
       if(count==null||count !in 1..100000){msg("La cantidad debe ser un entero mayor que cero.");return@setPositiveButton}
       val cents=kotlin.math.round(target.optDouble("price")*100.0).toLong()
       if(cents<0L){msg("El precio del producto no es válido.");return@setPositiveButton}
-      recordPlanChange(saleId,summary,primaryReason,detail,rows,plan,source,target.optString("code"),count,cents,target.optString("name"))
+      recordPlanChange(saleId,summary,primaryReason,detail,rows,plan,source,target.optString("code"),count,cents,target.optString("name"),selectedCodes)
      }.setNegativeButton("Cancelar",null).show()
    }.setNegativeButton("Cancelar",null).show()
  }
- private fun recordPlanChange(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,source:JSONObject?,targetCode:String,newQty:Int,targetPriceCents:Long=0L,targetName:String=""){
+ private fun recordPlanChange(saleId:String,summary:String,primaryReason:String,detail:String,rows:List<JSONObject>,plan:JSONArray,source:JSONObject?,targetCode:String,newQty:Int,targetPriceCents:Long=0L,targetName:String="",selectedCodes:Set<String>?=null){
   val categories=arrayOf("Devolución","Ajuste de precio","Eliminación de producto","Corrección de cantidad","Producto equivocado","Producto omitido","Otro")
   AlertDialog.Builder(this).setTitle("MOTIVO DE ESTE CAMBIO")
    .setItems(categories){_,which->
@@ -651,7 +651,7 @@ class WorkerPortalActivity:Activity(){
     plan.put(change)
     AlertDialog.Builder(this).setTitle("CAMBIO AGREGADO")
      .setMessage("Se guardó localmente. ¿Deseas agregar otro cambio a la misma solicitud?")
-     .setPositiveButton("AGREGAR OTRO"){_,_->addCorrectionPlanChange(saleId,summary,primaryReason,detail,rows,plan)}
+     .setPositiveButton("AGREGAR OTRO"){_,_->addCorrectionPlanChange(saleId,summary,primaryReason,detail,rows,plan,selectedCodes)}
      .setNegativeButton("REVISAR SOLICITUD"){_,_->reviewCorrectionPlan(saleId,summary,primaryReason,detail,rows,plan)}
      .show()
    }.setNegativeButton("Cancelar",null).show()
@@ -1243,7 +1243,7 @@ class MainActivity:Activity(){
   }
   salesClockHandler.postDelayed(this,1000L)
  }}
- private val ticket=linkedMapOf<String,Int>();private val checklistScannedCodes=mutableListOf<String>();private val checklistUncheckedCodes=mutableListOf<String>();private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private var paidValidationError=false;private val h=Handler(Looper.getMainLooper())
+ private val ticket=linkedMapOf<String,Int>();private var pendingTicketScan=false;private val checklistScannedCodes=mutableListOf<String>();private val checklistUncheckedCodes=mutableListOf<String>();private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private var paidValidationError=false;private val h=Handler(Looper.getMainLooper())
  private var connectivityManager:ConnectivityManager?=null
  private val connectivityCallback=object:ConnectivityManager.NetworkCallback(){
   override fun onAvailable(network:Network){
@@ -2076,6 +2076,134 @@ class MainActivity:Activity(){
      .setPositiveButton("CERRAR",null).show()
    }.setNegativeButton("CERRAR",null).show()
  }
+ private fun ticketRowsBySale():LinkedHashMap<String,MutableList<JSONObject>>{
+  val grouped=linkedMapOf<String,MutableList<JSONObject>>()
+  val sales=Store.sales(this)
+  for(i in 0 until sales.length()){
+   val row=sales.optJSONObject(i)?:continue
+   val id=row.optString("saleId")
+   if(id.isBlank()||id.startsWith("legacy-"))continue
+   grouped.getOrPut(id){mutableListOf()}.add(JSONObject(row.toString()))
+  }
+  return grouped
+ }
+ private fun identifyOriginalTicket(scanned:ArrayList<String>):Pair<String,List<JSONObject>>?{
+  val scannedCodes=scanned.map{it.trim()}.filter{it.isNotBlank()}.toSet()
+  if(scannedCodes.isEmpty()){msg("No se detectaron códigos válidos.");return null}
+  val matches=ticketRowsBySale().filterValues{rows->
+   rows.map{it.optString("code").trim()}.filter{it.isNotBlank()}.toSet()==scannedCodes
+  }
+  if(matches.isEmpty()){
+   msg("No se encontró una venta original que coincida exactamente con los códigos escaneados. No se enviará ninguna solicitud.")
+   return null
+  }
+  if(matches.size>1){
+   msg("Los códigos coinciden con más de una venta. Para evitar una corrección equivocada, no se seleccionó ninguna. Escanea el ticket completo con todos sus códigos.")
+   return null
+  }
+  val entry=matches.entries.first()
+  return entry.key to entry.value
+ }
+ private fun showTicketActionPicker(saleId:String,rows:List<JSONObject>,scanned:ArrayList<String>){
+  val first=rows.firstOrNull()?:return
+  val total=first.optDouble("saleTotal",rows.sumOf{it.optDouble("subtotal",0.0)})
+  val info=first.optString("time","Fecha no disponible")+"\nFolio: "+saleId+"\nProductos: "+rows.size+"\nTotal: "+Store.money(total)
+  val actions=arrayOf("VERIFICAR TICKET","CONSULTAR TICKET","SOLICITAR CORRECCIÓN")
+  var selected=-1
+  val dialog=AlertDialog.Builder(this).setTitle("VENTA ORIGINAL IDENTIFICADA")
+   .setMessage(info+"\n\n¿Qué deseas hacer con este ticket?")
+   .setSingleChoiceItems(actions,-1){_,which->selected=which}
+   .setPositiveButton("ABRIR"){_,_->
+    when(selected){
+     0->showMatchedTicketVerification(saleId,rows,scanned)
+     1->showMatchedTicketConsultation(saleId,rows)
+     2->showScannedTicketCorrectionForm(saleId,rows)
+     else->msg("Selecciona una opción para continuar.")
+    }
+   }.setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled=true}
+  dialog.show()
+ }
+ private fun showMatchedTicketConsultation(saleId:String,rows:List<JSONObject>){
+  val first=rows.firstOrNull()?:return
+  val body=buildString{
+   append("VENTA ORIGINAL IDENTIFICADA\n").append(first.optString("time","Fecha no disponible"))
+   append("\nFolio: ").append(saleId).append("\n\nPRODUCTOS\n")
+   for(row in rows)append("• ").append(row.optString("name","Producto"))
+    .append(" · Código: ").append(row.optString("code"))
+    .append(" · Cantidad: ").append(row.optInt("qty"))
+    .append(" · Importe: ").append(Store.money(row.optDouble("subtotal"))).append("\n")
+   append("\nTOTAL: ").append(Store.money(first.optDouble("saleTotal",rows.sumOf{it.optDouble("subtotal",0.0)})))
+   append("\nPago recibido: ").append(Store.money(first.optDouble("amountPaid")))
+   append("\nCambio: ").append(Store.money(first.optDouble("change")))
+   append("\n\nConsulta de solo lectura. No se modificó la venta.")
+  }
+  AlertDialog.Builder(this).setTitle("CONSULTAR TICKET").setMessage(body).setPositiveButton("CERRAR",null).show()
+ }
+ private fun showMatchedTicketVerification(saleId:String,rows:List<JSONObject>,scanned:ArrayList<String>){
+  val scannedSet=scanned.map{it.trim()}.toSet()
+  val list=LinearLayout(this).apply{orientation=1;setPadding(dp(14),dp(8),dp(14),dp(8))}
+  list.addView(txt("Folio: "+saleId+"\nMarca los renglones que verificaste físicamente.",14f))
+  val checks=mutableListOf<CheckBox>()
+  for((index,row) in rows.withIndex()){
+   val codeValue=row.optString("code")
+   val matched=codeValue in scannedSet
+   val check=CheckBox(this).apply{
+    text=(index+1).toString()+". "+row.optString("name")+" · "+row.optInt("qty")+" pza.\nCódigo: "+codeValue+" · "+if(matched)"CÓDIGO ENCONTRADO" else "NO ENCONTRADO"
+    isChecked=matched;textSize=14f;setTextColor(if(matched)0xFF1D6B3A.toInt() else 0xFFB3261E.toInt())
+    setPadding(dp(4),dp(8),dp(4),dp(8))
+   }
+   checks.add(check);list.addView(check)
+  }
+  val scroll=ScrollView(this).apply{isFillViewport=true;addView(list)}
+  AlertDialog.Builder(this).setTitle("VERIFICAR TICKET").setView(scroll)
+   .setPositiveButton("CONFIRMAR"){_,_->
+    val pending=checks.count{!it.isChecked}
+    msg(if(pending==0)"Verificación completada para el folio "+saleId else "Verificación incompleta: "+pending+" renglón(es) quedaron sin confirmar.")
+   }.setNegativeButton("CERRAR",null).show()
+ }
+ private fun showScannedTicketCorrectionForm(saleId:String,rows:List<JSONObject>){
+  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(14),dp(8),dp(14),dp(8))}
+  box.addView(txt("Venta original: "+saleId+"\nMarca únicamente los productos que necesitan corregirse.",14f))
+  val checks=mutableListOf<Pair<String,CheckBox>>()
+  for(row in rows){
+   val codeValue=row.optString("code")
+   val cb=CheckBox(this).apply{
+    text=row.optString("name","Producto")+" · "+row.optInt("qty")+" pza. · "+Store.money(row.optDouble("subtotal"))+"\nCódigo: "+codeValue
+    textSize=14f;setTextColor(0xFF26365D.toInt());setPadding(dp(4),dp(7),dp(4),dp(7))
+   }
+   checks.add(codeValue to cb);box.addView(cb)
+  }
+  val reason=EditText(this).apply{
+   hint="Escribe el motivo de la corrección";textSize=15f;minLines=3;maxLines=5
+   gravity=Gravity.TOP or Gravity.START;setPadding(dp(14),dp(12),dp(14),dp(12))
+   setTextColor(0xFF17213D.toInt());background=rounded(0xFFFFFFFF.toInt(),14,0xFFDCE2EF.toInt())
+   filters=arrayOf(android.text.InputFilter.LengthFilter(500))
+  }
+  val reasonParams=LinearLayout.LayoutParams(-1,-2);reasonParams.topMargin=dp(12);box.addView(reason,reasonParams)
+  val scroll=ScrollView(this).apply{isFillViewport=true;addView(box)}
+  AlertDialog.Builder(this).setTitle("SOLICITAR CORRECCIÓN").setView(scroll)
+   .setPositiveButton("PREPARAR SOLICITUD"){_,_->
+    val selected=checks.filter{it.second.isChecked}.map{it.first}.toSet()
+    val detail=reason.text.toString().trim()
+    if(selected.isEmpty()){msg("Marca al menos un producto que necesite corrección.");return@setPositiveButton}
+    if(detail.isBlank()){msg("Escribe el motivo de la corrección.");return@setPositiveButton}
+    val summary=rows.firstOrNull()?.optString("time","Venta original")+" · Folio "+saleId
+    startCorrectionPlanForSelectedRows(saleId,summary,detail,selected)
+   }.setNegativeButton("CANCELAR",null).show()
+ }
+ private fun startCorrectionPlanForSelectedRows(saleId:String,summary:String,detail:String,selectedCodes:Set<String>){
+  val rows=correctionSaleRows(saleId)
+  if(rows.isEmpty()){msg("La venta original ya no está disponible.");return}
+  if(rows.any{it.has("correctionOpId")}){msg("Esta venta ya fue corregida.");return}
+  if(selectedCodes.isEmpty()||rows.none{it.optString("code") in selectedCodes}){msg("No hay productos válidos seleccionados.");return}
+  val plan=JSONArray()
+  addCorrectionPlanChange(saleId,summary,"Solicitud desde ticket escaneado",detail,rows,plan,selectedCodes)
+ }
+ private fun handleTicketScan(codes:ArrayList<String>){
+  val match=identifyOriginalTicket(codes)?:return
+  showTicketActionPicker(match.first,match.second,codes)
+ }
  private fun draw(){
   val v=page("VENTAS"){showToolsMenu()}
   val sales=Store.sales(this);var sum=0.0;var count=0
@@ -2095,10 +2223,8 @@ class MainActivity:Activity(){
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
   sell=button("COBRAR"){sellTicket()};v.addView(sell)
-  v.addView(button("Limpiar ticket",false){ticket.clear();checklistScannedCodes.clear();checklistUncheckedCodes.clear();refresh()})
-  
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
-  v.addView(button("TICKETS",false){showTickets()})
+  v.addView(button("TICKETS",false){pendingTicketScan=true;openScanner()})
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
  }
 private fun reviewScannedCodes(codes:ArrayList<String>){
@@ -2412,7 +2538,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    .setView(scroll).setPositiveButton("CERRAR",null).show()
  }
  private fun saveReportToPhone(){val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/plain";putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")};try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(_:Exception){msg("No se pudo abrir el selector para guardar")}}
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST){if(c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(pendingPairingScan){pendingPairingScan=false;finishVentasPairing(codes.last())}else reviewScannedCodes(codes)}}else pendingPairingScan=false;return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST){if(c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(pendingPairingScan){pendingPairingScan=false;finishVentasPairing(codes.last())}else if(pendingTicketScan){pendingTicketScan=false;handleTicketScan(codes)}else reviewScannedCodes(codes)}}else pendingPairingScan=false;return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
 
 class AgregarInventarioActivity:Activity(){
