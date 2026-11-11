@@ -2709,17 +2709,33 @@ object ReportFile {
    .append("\nÚltima actualización de stock: ").append(Store.stockUpdatedAtText(c))
    .append("\nCaja inicial: ").append(Store.money(if(data.has("shift"))opening else 0.0)).append("\n\nVENTAS\n")
   val sales=data.optJSONArray("sales")?:throw IllegalStateException("No se pudo leer el historial de ventas.")
+  val products=data.optJSONArray("products")?:throw IllegalStateException("No se pudo leer el inventario.")
+  val stockByCode=HashMap<String,Int>()
+  for(i in 0 until products.length()){
+   val product=products.optJSONObject(i)?:throw IllegalStateException("Hay un producto dañado; no se generó el reporte.")
+   stockByCode[product.optString("code")]=product.optInt("stock")
+  }
+  out.append("PRODUCTO".padEnd(24)).append("HORA DE VENTA".padEnd(21))
+   .append("CANT.".padEnd(7)).append("STOCK".padEnd(8)).append("IMPORTE\\n")
   var total=0.0
+  var saleCount=0
   for(i in 0 until sales.length()){
    val x=sales.optJSONObject(i)?:throw IllegalStateException("Hay una venta dañada; no se generó el reporte.")
-   if(x.optLong("ts",0L)>=startTs){
+   val ts=x.optLong("ts",0L)
+   if(ts>=startTs){
     val subtotal=x.optDouble("subtotal",Double.NaN);val qty=x.optInt("qty",0)
     check(subtotal.isFinite()&&subtotal>=0.0&&qty>0){"Hay una venta con cantidad o subtotal inválido; revisa el historial."}
     total+=subtotal;check(total.isFinite()){"El total vendido no es válido."}
-    out.append(x.optString("time")).append(" | ").append(x.optString("name")).append(" x").append(qty)
-     .append(" | ").append(Store.money(subtotal)).append("\n")
+    val productName=x.optString("name","Producto").take(23)
+    val saleTime=x.optString("time").ifBlank{if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Sin hora"}.take(20)
+    val stock=stockByCode[x.optString("code")]?.toString()?: "N/D"
+    out.append(productName.padEnd(24)).append(saleTime.padEnd(21))
+     .append(qty.toString().padEnd(7)).append(stock.padEnd(8))
+     .append(Store.money(subtotal)).append("\\n")
+    saleCount++
    }
   }
+  if(saleCount==0)out.append("Sin ventas registradas en este turno.\\n")
   val moves=data.optJSONArray("moves")?:throw IllegalStateException("No se pudo leer el historial de movimientos.")
   var providerTotal=0.0
   for(i in 0 until moves.length()){
@@ -2757,7 +2773,6 @@ object ReportFile {
    }else out.append(x.optString("time")).append(" | ").append(x.optString("text")).append("\n")
   }
   out.append("\nSTOCK ACTUAL\n")
-  val products=data.optJSONArray("products")?:throw IllegalStateException("No se pudo leer el inventario.")
   for(i in 0 until products.length()){
    val x=products.optJSONObject(i)?:throw IllegalStateException("Hay un producto dañado; no se generó el reporte.")
    val price=x.optDouble("price",Double.NaN);val stock=x.optInt("stock",Int.MIN_VALUE)
