@@ -153,7 +153,9 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
         if (legacy.has("products") && rawProducts != null && rawProducts !is JSONArray) return false
         val products = (rawProducts as? JSONArray) ?: JSONArray()
         // Never silently discard malformed product rows during first migration.
-        for (i in 0 until products.length()) if (products.optJSONObject(i) == null) return false
+        // Apply the same identity/stock rules used by later inventory writes so
+        // duplicate or blank legacy barcodes cannot poison future sale checks.
+        if (!validateProductArray(products)) return false
 
         db.beginTransaction()
         try {
