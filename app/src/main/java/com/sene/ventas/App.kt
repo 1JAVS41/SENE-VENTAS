@@ -915,10 +915,28 @@ class MainActivity:Activity(){
    }.setNegativeButton("CANCELAR",null).show()
  }
  private fun showPayrollTools(){
-  val options=arrayOf("CONSULTAR HISTORIAL DE SOLICITUDES Y RESPUESTAS","GENERAR / CONSULTAR REPORTE DE NÓMINA")
+  val options=arrayOf("CONSULTAR HISTORIAL DE SOLICITUDES Y RESPUESTAS","GENERAR / CONSULTAR REPORTE DE NÓMINA","REINTENTAR CORRECCIONES PENDIENTES")
   AlertDialog.Builder(this).setTitle("DÍA DE PAGO").setItems(options){_,which->
-   if(which==0)loadWorkHistory() else generatePayrollReport()
+   when(which){
+    0->loadWorkHistory()
+    1->generatePayrollReport()
+    2->retryPendingCorrectionDrafts()
+   }
   }.setNegativeButton("CERRAR",null).show()
+ }
+ private fun retryPendingCorrectionDrafts(){
+  val prefs=getSharedPreferences("sene_ventas_corrections",MODE_PRIVATE)
+  val drafts=prefs.all.entries.filter{it.key.startsWith("draft_")&&it.value is String}
+  if(drafts.isEmpty()){msg("No hay correcciones pendientes de reintento");return}
+  val plans=drafts.mapNotNull{entry->try{JSONObject(entry.value as String)}catch(_:Exception){null}}
+  if(plans.isEmpty()){msg("No se encontraron borradores de corrección válidos");return}
+  val labels=plans.mapIndexed{index,plan->
+   (index+1).toString()+". Venta "+plan.optString("saleId")+" · "+plan.optString("reason")
+  }.toTypedArray()
+  AlertDialog.Builder(this).setTitle("CORRECCIONES PENDIENTES")
+   .setMessage("Selecciona una solicitud guardada. Se reutilizará su misma clave para evitar folios duplicados.")
+   .setItems(labels){_,which->retryCorrectionDraft(plans[which])}
+   .setNegativeButton("CANCELAR",null).show()
  }
  private fun payrollApi():SeneVentasApiClient{
   val prefs=getSharedPreferences("sene_ventas_server",MODE_PRIVATE)
