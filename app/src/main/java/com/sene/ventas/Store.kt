@@ -388,7 +388,10 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             // retry if any row from that ticket was already committed.
             db.rawQuery("SELECT data FROM sales", null).use { cursor ->
                 while (cursor.moveToNext()) {
-                    val existing = try { JSONObject(cursor.getString(0)) } catch (_: Exception) { continue }
+                    val raw = cursor.getString(0)
+                    val existing = try { JSONObject(raw) } catch (error: Exception) {
+                        throw IllegalStateException("Hay una venta dañada en el historial. Se bloqueó el registro de una nueva venta para evitar duplicar folios.", error)
+                    }
                     if (existing.optString("saleId") == saleId) return false
                 }
             }
