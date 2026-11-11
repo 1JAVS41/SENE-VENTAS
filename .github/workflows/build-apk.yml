@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Push and pull_request can target the same commit; keep only one active build
+# per branch so duplicate runs do not congest Android SDK/Gradle setup.
+concurrency:
+  group: sene-ventas-apk-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
