@@ -484,9 +484,27 @@ private class HistoryDb(context: Context) : SQLiteOpenHelper(context, "sene_hist
             // Refuse to repair corrupt financial history implicitly: every stored
             // line must have a positive quantity and a finite, non-negative subtotal.
             if (!oldTotal.isFinite() || oldTotal < 0.0 ||
-                saleRows.any { it.second.optInt("qty", -1) <= 0 ||
+                saleRows.any { it.second.optString("saleId") != saleId ||
+                    it.second.optInt("qty", -1) <= 0 ||
+                    !it.second.optDouble("price", Double.NaN).isFinite() ||
+                    it.second.optDouble("price", Double.NaN) < 0.0 ||
                     !it.second.optDouble("subtotal", Double.NaN).isFinite() ||
-                    it.second.optDouble("subtotal", Double.NaN) < 0.0 }) return false
+                    it.second.optDouble("subtotal", Double.NaN) < 0.0 ||
+                    kotlin.math.abs(it.second.optDouble("subtotal", Double.NaN) -
+                        it.second.optDouble("price", Double.NaN) * it.second.optInt("qty", -1)) > 0.01 }) return false
+            val firstTicketRow = saleRows.first().second
+            val ticketPaid = firstTicketRow.optDouble("amountPaid", Double.NaN)
+            val ticketChange = firstTicketRow.optDouble("change", Double.NaN)
+            if (!ticketPaid.isFinite() || !ticketChange.isFinite() ||
+                ticketPaid < oldTotal ||
+                kotlin.math.abs(ticketChange - (ticketPaid - oldTotal)) > 0.01 ||
+                saleRows.any {
+                    it.second.optInt("saleItemCount", -1) != saleRows.size ||
+                    !it.second.optDouble("saleTotal", Double.NaN).isFinite() ||
+                    kotlin.math.abs(it.second.optDouble("saleTotal", Double.NaN) - oldTotal) > 0.01 ||
+                    kotlin.math.abs(it.second.optDouble("amountPaid", Double.NaN) - ticketPaid) > 0.01 ||
+                    kotlin.math.abs(it.second.optDouble("change", Double.NaN) - ticketChange) > 0.01
+                }) return false
             val originalCodes = saleRows.map { it.second.optString("code").trim() }
             if (originalCodes.any { it.isBlank() } || originalCodes.size != originalCodes.toSet().size) return false
             val updatedRows = saleRows.map { JSONObject(it.second.toString()) }.toMutableList()
