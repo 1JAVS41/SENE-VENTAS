@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.widget.*
 import androidx.core.content.FileProvider
+import androidx.fragment.app.FragmentActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -289,6 +290,8 @@ private object PatronPin {
  private const val HASH_KEY="hash"
  private const val SALT_KEY="salt"
  private const val BIO_KEY="biometric_enabled"
+ private const val NOTICE_KEY="default_pin_notice_shown"
+ private const val CUSTOM_KEY="custom_pin"
  private const val ITERATIONS=150000
  private const val DEFAULT_PIN="2910"
  private fun derive(pin:String,salt:ByteArray):ByteArray {
@@ -315,11 +318,31 @@ private object PatronPin {
  fun change(activity:Activity,current:String,next:String):Boolean{
   if(!verify(activity,current))return false
   if(next.length !in 4..8 || next.any{!it.isDigit()})return false
-  return save(activity,next)
+  val saved=save(activity,next)
+  if(saved)markCustom(activity)
+  return saved
  }
  fun biometricEnabled(activity:Activity)=activity.getSharedPreferences(PREFS,0).getBoolean(BIO_KEY,false)
  fun setBiometricEnabled(activity:Activity,enabled:Boolean)=activity.getSharedPreferences(PREFS,0).edit().putBoolean(BIO_KEY,enabled).commit()
+ fun noticeShown(activity:Activity)=activity.getSharedPreferences(PREFS,0).getBoolean(NOTICE_KEY,false)
+ fun markNoticeShown(activity:Activity)=activity.getSharedPreferences(PREFS,0).edit().putBoolean(NOTICE_KEY,true).commit()
+ fun isCustom(activity:Activity)=activity.getSharedPreferences(PREFS,0).getBoolean(CUSTOM_KEY,false)
+ fun markCustom(activity:Activity)=activity.getSharedPreferences(PREFS,0).edit().putBoolean(CUSTOM_KEY,true).commit()
 }
+
+private fun Activity.showDefaultPinNotice(after:()->Unit={}){
+ if(PatronPin.noticeShown(this)||PatronPin.isCustom(this))return
+ if(Store.phone(this).filter{it.isDigit()}.isBlank())return
+ val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER_HORIZONTAL;setPadding(dp(22),dp(20),dp(22),dp(14));background=rounded(0xFFFFF1E8.toInt(),22,0xFFE9A17A.toInt())}
+ panel.addView(TextView(this).apply{text="⚠️";textSize=48f;gravity=Gravity.CENTER;setTextColor(0xFFB54720.toInt())},LinearLayout.LayoutParams(-1,-2))
+ panel.addView(TextView(this).apply{text="¡ATENCIÓN, DUEÑO DE SENE!";textSize=21f;gravity=Gravity.CENTER;setTextColor(0xFF8D2E16.toInt());typeface=Typeface.create("sans-serif-black",Typeface.BOLD);setPadding(0,dp(8),0,dp(10))})
+ panel.addView(TextView(this).apply{text="EL PIN DE SOY PATRÓN VIENE CONFIGURADO DE FÁBRICA EN 2910.";textSize=18f;gravity=Gravity.CENTER;setTextColor(0xFF702B1B.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);setLineSpacing(dp(3).toFloat(),1f)})
+ panel.addView(TextView(this).apply{text="Por seguridad, el dueño debe cambiarlo antes de comenzar a trabajar. No compartas el nuevo PIN con los trabajadores.";textSize=14f;gravity=Gravity.CENTER;setTextColor(0xFF663B30.toInt());setPadding(0,dp(12),0,dp(4));setLineSpacing(dp(2).toFloat(),1f)})
+ val dialog=AlertDialog.Builder(this).setView(panel).setCancelable(false).setPositiveButton("MODIFICAR AHORA",null).setNegativeButton("CONSERVAR 2910",null).create()
+ dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener{PatronPin.markNoticeShown(this);dialog.dismiss();changePatronPin()};dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener{PatronPin.markNoticeShown(this);dialog.dismiss();after()}}
+ dialog.show()
+}
+
 private fun Activity.showPatronPinDialog(ok:()->Unit){
  val e=input("PIN del patrón",true)
  e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
@@ -527,7 +550,7 @@ private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa
 
 private object ShiftReportSendLock { var active = false }
 
-class InicioTurnoActivity:Activity(){
+class InicioTurnoActivity:FragmentActivity(){
  private var internet="Consultando internet…"
  private lateinit var internetLabel:TextView
  private var internetBaseMillis=0L
@@ -548,7 +571,7 @@ class InicioTurnoActivity:Activity(){
  private var refreshAfterPatron=false
  override fun onResume(){super.onResume();if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
- private fun continueAfterAuthorization(){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return};draw();consultInternetTime()}
+ private fun continueAfterAuthorization(){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return};draw();consultInternetTime();window.decorView.post{showDefaultPinNotice()}}
  private fun consultInternetTime(){
   internet="Consultando hora de Internet…"
   if(::internetLabel.isInitialized)internetLabel.text="Internet: "+internet
@@ -621,7 +644,7 @@ class InicioTurnoActivity:Activity(){
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
  private fun draw(){
-  val v=page("Panel principal"){showToolsMenu()}
+  val v=page("Panel principal")
   val welcome=LinearLayout(this).apply{
    orientation=LinearLayout.VERTICAL
    setPadding(dp(18),dp(17),dp(18),dp(17))
@@ -640,7 +663,7 @@ class InicioTurnoActivity:Activity(){
    text="ABRIR HERRAMIENTAS  ›";textSize=12f;letterSpacing=.06f
    setTextColor(0xFFFFD58A.toInt());typeface=Typeface.DEFAULT_BOLD
    setPadding(0,dp(13),0,0);isClickable=true;isFocusable=true
-   setOnClickListener{showToolsMenu()}
+   setOnClickListener{msg("Comienza tu turno para abrir las herramientas.")}
   }
   welcome.addView(openTools)
   v.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(15)})
@@ -1512,7 +1535,7 @@ class WorkerPortalActivity:Activity(){
  }
 }
 
-class MainActivity:Activity(){
+class MainActivity:FragmentActivity(){
  private var toolsDialog:AlertDialog?=null
 
  private lateinit var salesDeviceClock:TextView
@@ -1577,22 +1600,27 @@ class MainActivity:Activity(){
   }.start()
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el resumen del reporte como texto por WhatsApp. El archivo TXT se guarda por separado en INVENTARIO SENE.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
+ private fun showPasswordOptions(){
+  val labels=arrayOf("Cambiar PIN de Soy Patrón","Vincular / desvincular huella")
+  AlertDialog.Builder(this).setTitle("CONTRASEÑAS").setItems(labels){_,which->if(which==0)changePatronPin()else configurePatronBiometric()}.setNegativeButton("Cerrar",null).show()
+ }
  private fun showToolsMenu(){
   val items=arrayOf(
    "Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores",
-   "Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT",
+   "Ver stock","Soy Patrón / Administrador","Contraseñas","Cerrar turno","Guardar reporte TXT",
    "Mi horario (8 horas)","Identidad de este equipo","Mi trabajo / Mis solicitudes",
    "Vincular con SENE PATRÓN","Día de pago / Reporte de nómina","AYUDA OFICIAL SENE"
   )
-  val icons=arrayOf("💰","📦","🧾","🗃️","👑","🔒","📄","🕒","📱","📋","🔗","📅","🛟")
-  val colors=intArrayOf(0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFEAF7F7.toInt(),0xFFF2ECFF.toInt(),0xFFFFEEEE.toInt(),0xFFEAF2FF.toInt(),0xFFEAF7F7.toInt(),0xFFF1F3F8.toInt(),0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFF2ECFF.toInt())
-  val descriptions=arrayOf("Resumen de ventas y caja","Registrar mercancía recibida","Consultar pagos y gastos","Existencias y precios","Funciones del patrón","Finalizar jornada","Guardar copia del reporte","Consultar entrada y salida","Comprobar este teléfono","Solicitudes y respuestas","Conectar con el patrón","Historial de pago","Contactar soporte verificado")
+  val icons=arrayOf("💰","📦","🧾","🗃️","👑","🔐","🔒","📄","🕒","📱","📋","🔗","📅","🛟")
+  val colors=intArrayOf(0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFEAF7F7.toInt(),0xFFF2ECFF.toInt(),0xFFEAF2FF.toInt(),0xFFFFEEEE.toInt(),0xFFEAF2FF.toInt(),0xFFEAF7F7.toInt(),0xFFF1F3F8.toInt(),0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFF2ECFF.toInt())
+  val descriptions=arrayOf("Resumen de ventas y caja","Registrar mercancía recibida","Consultar pagos y gastos","Existencias y precios","Funciones del patrón","Cambiar PIN y administrar huella","Finalizar jornada","Guardar copia del reporte","Consultar entrada y salida","Comprobar este teléfono","Solicitudes y respuestas","Conectar con el patrón","Historial de pago","Contactar soporte verificado")
   val actions:Array<()->Unit> = arrayOf(
    {showCurrentSalesSummary()},
    {startActivity(Intent(this,AgregarInventarioActivity::class.java))},
    {showProviderExpenses()},
    {stock()},
    {pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}},
+   {showPasswordOptions()},
    {requestCloseShift()},
    {saveReportToPhone()},
    {showWorkerSchedule()},
@@ -2980,19 +3008,19 @@ class AgregarInventarioActivity:Activity(){
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){code.setText(codes.last());find()};return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null){code.setText(x.contents);find()}}
 }
 
-class PatronActivity:Activity(){
+class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
  override fun onCreate(b:Bundle?){super.onCreate(b);pin{draw()}}
  private fun draw(){
   val v=page("Administrador - Patrón")
   v.addView(actionCard("Hacer primer inventario","Registrar productos, cantidades y precios iniciales","📦",0xFFE8F7EF.toInt()){openFirstInventory()})
   v.addView(actionCard("Agregar o modificar producto","Ajustar existencias o precio mediante escáner","🛠️",0xFFEAF2FF.toInt()){product()})
-  v.addView(actionCard("Cambiar PIN de Soy Patrón","Crear una contraseña local de 4 a 8 dígitos","🔐",0xFFEAF2FF.toInt()){changePatronPin()})
+  v.addView(actionCard("Contraseñas","Cambiar el PIN y configurar el acceso con huella","🔐",0xFFEAF2FF.toInt()){showPasswordOptions()})
   v.addView(actionCard(if(PatronPin.biometricEnabled(this))"Desvincular huella" else "Vincular huella del dispositivo",if(PatronPin.biometricEnabled(this))"La huella está activa para entrar al panel" else "Opcional: usar la huella para entrar a Soy Patrón","👆",0xFFE8F7EF.toInt()){configurePatronBiometric()})
   v.addView(actionCard("Cambiar número de WhatsApp","Actualizar el número del patrón para reportes","📱",0xFFEAF7F7.toInt()){
    val e=input("Número con código de país");e.setText(Store.phone(this))
    AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e)
-    .setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}
+    .setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado");showDefaultPinNotice{finish()}}
     .setNegativeButton("Cancelar",null).show()
   })
   v.addView(actionCard("Ver inventario actual","Consultar productos, precios y existencias","🗃️",0xFFF2ECFF.toInt()){inventory()})
