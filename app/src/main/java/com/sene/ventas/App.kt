@@ -793,12 +793,18 @@ class WorkerPortalActivity:Activity(){
  override fun onCreate(b:Bundle?){super.onCreate(b);draw();prefs().edit().putBoolean("work_queue_sending",false).apply();flushQueue();flushCorrectionQueue();resumePreparedCorrections();handleIncomingTicketCorrection(intent)}
  private fun handleIncomingTicketCorrection(source:Intent?){
   if(source?.getBooleanExtra("ticket_correction_request",false)!=true)return
+  // Consume el marcador antes de abrir cualquier diálogo: no volver a reenviar
+  // la misma Activity (eso provocaba una cadena infinita de pantallas).
   source.removeExtra("ticket_correction_request")
-  val saleId=source.getStringExtra("ticket_sale_id").orEmpty()
+  val saleId=source.getStringExtra("ticket_sale_id").orEmpty().trim()
   val summary=source.getStringExtra("ticket_sale_summary").orEmpty()
-  val detail=source.getStringExtra("ticket_correction_detail").orEmpty()
-  val selected=source.getStringArrayListExtra("ticket_selected_codes")?.toSet().orEmpty()
-  startActivity(Intent(this,WorkerPortalActivity::class.java).apply{putExtra("ticket_correction_request",true);putExtra("ticket_sale_id",saleId);putExtra("ticket_sale_summary",summary);putExtra("ticket_correction_detail",detail);putStringArrayListExtra("ticket_selected_codes",ArrayList(selected))})
+  val detail=source.getStringExtra("ticket_correction_detail").orEmpty().trim()
+  val selected=source.getStringArrayListExtra("ticket_selected_codes")?.map{it.trim()}?.filter{it.isNotBlank()}?.toSet().orEmpty()
+  if(saleId.isBlank()){msg("No se identificó el folio de la venta. Escanea nuevamente el ticket.");return}
+  if(detail.isBlank()){msg("Escribe el motivo de la corrección antes de continuar.");return}
+  if(selected.isEmpty()){msg("Selecciona al menos un producto del ticket para corregir.");return}
+  // Continuar en esta misma pantalla con el plan editable de corrección.
+  startCorrectionPlanForSelectedRows(saleId,summary,detail,selected)
  }
  override fun onResume(){super.onResume();flushQueue();flushCorrectionQueue();resumePreparedCorrections()}
  private fun pairing(){
