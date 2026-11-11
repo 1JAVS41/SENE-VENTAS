@@ -492,28 +492,117 @@ class InicioTurnoActivity:Activity(){
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
  private fun draw(){
-  val v=page("Inicio de Turno")
-  v.addView(actionCard("Hora del celular","Fecha y hora local del dispositivo","🕒",0xFFF1F3F8.toInt()){consultInternetTime()})
-  internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel)
-  v.addView(actionCard("Verificar hora de Internet","Comprobar sincronización de la hora","🌐",0xFFEAF7F7.toInt()){consultInternetTime()})
+  val v=page("Panel principal"){showToolsMenu()}
+  val welcome=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL
+   setPadding(dp(18),dp(17),dp(18),dp(17))
+   background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(0xFF17264A.toInt(),0xFF315A9B.toInt())).apply{cornerRadius=dp(22).toFloat()}
+   elevation=dp(3).toFloat()
+  }
+  welcome.addView(TextView(this).apply{
+   text="BIENVENIDO A SENE VENTAS";textSize=17f;letterSpacing=.04f
+   setTextColor(0xFFFFFFFF.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD)
+  })
+  welcome.addView(TextView(this).apply{
+   text="Tu jornada comienza aquí. Administra tu turno, consulta tus herramientas y mantén todo bajo control."
+   textSize=13f;setTextColor(0xFFDCE7FF.toInt());setPadding(0,dp(7),0,0);setLineSpacing(dp(2).toFloat(),1f)
+  })
+  val openTools=TextView(this).apply{
+   text="ABRIR HERRAMIENTAS  ›";textSize=12f;letterSpacing=.06f
+   setTextColor(0xFFFFD58A.toInt());typeface=Typeface.DEFAULT_BOLD
+   setPadding(0,dp(13),0,0);isClickable=true;isFocusable=true
+   setOnClickListener{showToolsMenu()}
+  }
+  welcome.addView(openTools)
+  v.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(15)})
+
+  val clockPanel=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(11),dp(14),dp(11))
+   background=rounded(0xFFEAF7F7.toInt(),18,0xFFD6EAE8.toInt())
+  }
+  clockPanel.addView(txt("HORA Y SINCRONIZACIÓN",12f).apply{
+   typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF26736D.toInt())
+  })
+  clockPanel.addView(actionCard("Hora del celular","Fecha y hora local del dispositivo","🕒",0xFFFFFFFF.toInt()){consultInternetTime()})
+  internetLabel=txt("Internet: "+internet,14f)
+  clockPanel.addView(internetLabel)
+  clockPanel.addView(actionCard("Verificar hora de Internet","Comprobar sincronización de la hora","🌐",0xFFFFFFFF.toInt()){consultInternetTime()})
+  v.addView(clockPanel,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(15)})
+
+  val shiftPanel=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(13),dp(15),dp(13))
+   background=rounded(0xFFFFFFFF.toInt(),20,0xFFE1E7F1.toInt());elevation=dp(2).toFloat()
+  }
+  shiftPanel.addView(TextView(this).apply{
+   text="DATOS DEL TURNO";textSize=13f;letterSpacing=.05f
+   setTextColor(0xFF49618B.toInt());typeface=Typeface.DEFAULT_BOLD
+   setPadding(dp(2),0,0,dp(5))
+  })
   val n=input("Nombre del trabajador")
   val p=input("Número de celular del trabajador",true)
   val cash=input("¿Con cuánto inicia caja chica? $",true)
-  v.addView(txt("DATOS DEL TURNO",13f).apply{setTextColor(0xFF49618B.toInt());typeface=Typeface.DEFAULT_BOLD})
-  v.addView(n);v.addView(p);v.addView(cash)
-  v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){
+  shiftPanel.addView(n);shiftPanel.addView(p);shiftPanel.addView(cash)
+  shiftPanel.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){
    if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton}
    startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())
   })
+  v.addView(shiftPanel,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})
+
   v.addView(actionCard("Mi trabajo / Día de pago","Solicitudes, respuestas y nómina","📋",0xFFEAF2FF.toInt()){startActivity(Intent(this,WorkerPortalActivity::class.java))})
   v.addView(actionCard("Soy Patrón","Administrar inventario y configuración","👑",0xFFF2ECFF.toInt()){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
-  val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false}
+  val inventoryReady=Store.products(this).length()>0 || try{
+   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
+   if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}
+  }catch(_:Exception){false}
   if(!inventoryReady){
-   val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f)
-   notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)
+   val notice=LinearLayout(this).apply{
+    orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+    setPadding(dp(13),dp(11),dp(13),dp(11))
+    background=rounded(0xFFFFF0E8.toInt(),15,0xFFF0D4C6.toInt())
+   }
+   notice.addView(TextView(this).apply{text="⚠️";textSize=21f},LinearLayout.LayoutParams(dp(34),-2))
+   notice.addView(TextView(this).apply{
+    text="Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero."
+    textSize=12.5f;setTextColor(0xFF9B422B.toInt());setLineSpacing(dp(2).toFloat(),1f)
+   },LinearLayout.LayoutParams(0,-2,1f))
+   v.addView(notice,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8);bottomMargin=dp(8)})
   }
-  v.addView(txt("HISTORIAL DE TURNOS",14f).apply{typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF49618B.toInt())})
-  val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f))
+  val historyHeader=LinearLayout(this).apply{
+   orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+   setPadding(dp(2),dp(16),dp(2),dp(5))
+  }
+  historyHeader.addView(TextView(this).apply{
+   text="MOVIMIENTOS RECIENTES";textSize=13f;letterSpacing=.05f
+   setTextColor(0xFF49618B.toInt());typeface=Typeface.DEFAULT_BOLD
+  },LinearLayout.LayoutParams(0,-2,1f))
+  historyHeader.addView(TextView(this).apply{
+   text="ÚLTIMOS 15";textSize=10f;setTextColor(0xFF8A94AA.toInt());typeface=Typeface.DEFAULT_BOLD
+  })
+  v.addView(historyHeader)
+  val m=Store.moves(this)
+  val historyPanel=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;setPadding(dp(11),dp(9),dp(11),dp(9))
+   background=rounded(0xFFFFFFFF.toInt(),18,0xFFE1E7F1.toInt())
+  }
+  if(m.length()==0){
+   historyPanel.addView(txt("Todavía no hay movimientos registrados.",13f))
+  }else{
+   for(i in m.length()-1 downTo maxOf(0,m.length()-15)){
+    val item=m.optJSONObject(i)?:continue
+    val row=LinearLayout(this).apply{
+     orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+     setPadding(dp(9),dp(9),dp(9),dp(9))
+     background=rounded(if(i%2==0)0xFFF4F7FC.toInt() else 0xFFFFFFFF.toInt(),12)
+    }
+    row.addView(TextView(this).apply{text="•";textSize=20f;setTextColor(0xFF5277BC.toInt());gravity=Gravity.CENTER},LinearLayout.LayoutParams(dp(24),-2))
+    row.addView(TextView(this).apply{
+     text=item.optString("text","Movimiento");textSize=12.5f
+     setTextColor(0xFF33415F.toInt());maxLines=3
+    },LinearLayout.LayoutParams(0,-2,1f))
+    historyPanel.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(4)})
+   }
+  }
+  v.addView(historyPanel)
   display(v)
  }
 }
