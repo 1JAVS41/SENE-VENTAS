@@ -1727,12 +1727,17 @@ class MainActivity:Activity(){
  }
  private fun flushPendingShiftReports(){
   val prefs=seneServerPrefs()
-  if(prefs.getBoolean("shift_reports_sending",false))return
+  val now=System.currentTimeMillis()
+  val sending=prefs.getBoolean("shift_reports_sending",false)
+  val sendingAt=prefs.getLong("shift_reports_sending_at",0L)
+  // Recupera la cola si Android cerró el proceso durante un envío anterior.
+  // Las peticiones HTTP tienen tiempos límite; cinco minutos cubren un envío normal.
+  if(sending && sendingAt>0L && now>=sendingAt && now-sendingAt<300000L)return
   val base=prefs.getString("server_base_url",null)?:return
   val device=prefs.getString("device_id",null)?:return
   val queue=prefs.getString("shift_report_queue","[]")?.let{JSONArray(it)}?:JSONArray()
   if(queue.length()==0)return
-  prefs.edit().putBoolean("shift_reports_sending",true).apply()
+  if(!prefs.edit().putBoolean("shift_reports_sending",true).putLong("shift_reports_sending_at",now).commit())return
   Thread{
    try{
     val api=SeneApiClient(this,base)
@@ -1754,7 +1759,7 @@ class MainActivity:Activity(){
       android.widget.Toast.LENGTH_LONG
      ).show()
     }
-   }finally{prefs.edit().putBoolean("shift_reports_sending",false).apply()}
+   }finally{prefs.edit().putBoolean("shift_reports_sending",false).remove("shift_reports_sending_at").apply()}
   }.start()
  }
  private fun showCurrentSalesSummary(){
