@@ -1056,7 +1056,8 @@ class WorkerPortalActivity:Activity(){
   Thread{
    try{
     val since=prefs().getLong("work_updates_since",0L)
-    val updates=SeneApiClient(this,base).requestUpdates(since)
+    val api=SeneApiClient(this,base)
+    val updates=api.requestUpdates(since)
     val corrections=updates.optJSONArray("corrections")?:JSONArray()
     var newest=since
     synchronized(prefs()){
@@ -1087,8 +1088,13 @@ class WorkerPortalActivity:Activity(){
        .put("createdAt",item.optLong("createdAt",0L)).put("decidedAt",item.optLong("decidedAt",0L)))
       newest=maxOf(newest,item.optLong("decidedAt",0L))
      }
-     prefs().edit().putString("correction_history",history.toString())
-      .putLong("work_updates_since",maxOf(0L,newest-1L)).commit()
+     check(prefs().edit().putString("correction_history",history.toString()).commit()) {
+      "No se pudo guardar localmente el lote de autorizaciones."
+     }
+    }
+    api.acknowledgePersistedDelivery("VENTAS_REQUEST_UPDATES",updates)
+    check(prefs().edit().putLong("work_updates_since",maxOf(0L,newest-1L)).commit()) {
+     "No se pudo guardar el cursor después del ACK."
     }
     runOnUiThread{showApprovedCorrectionPicker()}
    }catch(e:Exception){runOnUiThread{msg("No se pudieron consultar las autorizaciones. Revisa la conexión e inténtalo de nuevo.")}}
@@ -1416,7 +1422,8 @@ class WorkerPortalActivity:Activity(){
   Thread{
    try{
     val since=prefs().getLong("work_updates_since",0L)
-    val updates=SeneApiClient(this,base).requestUpdates(since)
+    val api=SeneApiClient(this,base)
+    val updates=api.requestUpdates(since)
     val decisions=updates.optJSONArray("items")?:JSONArray()
     val corrections=updates.optJSONArray("corrections")?:JSONArray()
     var history=JSONArray()
@@ -2069,7 +2076,8 @@ class MainActivity:FragmentActivity(){
   Thread{
    try{
     val since=prefs.getLong("work_updates_since",0L)
-    val updates=SeneApiClient(this,base).requestUpdates(since)
+    val api=SeneApiClient(this,base)
+    val updates=api.requestUpdates(since)
     val items=updates.optJSONArray("items")?:JSONArray()
     val history=prefs.getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
     var newest=since
