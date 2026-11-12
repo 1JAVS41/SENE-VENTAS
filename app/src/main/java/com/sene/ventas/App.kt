@@ -2146,39 +2146,87 @@ class MainActivity:FragmentActivity(){
   val prefs=seneServerPrefs()
   val base=prefs.getString("server_base_url",null)
   if(base.isNullOrBlank()){showVentasServerConfig{showMyRequests()};return}
+  val device=prefs.getString("device_id",null)
+  if(device.isNullOrBlank()){
+   AlertDialog.Builder(this).setTitle("SENE VENTAS no está vinculado")
+    .setMessage("Vincula este teléfono con el QR generado desde SENE PATRÓN para consultar el historial del equipo.")
+    .setPositiveButton("VINCULAR"){_,_->showVentasPairing()}
+    .setNegativeButton("CERRAR",null).show()
+   return
+  }
   Thread{
    try{
-    val since=prefs.getLong("work_updates_since",0L)
-    val api=SeneApiClient(this,base)
-    val updates=api.requestUpdates(since)
-    val items=updates.optJSONArray("items")?:JSONArray()
-    val history=prefs.getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
-    var newest=since
-    for(i in 0 until items.length()){
-     val item=items.getJSONObject(i);val id=item.optString("requestId")
-     for(j in 0 until history.length()){
-      val old=history.optJSONObject(j)?:continue
-      if(old.optString("requestId")==id){old.put("status",item.optString("status"));old.put("decisionDetails",item.optJSONObject("decisionDetails")?:JSONObject());old.put("decidedAt",item.optLong("decidedAt"))}
-     }
-     newest=maxOf(newest,item.optLong("decidedAt",0L))
-    }
-    check(prefs.edit().putString("work_history",history.toString()).commit()) {
-     "No se pudo guardar localmente el historial de solicitudes."
-    }
-    api.acknowledgePersistedDelivery("VENTAS_REQUEST_UPDATES",updates)
-    check(prefs.edit().putLong("work_updates_since",maxOf(0L,newest-1L)).commit()) {
-     "No se pudo guardar el cursor después del ACK."
+    // Este endpoint devuelve una fotografía completa del historial, no un lote incremental;
+    // se persiste para reconstruir la pantalla después de reinstalar. No se envía ACK de entrega.
+    val snapshot=SeneApiClient(this,base).requestHistory(device)
+    val history=snapshot.optJSONArray("items")?:JSONArray()
+    val corrections=snapshot.optJSONArray("corrections")?:JSONArray()
+    check(prefs.edit()
+     .putString("work_history",history.toString())
+     .putString("correction_history",corrections.toString())
+     .commit()){
+     "No se pudo guardar localmente el historial recibido."
     }
     val message=buildString{
-     if(history.length()==0)append("Todavía no tienes solicitudes registradas.")
-     for(i in history.length()-1 downTo 0){
-      val item=history.optJSONObject(i)?:continue
-      append(item.optString("type")).append("\nEstado: ").append(item.optString("status")).append("\n")
-      append(item.optJSONObject("details")?.optString("description").orEmpty()).append("\n\n")
+     if(history.length()==0&&corrections.length()==0){
+      append("Todavía no hay solicitudes ni correcciones registradas para este equipo.")
+     }
+     if(history.length()>0){
+      append("SOLICITUDES DE TRABAJO\n")
+      for(i in 0 until minOf(history.length(),50)){
+       val item=history.optJSONObject(i)?:continue
+       append("• ").append(item.optString("type").replace('_',' '))
+        .append(" · ").append(item.optString("status").uppercase(Locale.ROOT))
+       val description=item.optJSONObject("details")?.optString("description").orEmpty()
+       if(description.isNotBlank())append("\n  ").append(description)
+       val decision=item.optJSONObject("decisionDetails")?:JSONObject()
+       if(decision.length()>0)append("\n  Respuesta del patrón: ").append(decision.toString())
+       append("\n\n")
+      }
+      if(history.length()>50)append("Se muestran las 50 solicitudes más recientes de ").append(history.length()).append(".\n\n")
+     }
+     if(corrections.length()>0){
+      append("CORRECCIONES DE VENTA\n")
+      for(i in 0 until minOf(corrections.length(),30)){
+       val item=corrections.optJSONObject(i)?:continue
+       val reasons=item.optJSONArray("reasons")
+       val reasonText=if(reasons!=null)(0 until reasons.length()).joinToString(", "){reasons.optString(it)} else item.optString("reason")
+       append("• ").append(item.optString("status").uppercase(Locale.ROOT))
+        .append(" · Venta ").append(item.optString("saleId"))
+        .append("\n  Motivo: ").append(reasonText)
+       if(item.optBoolean("cashImpact"))append("\n  Afecta caja: ").append(item.optString("cashReason"))
+       append("\n\n")
+      }
+      if(corrections.length()>30)append("Se muestran las 30 correcciones más recientes de ").append(corrections.length()).append(".\n")
+     }
+     append("\nHistorial actualizado desde el servidor y guardado en este teléfono.")
+    }
+    runOnUiThread{
+     AlertDialog.Builder(this).setTitle("MIS SOLICITUDES Y CORRECCIONES")
+      .setMessage(message).setPositiveButton("CERRAR",null).show()
+    }
+   }catch(e:Exception){
+    val localItems=prefs.getString("work_history","[]")?.let{JSONArray(it)}?:JSONArray()
+    val localCorrections=prefs.getString("correction_history","[]")?.let{JSONArray(it)}?:JSONArray()
+    val fallback=buildString{
+     if(localItems.length()==0&&localCorrections.length()==0)append("No hay una copia local del historial.")
+     for(i in 0 until localItems.length()){
+      val item=localItems.optJSONObject(i)?:continue
+      append("• ").append(item.optString("type")).append(" · ")
+       .append(item.optString("status").uppercase(Locale.ROOT)).append("\n")
+     }
+     for(i in 0 until localCorrections.length()){
+      val item=localCorrections.optJSONObject(i)?:continue
+      append("• CORRECCIÓN · ").append(item.optString("status").uppercase(Locale.ROOT))
+       .append(" · ").append(item.optString("saleId")).append("\n")
      }
     }
-    runOnUiThread{AlertDialog.Builder(this).setTitle("MIS SOLICITUDES").setMessage(message).setPositiveButton("Actualizar",null).setNegativeButton("Cerrar",null).show()}
-   }catch(e:Exception){runOnUiThread{msg("No se pudo actualizar el historial: "+(e.message?:"Error"))}}
+    runOnUiThread{
+     AlertDialog.Builder(this).setTitle("HISTORIAL · COPIA LOCAL")
+      .setMessage("No se pudo actualizar desde el servidor.\n\n"+fallback+"\n\nDetalle: "+(e.message?:"Error de conexión"))
+      .setPositiveButton("CERRAR",null).show()
+    }
+   }
   }.start()
  }
 
