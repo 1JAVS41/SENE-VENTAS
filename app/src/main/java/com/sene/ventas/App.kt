@@ -55,18 +55,7 @@ private const val SENE_TEST_SERVER_URL = "https://sene-licensing-api-testing.1co
 
 private const val GREEN=0xFF168B45.toInt()
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
-private fun parseAmount(raw:String):Double? {
- val value=raw.trim().replace("$","").replace(" ","").replace("\u00A0","")
- if(value.isEmpty())return null
- val comma=value.lastIndexOf(',');val dot=value.lastIndexOf('.')
- val normalized=when{
-  comma>=0&&dot>=0&&comma>dot->value.replace(".","").replace(',','.')
-  comma>=0&&dot>=0->value.replace(",","")
-  comma>=0->{val decimals=value.length-comma-1;if(decimals in 1..2)value.replace(',','.') else value.replace(",","")}
-  else->value
- }
- return normalized.toDoubleOrNull()
-}
+
 private fun internetTimeMillis():Long?{
  val endpoints=listOf(
   "https://worldtimeapi.org/api/timezone/America/Mexico_City",
