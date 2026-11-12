@@ -25,7 +25,9 @@ Se incorporaron de forma adaptada a las clases ya existentes en la base:
 3. Validación de que la sesión autenticada pertenece a un dispositivo VENTAS y persistencia del slot devuelto.
 4. Lectura del prefijo de QR `SENEPAIR1:` y `SENEPAIR2:` sin distinguir mayúsculas/minúsculas.
 5. Acceso visible a la recuperación desde el menú de herramientas.
-6. Ejecución del workflow de compilación y smoke test también en esta rama de consolidación.
+6. Consulta del historial remoto completo de solicitudes y correcciones, con persistencia local para reconstruirlo después de reinstalar; se conserva el endpoint incremental con ACK para los flujos que sí devuelven entregas universales.
+7. Estado de vinculación y espacio asignado visibles en la pantalla de identidad del equipo.
+8. Ejecución del workflow de compilación y smoke test también en esta rama de consolidación.
 
 La recuperación reutiliza la identidad de continuidad existente en `DeviceIdentity`; no se copió la clase de identidad alternativa de la rama fix para evitar dos implementaciones criptográficas con el mismo alias de Android Keystore.
 
@@ -38,8 +40,8 @@ La recuperación reutiliza la identidad de continuidad existente en `DeviceIdent
 
 ## Cambios de esta rama de consolidación
 
-- `SeneApiClient.kt`: pairing tolerante a prefijos QR, almacenamiento validado del slot y nombre de empresa, sesión validada y método firmado de recuperación del mismo teléfono.
-- `App.kt`: nueva opción de menú para recuperación en el mismo teléfono, con validación de datos, mensajes de error y reanudación de colas tras recuperar.
+- `SeneApiClient.kt`: pairing tolerante a prefijos QR, almacenamiento validado del slot y nombre de empresa, sesión validada, método firmado de recuperación del mismo teléfono y consulta firmada del historial completo.
+- `App.kt`: nueva opción de menú para recuperación en el mismo teléfono, con validación de datos, mensajes de error y reanudación de colas; estado de vinculación/slot correcto y reconstrucción local del historial remoto de solicitudes y correcciones.
 - `.github/workflows/build-test-apk.yml`: habilita compilación y smoke test en esta rama.
 
 ## Verificación pendiente
@@ -54,7 +56,7 @@ La recuperación de mismo teléfono también requiere una prueba E2E contra el W
 - `fix/ventas-cloudflare-client`: compilación de APK completada correctamente en las ejecuciones `42950820680` y `42950814402` (11 de noviembre). Estas ejecuciones no prueban por sí solas la integración actual ni los cambios de ACK posteriores.
 - `integration/ventas-completa`: ejecución `43184203356` completó la compilación y el smoke test Android 35 correctamente (12 de noviembre).
 - `integration/ack-universal`: ejecución `43308365180` compiló el APK y verificó identidad/recursos, pero falló el smoke test porque, tras instalar y lanzar la app con `monkey`, `pidof com.sene.ventas` no encontró un proceso activo tres segundos después. El registro de esa ejecución no contiene una captura de Logcat en el punto de fallo, así que todavía no se atribuye la causa a un crash específico.
-- Consolidación: ejecución `43313862764` fue cancelada al entrar un commit posterior; la ejecución vigente es `43314309396`, sobre el commit `63736edf268d7430c8e0b2577ebada90a0b6b8ec`. Su resultado todavía no está disponible.
+- Consolidación: las ejecuciones `43313862764`, `43314309396`, `43314621431` y `43315003109` fueron canceladas por nuevos commits de esta misma rama antes de completar la validación. La ejecución vigente es `43315088618`, sobre el commit `16a6bcece2de4520ea4bdb534cddd6c90f34d433`. Su resultado todavía no está disponible.
 
 ## Regla para seguir consolidando
 
