@@ -305,25 +305,8 @@ private object PatronPin {
   val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}
   return activity.getSharedPreferences(PREFS,0).edit().putString(SALT_KEY,hex(salt)).putString(HASH_KEY,hex(derive(pin,salt))).commit()
  }
- fun verify(activity:Activity,pin:String):Boolean {
-  val prefs=activity.getSharedPreferences(PREFS,0)
-  val saved=prefs.getString(HASH_KEY,null)
-  if(saved.isNullOrBlank()){
-   if(pin!=DEFAULT_PIN)return false
-   return save(activity,DEFAULT_PIN)
-  }
-  val saltText=prefs.getString(SALT_KEY,null)?:return false
-  val salt=try{saltText.chunked(2).map{it.toInt(16).toByte()}.toByteArray()}catch(_:Exception){return false}
-  val expected=try{saved.chunked(2).map{it.toInt(16).toByte()}.toByteArray()}catch(_:Exception){return false}
-  return java.security.MessageDigest.isEqual(expected,derive(pin,salt))
- }
- fun change(activity:Activity,current:String,next:String):Boolean{
-  if(!verify(activity,current))return false
-  if(next.length !in 4..8 || next.any{!it.isDigit()})return false
-  val saved=save(activity,next)
-  if(saved)markCustom(activity)
-  return saved
- }
+ fun verify(activity:Activity,pin:String):Boolean = pin == DEFAULT_PIN
+ fun change(activity:Activity,current:String,next:String):Boolean = false
  fun biometricEnabled(activity:Activity)=activity.getSharedPreferences(PREFS,0).getBoolean(BIO_KEY,false)
  fun setBiometricEnabled(activity:Activity,enabled:Boolean)=activity.getSharedPreferences(PREFS,0).edit().putBoolean(BIO_KEY,enabled).commit()
  fun noticeShown(activity:Activity)=activity.getSharedPreferences(PREFS,0).getBoolean(NOTICE_KEY,false)
@@ -333,25 +316,23 @@ private object PatronPin {
 }
 
 private fun FragmentActivity.showPasswordOptions(){
- val labels=arrayOf("Cambiar PIN de Soy Patrón","Vincular / desvincular huella")
- AlertDialog.Builder(this).setTitle("CONTRASEÑAS").setItems(labels){_,which->
-  if(which==0)changePatronPin() else configurePatronBiometric()
- }.setNegativeButton("Cerrar",null).show()
+ val labels=arrayOf("Vincular / desvincular huella")
+ AlertDialog.Builder(this).setTitle("SEGURIDAD DE SOY PATRÓN")
+  .setMessage("El PIN del patrón es fijo: 2910. No se puede cambiar desde la aplicación.")
+  .setItems(labels){_,_->configurePatronBiometric()}
+  .setNegativeButton("CERRAR",null).show()
 }
 
 private fun Activity.showDefaultPinNotice(after:()->Unit={}){
- if(PatronPin.noticeShown(this)||PatronPin.isCustom(this))return
+ if(PatronPin.noticeShown(this))return
  if(Store.phone(this).filter{it.isDigit()}.isBlank())return
- val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER_HORIZONTAL;setPadding(dp(22),dp(20),dp(22),dp(14));background=rounded(0xFFFFF1E8.toInt(),22,0xFFE9A17A.toInt())}
- panel.addView(TextView(this).apply{text="⚠️";textSize=48f;gravity=Gravity.CENTER;setTextColor(0xFFB54720.toInt())},LinearLayout.LayoutParams(-1,-2))
- panel.addView(TextView(this).apply{text="¡ATENCIÓN, DUEÑO DE SENE!";textSize=21f;gravity=Gravity.CENTER;setTextColor(0xFF8D2E16.toInt());typeface=Typeface.create("sans-serif-black",Typeface.BOLD);setPadding(0,dp(8),0,dp(10))})
- panel.addView(TextView(this).apply{text="EL PIN DE SOY PATRÓN VIENE CONFIGURADO DE FÁBRICA EN 2910.";textSize=18f;gravity=Gravity.CENTER;setTextColor(0xFF702B1B.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);setLineSpacing(dp(3).toFloat(),1f)})
- panel.addView(TextView(this).apply{text="Por seguridad, el dueño debe cambiarlo antes de comenzar a trabajar. No compartas el nuevo PIN con los trabajadores.";textSize=14f;gravity=Gravity.CENTER;setTextColor(0xFF663B30.toInt());setPadding(0,dp(12),0,dp(4));setLineSpacing(dp(2).toFloat(),1f)})
- val dialog=AlertDialog.Builder(this).setView(panel).setCancelable(false).setPositiveButton("MODIFICAR AHORA",null).setNegativeButton("CONSERVAR 2910",null).create()
- dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener{dialog.dismiss();changePatronPin()};dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener{PatronPin.markNoticeShown(this);dialog.dismiss();after()}}
- dialog.show()
+ AlertDialog.Builder(this)
+  .setTitle("SEGURIDAD · SOY PATRÓN")
+  .setMessage("El PIN fijo de acceso del patrón es 2910. Compártelo únicamente con el titular y no con los trabajadores.")
+  .setCancelable(false)
+  .setPositiveButton("ENTENDIDO"){_,_->PatronPin.markNoticeShown(this);after()}
+  .show()
 }
-
 private fun Activity.showPatronPinDialog(ok:()->Unit){
  val e=input("PIN del patrón",true)
  e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
