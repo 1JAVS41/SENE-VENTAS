@@ -2458,9 +2458,16 @@ class MainActivity:FragmentActivity(){
    val alteredFingerprintRejected=!DeviceIdentity.verifyChallenge(alteredFingerprint,challenge,signature)
    val integrityOk=validSignature&&alteredChallengeRejected&&alteredSignatureRejected&&alteredFingerprintRejected
    val integrityText=if(integrityOk)"CORRECTA" else "NO SUPERADA"
+   val serverPrefs=seneServerPrefs()
+   val storedDevice=serverPrefs.getString("device_id",null).orEmpty()
+   val storedSlot=serverPrefs.getString("device_slot",null).orEmpty()
+   val pairedBusiness=serverPrefs.getString("paired_business",null).orEmpty()
+   val linkStatus=if(storedDevice.isNotBlank())"VINCULADO LOCALMENTE" else "NO VINCULADO"
+   val slotStatus=if(storedSlot=="VENTAS_1"||storedSlot=="VENTAS_2")storedSlot else "PENDIENTE DE ASIGNAR (EQUIPO 1 O EQUIPO 2)"
    val message="APLICACIÓN: SENE VENTAS"+
-    "\nESTADO: NO VINCULADO"+
-    "\nESPACIO: PENDIENTE DE ASIGNAR (EQUIPO 1 O EQUIPO 2)"+
+    "\nESTADO: "+linkStatus+
+    "\nESPACIO: "+slotStatus+
+    (if(pairedBusiness.isNotBlank())"\nEMPRESA: "+pairedBusiness else "")+
     "\nPRUEBA LOCAL DE IDENTIDAD: "+integrityText+
     "\nRETO ALTERADO: "+(if(alteredChallengeRejected)"RECHAZADO" else "ACEPTADO")+
     "\nFIRMA ALTERADA: "+(if(alteredSignatureRejected)"RECHAZADA" else "ACEPTADA")+
@@ -2468,7 +2475,7 @@ class MainActivity:FragmentActivity(){
     "\n\nID DE ESTA INSTALACIÓN:\n"+identity.installationId+
     "\n\nID DE CONTINUIDAD DEL DISPOSITIVO:\n"+identity.continuityId+
     "\n\nHUELLA DE SU CLAVE:\n"+identity.fingerprint+
-    "\n\nEl ID de continuidad permite reconocer este mismo teléfono después de reinstalar SENE VENTAS, mientras Android conserve su identificador de dispositivo y se mantengan el perfil y la firma de la app. La clave criptográfica sí se renueva al desinstalar y volver a instalar. El servidor deberá localizar la vinculación anterior y exigir autenticación y una nueva comprobación antes de recuperarla. Todavía no se ha registrado en Firebase ni autorizado por SENE PATRÓN."
+    "\n\nEl ID de continuidad permite al servidor comprobar si este es el mismo teléfono después de reinstalar, sujeto a que Android conserve su identificador y se mantenga el mismo perfil. La clave criptográfica puede renovarse al reinstalar. Si reinstalas en este teléfono, utiliza RESTAURAR EN EL MISMO TELÉFONO. Para un teléfono perdido o distinto se requiere la reposición autorizada por SENE PATRÓN."
    AlertDialog.Builder(this).setTitle("IDENTIDAD DEL EQUIPO").setMessage(message).setPositiveButton("CERRAR",null).show()
   }catch(e:Exception){
    AlertDialog.Builder(this).setTitle("IDENTIDAD DEL EQUIPO").setMessage("No se pudo crear, firmar o comprobar la identidad segura de este teléfono.\n\nDetalle: "+(e.message?:"Error desconocido")).setPositiveButton("CERRAR",null).show()
