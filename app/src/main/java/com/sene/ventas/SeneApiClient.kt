@@ -8,6 +8,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.UUID
 
 private fun isStrictIsoDate(value: String): Boolean {
