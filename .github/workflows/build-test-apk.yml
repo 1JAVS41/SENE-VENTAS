@@ -77,7 +77,7 @@ jobs:
             adb devices -l
             adb install -r "$APK_PATH"
             adb shell am force-stop com.sene.ventas
-            adb shell am start -W -n com.sene.ventas/.InicioTurnoActivity
+            adb shell am start -n com.sene.ventas/.InicioTurnoActivity
             sleep 3
             adb shell pidof com.sene.ventas
       - name: Preparar nombre de entrega
