@@ -16,11 +16,18 @@ if ! timeout 120s adb install -r "$APK_PATH"; then
   exit 1
 fi
 adb shell am force-stop com.sene.ventas
-if ! timeout 45s adb shell monkey -p com.sene.ventas 1; then
+START_OUTPUT="$(timeout 45s adb shell am start -W -n com.sene.ventas/.MainActivity 2>&1)" || {
+  printf '%s\n' "$START_OUTPUT" > diagnostics/start.txt
   adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
   adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
   exit 1
-fi
+}
+printf '%s\n' "$START_OUTPUT" > diagnostics/start.txt
+echo "$START_OUTPUT" | grep -q "Status: ok" || {
+  adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
+  adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
+  exit 1
+}
 attempt=0
 while [ "$attempt" -lt 20 ]; do
   if adb shell pidof com.sene.ventas >/dev/null 2>&1; then
