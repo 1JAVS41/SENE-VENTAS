@@ -38,22 +38,10 @@ object DeviceIdentity {
     fun get(context: Context): DeviceIdentitySnapshot {
         val appContext = context.applicationContext
         val keyPair = loadOrCreateKeyPair(appContext)
-        val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        var installationId = preferences.getString(ID_KEY, null)
 
-        // Si la clave protegida fue eliminada o cambió, se crea una identidad
-        // nueva. Nunca se conserva el ID anterior con una clave distinta.
-        if (installationId.isNullOrBlank()) {
-            installationId = UUID.randomUUID().toString()
-            check(preferences.edit().putString(ID_KEY, installationId).commit()) {
-                "No se pudo guardar el identificador local"
-            }
-        }
-
-        // Identificador de continuidad derivado del ANDROID_ID de Android.
-        // Sirve para localizar una vinculación previa tras reinstalar en el mismo
-        // perfil y teléfono. No es secreto ni prueba criptográfica: el backend
-        // siempre debe exigir autenticación y una nueva prueba de posesión.
+        // El ID lógico se deriva del paquete y ANDROID_ID, no de preferencias
+        // que Android puede borrar al reinstalar. Así conserva el mismo ID en
+        // el mismo perfil/teléfono; la clave P-256 sigue protegida en Keystore.
         val androidId = Settings.Secure.getString(
             appContext.contentResolver,
             Settings.Secure.ANDROID_ID
@@ -62,6 +50,15 @@ object DeviceIdentity {
             "Android no proporcionó un identificador estable para este dispositivo"
         }
         val continuityInput = appContext.packageName + "|" + androidId
+        val installationId = deriveInstallationId(appContext.packageName, androidId)
+        val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        check(preferences.edit().putString(ID_KEY, installationId).commit()) {
+            "No se pudo guardar el identificador lógico del dispositivo"
+        }
+
+        // continuityId ayuda a localizar la vinculación anterior, pero no es
+        // secreto ni prueba criptográfica: el Worker exige datos registrados y
+        // una firma nueva de la clave P-256 que permanece dentro de Keystore.
         val continuityId = MessageDigest.getInstance("SHA-256")
             .digest(continuityInput.toByteArray(Charsets.UTF_8))
             .joinToString("") { byte -> "%02X".format(byte.toInt() and 0xFF) }
@@ -154,8 +151,8 @@ object DeviceIdentity {
             keyStore.deleteEntry(KEY_ALIAS)
         }
 
-        // Una clave nueva implica una instalación nueva, aunque quedara un ID
-        // anterior guardado en preferencias después de restaurar datos.
+        // Si falta la clave, se renueva el par criptográfico. El ID lógico
+        // estable se vuelve a derivar de ANDROID_ID al regresar a get().
         check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().remove(ID_KEY).commit()) {
             "No se pudo renovar el identificador de instalación"
