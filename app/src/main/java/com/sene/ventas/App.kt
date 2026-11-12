@@ -1841,8 +1841,13 @@ class MainActivity:FragmentActivity(){
      }
      newest=maxOf(newest,item.optLong("decidedAt",0L))
     }
-    prefs.edit().putString("work_history",full.toString())
-     .putLong("work_updates_since",maxOf(0L,newest-1L)).apply()
+    check(prefs.edit().putString("work_history",full.toString()).commit()) {
+     "No se pudo guardar localmente el historial para nómina."
+    }
+    api.acknowledgePersistedDelivery("VENTAS_REQUEST_UPDATES",updates)
+    check(prefs.edit().putLong("work_updates_since",maxOf(0L,newest-1L)).commit()) {
+     "No se pudo guardar el cursor después del ACK."
+    }
     refreshPayrollScope(full)
     true
    }catch(_:Exception){false}
