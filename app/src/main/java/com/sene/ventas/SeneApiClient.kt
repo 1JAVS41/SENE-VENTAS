@@ -123,7 +123,7 @@ class SeneApiClient(context: Context, baseUrl: String) {
         deviceId: String = storedDeviceId()
             ?: throw IllegalStateException("SENE VENTAS todavía no está vinculado")
     ): JSONObject {
-        require(inventoryDate.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$"))) { "Fecha de inventario no válida" }
+        require(isStrictIsoDate(inventoryDate)) { "Fecha de inventario no válida" }
         require(snapshot.toString().length <= 32768) { "El inventario supera el tamaño permitido" }
         val body = JSONObject().put("inventoryDate", inventoryDate).put("snapshot", snapshot)
         return deviceSigned("VENTAS_DAILY_INVENTORY", "/v1/ventas/inventory/daily", body.toString(), deviceId)
