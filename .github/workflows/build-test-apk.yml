@@ -72,36 +72,42 @@ jobs:
           cores: 2
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-snapshot-save
           script: |
-            set -Eeuo pipefail
+            set -eu
             mkdir -p diagnostics
-            capture_failure() {
-              status=$?
-              if [ "$status" -ne 0 ]; then
-                mkdir -p diagnostics
-                adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
-                adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
-                adb shell dumpsys package com.sene.ventas > diagnostics/package.txt 2>&1 || true
-                printf 'Smoke test falló con código %s\n' "$status" > diagnostics/result.txt
-              fi
-              exit "$status"
-            }
-            trap capture_failure EXIT
             test -n "$APK_PATH" && test -s "$APK_PATH"
             timeout 60s adb wait-for-device
-            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+            BOOTED="$(adb shell getprop sys.boot_completed | tr -d '\r')"
+            if [ "$BOOTED" != "1" ]; then
+              echo "El emulador no terminó de iniciar."
+              adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
+              adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
+              exit 1
+            fi
             adb devices -l
-            timeout 120s adb install -r "$APK_PATH"
+            if ! timeout 120s adb install -r "$APK_PATH"; then
+              adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
+              exit 1
+            fi
             adb shell am force-stop com.sene.ventas
-            timeout 45s adb shell monkey -p com.sene.ventas 1
-            # El proceso puede tardar en estabilizarse; comprobar durante 15 s antes de fallar.
-            for attempt in $(seq 1 15); do
+            if ! timeout 45s adb shell monkey -p com.sene.ventas 1; then
+              adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
+              adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
+              exit 1
+            fi
+            attempt=0
+            while [ "$attempt" -lt 20 ]; do
               if adb shell pidof com.sene.ventas >/dev/null 2>&1; then
                 adb shell pidof com.sene.ventas
                 exit 0
               fi
+              attempt=$((attempt + 1))
               sleep 1
             done
             echo "La aplicación no mantuvo un proceso activo tras el lanzamiento."
+            adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
+            adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
+            adb shell dumpsys package com.sene.ventas > diagnostics/package.txt 2>&1 || true
+            echo "Smoke test de arranque fallido." > diagnostics/result.txt
             exit 1
       - name: Subir diagnóstico del smoke test
         if: failure()
