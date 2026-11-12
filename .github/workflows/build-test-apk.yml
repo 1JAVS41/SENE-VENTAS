@@ -23,7 +23,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -56,18 +56,23 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          disable-animations: true
+          disable-animations: false
           emulator-boot-timeout: 900
+          cores: 2
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
-            APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+            APK="app/build/outputs/apk/debug/app-debug.apk"
             echo "APK esperado: $APK"
             ls -l "$APK"
             test -s "$APK"
+            adb wait-for-device
             adb install -r "$APK"
-            adb shell am start -n com.sene.ventas/.InicioTurnoActivity
-            sleep 8
-            adb shell pidof com.sene.ventas
+            adb shell am start -W -n com.sene.ventas/.InicioTurnoActivity
+            sleep 5
+            if ! adb shell pidof com.sene.ventas; then
+              adb logcat -d -t 500
+              exit 1
+            fi
       - name: Preparar nombre de entrega
         run: |
           mkdir -p dist
