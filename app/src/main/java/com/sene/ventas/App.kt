@@ -1601,10 +1601,11 @@ class MainActivity:FragmentActivity(){
   val products=Store.products(this)
   if(products.length()==0)return
   val date=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
-  val snapshot=JSONObject().put("products",products).put("capturedAt",System.currentTimeMillis())
-   .put("worker",Store.shift(this)?.optString("worker").orEmpty())
+  val worker=Store.shift(this)?.optString("worker").orEmpty()
+  val stableSnapshot=JSONObject().put("products",products).put("worker",worker)
+  val snapshot=JSONObject(stableSnapshot.toString()).put("capturedAt",System.currentTimeMillis())
   val hash=try{
-   java.security.MessageDigest.getInstance("SHA-256").digest(snapshot.toString().toByteArray(Charsets.UTF_8))
+   java.security.MessageDigest.getInstance("SHA-256").digest(stableSnapshot.toString().toByteArray(Charsets.UTF_8))
     .joinToString(""){"%02x".format(it)}
   }catch(_:Exception){return}
   val key="daily_inventory_hash_"+date
