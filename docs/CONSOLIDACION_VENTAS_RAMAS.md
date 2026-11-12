@@ -82,3 +82,10 @@ Pendiente para cerrar la fase:
 3. Ejecutar pruebas E2E de pairing, restauración y consulta de historial contra el Worker/D1 de pruebas; no usar producción.
 4. Probar con datos de prueba el registro de venta, corrección autorizada, stock, caja, reintentos y recuperación después de cierre inesperado.
 5. Solo después de estas comprobaciones calcular el porcentaje global de SENE VENTAS y definir qué falta antes de pruebas reales.
+
+
+## Identidad lógica estable tras reinstalar
+
+La rama consolidada deriva el `installationId` de `applicationId + ANDROID_ID`, por lo que el mismo perfil/teléfono conserva el identificador lógico tras reinstalar. La clave privada P-256 continúa protegida por Android Keystore; si Android la elimina al desinstalar, se genera un nuevo par y el servidor valida la continuidad del teléfono antes de actualizar la clave dentro del mismo `deviceId`. El slot, los reportes y las solicitudes quedan ligados al registro existente.
+
+Se añadieron pruebas unitarias para comprobar que el ID lógico se mantiene en el mismo teléfono y es distinto entre teléfonos o aplicaciones.
