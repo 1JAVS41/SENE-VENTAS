@@ -17,7 +17,8 @@ on:
 
 concurrency:
   # Una rama no debe cancelar las pruebas de otra rama.
-  group: sene-ventas-test-apk-${{ github.ref_name }}
+  # Evita que GitHub sustituya una ejecución pendiente de la misma rama.
+  group: sene-ventas-test-apk-${{ github.run_id }}
   cancel-in-progress: false
 
 permissions:
