@@ -61,3 +61,24 @@ La recuperación de mismo teléfono también requiere una prueba E2E contra el W
 ## Regla para seguir consolidando
 
 No fusionar archivos completos desde ramas divergentes solo por cantidad de commits. Cada cambio exclusivo debe compararse con la implementación de la rama base, comprobarse con el backend y conservarse únicamente si añade una capacidad útil sin duplicar ni degradar el flujo existente.
+
+
+## Endurecimiento posterior de la consolidación · 12 de noviembre de 2026
+
+Se añadieron las siguientes correcciones después de la primera auditoría:
+
+- **Pairing y recuperación:** después de que el Worker devuelve el identificador y el slot, el cliente realiza una segunda sesión firmada. Solo persiste la vinculación local si el servidor confirma el rol `VENTAS` y, cuando devuelve slot, coincide con el espacio asignado. Esto evita marcar como vinculada/restaurada una identidad que no puede abrir una sesión válida.
+- **Caja del panel principal:** el resumen ya usa `Store.cashBalance()` como cálculo central. Si el historial de ventas o movimientos está dañado, muestra la caja como no disponible en lugar de sustituir gastos inválidos por cero y mostrar un saldo posiblemente inflado. También deja de ocultar saldos negativos mediante un recorte a cero.
+- **Carga diaria de inventario:** se añadió un bloqueo en memoria y una marca temporal persistente para recuperar una carga que quedó reservada si Android cerró el proceso. La reserva caduca a los cinco minutos; el inventario local no se borra y se vuelve a intentar al reanudar la pantalla.
+- **CI por rama:** el grupo de concurrencia ahora incluye el nombre de la rama para que una prueba de otra rama no cancele esta consolidación. Si falla el arranque Android, el workflow recopila Logcat y los volcados de Activity/Package como artefacto de diagnóstico.
+
+## Estado actualizado de validación
+
+La ejecución anterior `43315088618` fue cancelada al modificar el workflow y la rama; no debe contarse como prueba fallida ni aprobada. La ejecución actual que incluye estos cambios es `43317549666`, sobre el commit `8ea0d4623facea63e8c61fe584ccb81d5517742d`. Al actualizar este documento, la compilación seguía en curso. Todavía no se declara aprobado el smoke test ni se ha publicado un APK de entrega.
+
+Pendiente para cerrar la fase:
+1. Completar compilación, instalación y arranque en Android 35 con la ejecución actual.
+2. Si falla el smoke test, descargar el artefacto de diagnóstico y corregir la causa demostrada por Logcat.
+3. Ejecutar pruebas E2E de pairing, restauración y consulta de historial contra el Worker/D1 de pruebas; no usar producción.
+4. Probar con datos de prueba el registro de venta, corrección autorizada, stock, caja, reintentos y recuperación después de cierre inesperado.
+5. Solo después de estas comprobaciones calcular el porcentaje global de SENE VENTAS y definir qué falta antes de pruebas reales.
