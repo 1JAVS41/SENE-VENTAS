@@ -36,14 +36,14 @@ jobs:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
       - name: Compilar APK de pruebas
         run: gradle --no-daemon assembleDebug
-          - name: Localizar APK para prueba de arranque
+      - name: Localizar APK para prueba de arranque
         id: apk
         shell: bash
         run: |
           APK_PATH="$(find "$GITHUB_WORKSPACE/app/build/outputs/apk" -type f -name '*.apk' | sort | head -n 1)"
           test -n "$APK_PATH" && test -s "$APK_PATH"
           echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
-  - name: Verificar identidad y recursos del APK
+      - name: Verificar identidad y recursos del APK
         shell: bash
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
