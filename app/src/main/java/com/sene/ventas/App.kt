@@ -1456,8 +1456,13 @@ class WorkerPortalActivity:Activity(){
       }
       newest=maxOf(newest,item.optLong("decidedAt",0L))
      }
-     prefs().edit().putString("work_history",history.toString()).putString("correction_history",correctionHistory.toString())
-      .putLong("work_updates_since",maxOf(0L,newest-1L)).commit()
+     check(prefs().edit().putString("work_history",history.toString()).putString("correction_history",correctionHistory.toString()).commit()) {
+      "No se pudo guardar localmente el historial."
+     }
+    }
+    api.acknowledgePersistedDelivery("VENTAS_REQUEST_UPDATES",updates)
+    check(prefs().edit().putLong("work_updates_since",maxOf(0L,newest-1L)).commit()) {
+     "No se pudo guardar el cursor después del ACK."
     }
     val displayText=buildString{
      if(history.length()==0&&correctionHistory.length()==0)append("Todavía no tienes solicitudes registradas.")
@@ -2089,7 +2094,13 @@ class MainActivity:FragmentActivity(){
      }
      newest=maxOf(newest,item.optLong("decidedAt",0L))
     }
-    prefs.edit().putString("work_history",history.toString()).putLong("work_updates_since",maxOf(0L,newest-1L)).apply()
+    check(prefs.edit().putString("work_history",history.toString()).commit()) {
+     "No se pudo guardar localmente el historial de solicitudes."
+    }
+    api.acknowledgePersistedDelivery("VENTAS_REQUEST_UPDATES",updates)
+    check(prefs.edit().putLong("work_updates_since",maxOf(0L,newest-1L)).commit()) {
+     "No se pudo guardar el cursor después del ACK."
+    }
     val message=buildString{
      if(history.length()==0)append("Todavía no tienes solicitudes registradas.")
      for(i in history.length()-1 downTo 0){
