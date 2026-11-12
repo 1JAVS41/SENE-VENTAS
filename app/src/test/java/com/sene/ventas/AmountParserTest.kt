@@ -25,5 +25,7 @@ class AmountParserTest {
         assertNull(parseAmount(""))
         assertNull(parseAmount("abc"))
         assertNull(parseAmount("1.2.3"))
+        assertNull(parseAmount("NaN"))
+        assertNull(parseAmount("Infinity"))
     }
 }
