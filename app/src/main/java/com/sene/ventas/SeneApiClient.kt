@@ -156,6 +156,36 @@ class SeneApiClient(context: Context, baseUrl: String) {
         return deviceSigned("VENTAS_CORRECTION_CONSUME", "/v1/ventas/corrections/consume", body.toString(), deviceId)
     }
 
+
+    /**
+     * Confirma la persistencia local de una entrega remota. El llamador debe
+     * guardar el lote completo y persistir ackId antes de invocar este método.
+     * Reutilizar el mismo ackId y cuerpo hace seguro el reintento.
+     */
+    fun acknowledgeDelivery(
+        stream: String,
+        deliveryId: String,
+        payloadSha256: String,
+        cursor: Long,
+        ackId: String,
+        deviceId: String = storedDeviceId()
+            ?: throw IllegalStateException("SENE VENTAS todavía no está vinculado")
+    ): JSONObject {
+        require(stream.matches(Regex("^[A-Z][A-Z0-9_.-]{1,47}$"))) { "Flujo de entrega no válido" }
+        require(deliveryId.matches(Regex("^[A-Za-z0-9._:-]{1,120}$"))) { "Identificador de entrega no válido" }
+        require(payloadSha256.matches(Regex("(?i)^[a-f0-9]{64}$"))) { "Huella de entrega no válida" }
+        require(cursor >= 0L) { "Cursor de entrega no válido" }
+        require(ackId.matches(Regex("(?i)^[0-9a-f-]{36}$"))) { "El ACK necesita un UUID persistido" }
+        val body = JSONObject()
+            .put("stream", stream)
+            .put("deliveryId", deliveryId)
+            .put("payloadSha256", payloadSha256.lowercase())
+            .put("cursor", cursor)
+            .put("ackId", ackId.lowercase())
+            .put("recipientDeviceId", deviceId)
+        return deviceSigned("DELIVERY_ACK", "/v1/deliveries/ack", body.toString(), deviceId)
+    }
+
     /** Obtiene y verifica criptográficamente los contactos oficiales AYUDA. */
     fun officialSupportContacts(): JSONObject {
         val signed = get("/v1/support/contacts")
