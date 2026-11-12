@@ -51,6 +51,8 @@ import javax.crypto.spec.PBEKeySpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 
+private const val SENE_TEST_SERVER_URL = "https://sene-licensing-api-testing.1codex41.workers.dev"
+
 private const val GREEN=0xFF168B45.toInt()
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 private fun parseAmount(raw:String):Double? {
@@ -769,13 +771,17 @@ class InicioTurnoActivity:FragmentActivity(){
 
 class WorkerPortalActivity:Activity(){
  private var pendingPairingScan=false
- private fun prefs()=getSharedPreferences("sene_ventas_server",0)
+ private fun prefs():android.content.SharedPreferences {
+  val value=getSharedPreferences("sene_ventas_server",0)
+  if(value.getString("server_base_url",null).isNullOrBlank()){
+   value.edit().putString("server_base_url",SENE_TEST_SERVER_URL).apply()
+  }
+  return value
+ }
  private fun config(after:()->Unit){
-  // La dirección del servidor es configuración interna de SENE. No pedir al
-  // trabajador que escriba una URL ni aceptar una dirección temporal de prueba.
-  AlertDialog.Builder(this).setTitle("SERVIDOR SENE EN PREPARACIÓN")
-   .setMessage("La conexión oficial todavía no está habilitada. No introduzcas direcciones manuales ni uses el servidor de prueba Hello World. La vinculación por QR y las funciones en línea estarán disponibles cuando SENE publique y configure el servidor oficial.")
-   .setPositiveButton("ENTENDIDO",null).show()
+  AlertDialog.Builder(this).setTitle("CONEXIÓN SENE CONFIGURADA")
+   .setMessage("SENE VENTAS ya tiene configurada automáticamente la conexión con el servidor aislado de pruebas. No necesitas introducir ninguna URL. Esta dirección es temporal y no corresponde al servidor de producción.")
+   .setPositiveButton("ENTENDIDO"){_,_->after()}.show()
  }
  private fun draw(){
   val root=page("Mi trabajo")
@@ -1739,7 +1745,13 @@ class MainActivity:FragmentActivity(){
   }.start()
  }
 
- private fun seneServerPrefs()=getSharedPreferences("sene_ventas_server",0)
+ private fun seneServerPrefs():android.content.SharedPreferences {
+  val prefs=getSharedPreferences("sene_ventas_server",0)
+  if(prefs.getString("server_base_url",null).isNullOrBlank()){
+   prefs.edit().putString("server_base_url",SENE_TEST_SERVER_URL).apply()
+  }
+  return prefs
+ }
 
 
  private fun compactPayrollHistory(source:JSONArray):JSONArray{
