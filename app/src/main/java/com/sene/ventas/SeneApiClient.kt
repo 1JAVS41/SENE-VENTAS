@@ -74,6 +74,15 @@ class SeneApiClient(context: Context, baseUrl: String) {
         check(id.isNotBlank() && (slot == "VENTAS_1" || slot == "VENTAS_2")) {
             "El servidor no devolvió una vinculación válida"
         }
+        // Confirma el rol y el espacio mediante una segunda solicitud firmada antes de guardar la vinculación.
+        val verifiedSession = session(id)
+        check(verifiedSession.optString("role") == "VENTAS") {
+            "El servidor no confirmó el rol SENE VENTAS para este equipo"
+        }
+        val verifiedSlot = verifiedSession.optString("slot")
+        check(verifiedSlot.isBlank() || verifiedSlot == slot) {
+            "La sesión devolvió un espacio distinto al que se vinculó"
+        }
         check(prefs.edit()
             .putString("device_id", id)
             .putString("device_slot", slot)
@@ -116,6 +125,15 @@ class SeneApiClient(context: Context, baseUrl: String) {
         val slot = result.optString("slot")
         check(id.isNotBlank() && (slot == "VENTAS_1" || slot == "VENTAS_2")) {
             "El servidor no devolvió una restauración válida"
+        }
+        // No persistir la recuperación hasta comprobar una sesión firmada del espacio recuperado.
+        val verifiedSession = session(id)
+        check(verifiedSession.optString("role") == "VENTAS") {
+            "El servidor restauró el espacio, pero no confirmó el rol SENE VENTAS"
+        }
+        val verifiedSlot = verifiedSession.optString("slot")
+        check(verifiedSlot.isBlank() || verifiedSlot == slot) {
+            "La sesión devolvió un espacio distinto al que se restauró"
         }
         check(prefs.edit()
             .putString("device_id", id)
