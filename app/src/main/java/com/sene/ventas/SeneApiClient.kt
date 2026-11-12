@@ -186,6 +186,22 @@ class SeneApiClient(context: Context, baseUrl: String) {
         return deviceSigned("DELIVERY_ACK", "/v1/deliveries/ack", body.toString(), deviceId)
     }
 
+
+    /** Guarda el ackId antes de enviarlo; el lote debe estar persistido localmente. */
+    fun acknowledgePersistedDelivery(stream: String, payload: JSONObject): JSONObject {
+        val payloadHash = sha256(payload.toString())
+        val deliveryId = "$stream:${payloadHash.take(48)}"
+        val cursor = payload.optLong("cursor", 0L).coerceAtLeast(0L)
+        val key = "delivery_ack_${stream}_${payloadHash}"
+        val ackId = prefs.getString(key, null) ?: UUID.randomUUID().toString().also {
+            check(prefs.edit().putString(key, it).commit()) { "No se pudo guardar el identificador de ACK" }
+        }
+        val result = acknowledgeDelivery(stream, deliveryId, payloadHash, cursor, ackId)
+        check(result.optBoolean("acknowledged", false)) { "El servidor no confirmó el ACK" }
+        check(prefs.edit().remove(key).commit()) { "No se pudo cerrar el recibo local de ACK" }
+        return result
+    }
+
     /** Obtiene y verifica criptográficamente los contactos oficiales AYUDA. */
     fun officialSupportContacts(): JSONObject {
         val signed = get("/v1/support/contacts")
