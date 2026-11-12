@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration/ventas-completa
+      - integration/ack-universal
     paths:
       - "app/**"
       - "build.gradle.kts"
