@@ -13,7 +13,6 @@ import java.security.MessageDigest
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
-import java.util.UUID
 
 /**
  * Identidad criptográfica local de una instalación de SENE VENTAS.
