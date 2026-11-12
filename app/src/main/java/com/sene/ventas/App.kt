@@ -1594,8 +1594,35 @@ class MainActivity:FragmentActivity(){
  private val lock=object:Runnable{override fun run(){if(::sell.isInitialized){updateReportCountdown();if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}};h.postDelayed(this,1000)}}
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(7200000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=7200000}
- override fun onCreate(b:Bundle?){super.onCreate(b);if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();seneServerPrefs().edit().putBoolean("work_queue_sending",false).apply();flushPendingShiftReports();flushPendingWorkRequests();watchConnectivity()}
- override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(!pendingServerDelivery)flushPendingShiftReports();flushPendingWorkRequests();if(pendingShareUri!=null&&!pendingServerDelivery)h.post{confirmReportSent()}else if(pendingServerDelivery)h.post{flushPendingShiftReports{pendingServerDelivery=false;launchPendingReportShare()}}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
+ private fun uploadDailyInventorySnapshot(){
+  val server=seneServerPrefs()
+  val base=server.getString("server_base_url",null)?.takeIf{it.isNotBlank()}?:return
+  val device=server.getString("device_id",null)?.takeIf{it.isNotBlank()}?:return
+  val products=Store.products(this)
+  if(products.length()==0)return
+  val date=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
+  val snapshot=JSONObject().put("products",products).put("capturedAt",System.currentTimeMillis())
+   .put("worker",Store.shift(this)?.optString("worker").orEmpty())
+  val hash=try{
+   java.security.MessageDigest.getInstance("SHA-256").digest(snapshot.toString().toByteArray(Charsets.UTF_8))
+    .joinToString(""){"%02x".format(it)}
+  }catch(_:Exception){return}
+  val key="daily_inventory_hash_"+date
+  if(server.getString(key,null)==hash || server.getBoolean("daily_inventory_sending",false))return
+  if(!server.edit().putBoolean("daily_inventory_sending",true).commit())return
+  Thread{
+   try{
+    SeneApiClient(this,base).sendDailyInventory(date,snapshot,device)
+    server.edit().putString(key,hash).commit()
+   }catch(_:Exception){
+    // No se borra el inventario local; el siguiente ingreso o reanudación reintentará.
+   }finally{
+    server.edit().putBoolean("daily_inventory_sending",false).commit()
+   }
+  }.start()
+ }
+ override fun onCreate(b:Bundle?){super.onCreate(b);if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return};draw();uploadDailyInventorySnapshot();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();seneServerPrefs().edit().putBoolean("work_queue_sending",false).apply();flushPendingShiftReports();flushPendingWorkRequests();watchConnectivity()}
+ override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();uploadDailyInventorySnapshot();if(!pendingServerDelivery)flushPendingShiftReports();flushPendingWorkRequests();if(pendingShareUri!=null&&!pendingServerDelivery)h.post{confirmReportSent()}else if(pendingServerDelivery)h.post{flushPendingShiftReports{pendingServerDelivery=false;launchPendingReportShare()}}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);try{connectivityManager?.unregisterNetworkCallback(connectivityCallback)}catch(_:Exception){};super.onDestroy()}
  private fun watchConnectivity(){
   try{
