@@ -17,7 +17,7 @@ on:
 concurrency:
   # Una rama no debe cancelar las pruebas de otra rama.
   group: sene-ventas-test-apk-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -36,6 +36,8 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+      - name: Ejecutar pruebas unitarias
+        run: gradle --no-daemon testDebugUnitTest
       - name: Compilar APK de pruebas
         run: gradle --no-daemon assembleDebug
       - name: Localizar APK para prueba de arranque
