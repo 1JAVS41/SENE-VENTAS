@@ -48,6 +48,14 @@ El push de esta rama disparó el workflow `Build SENE VENTAS test APK`, ejecuci�
 
 La recuperación de mismo teléfono también requiere una prueba E2E contra el Worker y D1 de pruebas con una licencia y un dispositivo de prueba existentes. No ejecutar esta recuperación en producción durante la validación.
 
+
+## Evidencia de CI de las ramas de origen
+
+- `fix/ventas-cloudflare-client`: compilación de APK completada correctamente en las ejecuciones `42950820680` y `42950814402` (11 de noviembre). Estas ejecuciones no prueban por sí solas la integración actual ni los cambios de ACK posteriores.
+- `integration/ventas-completa`: ejecución `43184203356` completó la compilación y el smoke test Android 35 correctamente (12 de noviembre).
+- `integration/ack-universal`: ejecución `43308365180` compiló el APK y verificó identidad/recursos, pero falló el smoke test porque, tras instalar y lanzar la app con `monkey`, `pidof com.sene.ventas` no encontró un proceso activo tres segundos después. El registro de esa ejecución no contiene una captura de Logcat en el punto de fallo, así que todavía no se atribuye la causa a un crash específico.
+- Consolidación: ejecución `43313862764` fue cancelada al entrar un commit posterior; la ejecución vigente es `43314309396`, sobre el commit `63736edf268d7430c8e0b2577ebada90a0b6b8ec`. Su resultado todavía no está disponible.
+
 ## Regla para seguir consolidando
 
 No fusionar archivos completos desde ramas divergentes solo por cantidad de commits. Cada cambio exclusivo debe compararse con la implementación de la rama base, comprobarse con el backend y conservarse únicamente si añade una capacidad útil sin duplicar ni degradar el flujo existente.
