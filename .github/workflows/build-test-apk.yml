@@ -49,6 +49,21 @@ jobs:
           unzip -l "$APK" | grep -q 'logo_sene_pv'
           unzip -l "$APK" | grep -q 'file_paths'
           sha256sum "$APK"
+      - name: Smoke test de arranque en emulador Android 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+            test -s "$APK"
+            adb install -r "$APK"
+            adb shell am start -n com.sene.ventas/.InicioTurnoActivity
+            sleep 8
+            adb shell pidof com.sene.ventas
       - name: Preparar nombre de entrega
         run: |
           mkdir -p dist
