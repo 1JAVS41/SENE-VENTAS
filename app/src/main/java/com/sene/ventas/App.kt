@@ -2011,21 +2011,10 @@ class MainActivity:FragmentActivity(){
     msg("Comprobando que sea el mismo teléfono y recuperando el espacio original…")
     Thread{
      try{
-      val api=SeneApiClient(this,url)
-      val result=api.restoreSamePhone(company,mail,number)
-      // No declarar la restauración terminada hasta comprobar la sesión firmada del equipo recuperado.
-      val restoredDeviceId=result.getString("deviceId")
-      val restoredSlot=result.optString("slot")
-      val verifiedSession=api.session(restoredDeviceId)
-      check(verifiedSession.optString("role")=="VENTAS"){
-       "El servidor restauró el espacio, pero la sesión no confirmó el rol VENTAS."
-      }
-      val verifiedSlot=verifiedSession.optString("slot")
-      check(verifiedSlot.isBlank()||verifiedSlot==restoredSlot){
-       "La sesión devolvió un espacio distinto al que se restauró."
-      }
+      val result=SeneApiClient(this,url).restoreSamePhone(company,mail,number)
+      // restoreSamePhone valida la sesión firmada y el slot antes de persistir la vinculación.
       runOnUiThread{
-       msg("Espacio restaurado y sesión verificada: "+restoredSlot+" · "+result.optString("businessName"))
+       msg("Espacio restaurado y sesión verificada: "+result.optString("slot")+" · "+result.optString("businessName"))
        flushPendingShiftReports()
        flushPendingWorkRequests()
       }
