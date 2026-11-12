@@ -175,23 +175,25 @@ internal object SeneApprovedKnowledge {
         if (listOf("cuanto tenemos en caja", "cuanto hay en caja", "saldo de caja").any { q.contains(normalize(it)) }) return null
         if (listOf("cuanto se vendio", "cuanto vendimos", "ventas del dia", "ventas de hoy", "ventas de ayer").any { q.contains(normalize(it)) }) return null
 
-        val match = entries
-            .filter { it.id !in setOf(3, 4, 11) }
-            .map { entry ->
-                val score = (entry.aliases + entry.question)
-                    .map(::normalize)
-                    .maxOfOrNull { alias ->
+        val match: Entry = entries
+            .asSequence()
+            .filter { entry -> entry.id !in setOf(3, 4, 11) }
+            .mapNotNull { entry ->
+                val score: Int = (entry.aliases + entry.question)
+                    .map { alias ->
+                        val normalizedAlias = normalize(alias)
                         when {
-                            q == alias -> 100
-                            alias.length >= 10 && q.contains(alias) -> 90
-                            alias.length >= 10 && alias.contains(q) && q.length >= 10 -> 80
+                            q == normalizedAlias -> 100
+                            normalizedAlias.length >= 10 && q.contains(normalizedAlias) -> 90
+                            normalizedAlias.length >= 10 && normalizedAlias.contains(q) && q.length >= 10 -> 80
                             else -> 0
                         }
-                    } ?: 0
-                entry to score
+                    }
+                    .maxOrNull() ?: 0
+                if (score >= 80) entry to score else null
             }
-            .filter { pair -> pair.second >= 80 }
-            .maxByOrNull { pair -> pair.second }?.first ?: return null
+            .maxByOrNull { scored -> scored.second }
+            ?.first ?: return null
 
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = try { JSONArray(prefs.getString(KEY, "[]")) } catch (_: Exception) { JSONArray() }
