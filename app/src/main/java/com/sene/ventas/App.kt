@@ -1648,11 +1648,12 @@ class MainActivity:FragmentActivity(){
    "Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores",
    "Ver stock","Soy Patrón / Administrador","Contraseñas","Cerrar turno","Guardar reporte TXT",
    "Mi horario (8 horas)","Identidad de este equipo","Mi trabajo / Mis solicitudes",
-   "Vincular con SENE PATRÓN","Día de pago / Reporte de nómina","AYUDA OFICIAL SENE"
+   "Vincular con SENE PATRÓN","Día de pago / Reporte de nómina","AYUDA OFICIAL SENE",
+   "Restaurar en el mismo teléfono"
   )
-  val icons=arrayOf("💰","📦","🧾","🗃️","👑","🔐","🔒","📄","🕒","📱","📋","🔗","📅","🛟")
-  val colors=intArrayOf(0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFEAF7F7.toInt(),0xFFF2ECFF.toInt(),0xFFEAF2FF.toInt(),0xFFFFEEEE.toInt(),0xFFEAF2FF.toInt(),0xFFEAF7F7.toInt(),0xFFF1F3F8.toInt(),0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFF2ECFF.toInt())
-  val descriptions=arrayOf("Resumen de ventas y caja","Registrar mercancía recibida","Consultar pagos y gastos","Existencias y precios","Funciones del patrón","Cambiar PIN y administrar huella","Finalizar jornada","Guardar copia del reporte","Consultar entrada y salida","Comprobar este teléfono","Solicitudes y respuestas","Conectar con el patrón","Historial de pago","Contactar soporte verificado")
+  val icons=arrayOf("💰","📦","🧾","🗃️","👑","🔐","🔒","📄","🕒","📱","📋","🔗","📅","🛟","♻️")
+  val colors=intArrayOf(0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFEAF7F7.toInt(),0xFFF2ECFF.toInt(),0xFFEAF2FF.toInt(),0xFFFFEEEE.toInt(),0xFFEAF2FF.toInt(),0xFFEAF7F7.toInt(),0xFFF1F3F8.toInt(),0xFFEAF2FF.toInt(),0xFFE8F7EF.toInt(),0xFFFFF3E5.toInt(),0xFFF2ECFF.toInt(),0xFFE8F7EF.toInt())
+  val descriptions=arrayOf("Resumen de ventas y caja","Registrar mercancía recibida","Consultar pagos y gastos","Existencias y precios","Funciones del patrón","Cambiar PIN y administrar huella","Finalizar jornada","Guardar copia del reporte","Consultar entrada y salida","Comprobar este teléfono","Solicitudes y respuestas","Conectar con el patrón","Historial de pago","Contactar soporte verificado","Recuperar el mismo espacio tras reinstalar")
   val actions:Array<()->Unit> = arrayOf(
    {showCurrentSalesSummary()},
    {startActivity(Intent(this,AgregarInventarioActivity::class.java))},
@@ -1667,7 +1668,8 @@ class MainActivity:FragmentActivity(){
    {startActivity(Intent(this,WorkerPortalActivity::class.java))},
    {showVentasPairing()},
    {showPayrollReport()},
-   {showOfficialSupportContacts()}
+   {showOfficialSupportContacts()},
+   {showVentasSamePhoneRestore()}
   )
   val grid=android.widget.GridLayout(this).apply{
    columnCount=2;useDefaultMargins=false;alignmentMode=android.widget.GridLayout.ALIGN_MARGINS
@@ -1969,6 +1971,67 @@ class MainActivity:FragmentActivity(){
     prefs.edit().putString("server_base_url",value).apply()
     after()
    }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun showVentasSamePhoneRestore(){
+  val prefs=seneServerPrefs()
+  val form=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL
+   setPadding(dp(16),dp(8),dp(16),dp(8))
+  }
+  val server=input("Dirección HTTPS oficial del servidor").apply{
+   setText(prefs.getString("server_base_url","")?: "")
+  }
+  val business=input("Nombre exacto de la empresa registrada")
+  val email=input("Correo registrado de la empresa").apply{
+   inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+  }
+  val phone=input("Teléfono registrado con lada").apply{
+   inputType=android.text.InputType.TYPE_CLASS_PHONE
+  }
+  form.addView(server);form.addView(business);form.addView(email);form.addView(phone)
+  val scroll=ScrollView(this).apply{addView(form)}
+  AlertDialog.Builder(this)
+   .setTitle("RESTAURAR · MISMO TELÉFONO")
+   .setMessage("Recupera el espacio VENTAS original después de reinstalar. El servidor comprobará la identidad de continuidad de este teléfono y los datos registrados. No crea otra licencia ni ocupa un espacio adicional. No uses esta opción para sustituir un teléfono perdido.")
+   .setView(scroll)
+   .setPositiveButton("VERIFICAR Y RESTAURAR"){_,_->
+    val url=server.text.toString().trim().trimEnd('/')
+    val company=business.text.toString().trim()
+    val mail=email.text.toString().trim()
+    val number=phone.text.toString().filter{it.isDigit()}
+    val uri=Uri.parse(url)
+    if(!url.startsWith("https://")||uri.host.isNullOrBlank()||url.any{it.isWhitespace()}||
+       company.isBlank()||company.length>100||
+       !android.util.Patterns.EMAIL_ADDRESS.matcher(mail).matches()||
+       number.length !in 10..15){
+     msg("Revisa servidor HTTPS, empresa, correo y teléfono registrados")
+     return@setPositiveButton
+    }
+    prefs.edit().putString("server_base_url",url).apply()
+    msg("Comprobando que sea el mismo teléfono y recuperando el espacio original…")
+    Thread{
+     try{
+      val result=SeneApiClient(this,url).restoreSamePhone(company,mail,number)
+      runOnUiThread{
+       msg("Espacio restaurado correctamente: "+result.optString("slot")+" · "+result.optString("businessName"))
+       flushPendingShiftReports()
+       flushPendingWorkRequests()
+      }
+     }catch(e:Exception){
+      val detail=(e as? SeneVentasApiException)?.responseBody.orEmpty()
+      val friendly=when{
+       detail.contains("REGISTERED_DETAILS_NOT_MATCH")->"Los datos no coinciden con el registro de la empresa."
+       detail.contains("SAME_PHONE_NOT_VERIFIED")->"El servidor no pudo comprobar que este teléfono tenía el espacio anterior."
+       detail.contains("PAID_REPLACEMENT_PENDING")->"Hay una reposición pagada pendiente. Contacta al administrador."
+       detail.contains("VENTAS_RESTORE_CONFLICT")->"No se pudo completar la recuperación por un conflicto. No se asignó otro espacio."
+       else->e.message?: "El servidor no pudo verificar este teléfono."
+      }
+      runOnUiThread{msg("No se pudo restaurar: "+friendly)}
+     }
+    }.start()
+   }
+   .setNegativeButton("CANCELAR",null)
+   .show()
  }
  private fun showVentasPairing(){
   val prefs=seneServerPrefs()
