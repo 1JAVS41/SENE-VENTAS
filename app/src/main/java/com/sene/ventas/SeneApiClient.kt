@@ -47,9 +47,19 @@ class SeneApiClient(context: Context, baseUrl: String) {
 
     fun storedDeviceId(): String? = prefs.getString("device_id", null)?.takeIf { it.isNotBlank() }
 
+    fun storedSlot(): String? = prefs.getString("device_slot", null)
+        ?.takeIf { it == "VENTAS_1" || it == "VENTAS_2" }
+
     fun pair(qrToken: String): JSONObject {
-        val token = qrToken.trim().removePrefix("SENEPAIR1:").removePrefix("SENEPAIR2:")
-        require(token.matches(Regex("(?i)^[0-9a-f]{64}$"))) { "El QR de SENE PATRÓN no es válido" }
+        val scanned = qrToken.trim()
+        val token = when {
+            scanned.startsWith("SENEPAIR2:", ignoreCase = true) -> scanned.substringAfter(':')
+            scanned.startsWith("SENEPAIR1:", ignoreCase = true) -> scanned.substringAfter(':')
+            else -> scanned
+        }
+        require(token.matches(Regex("(?i)^[0-9a-f]{64}$"))) {
+            "El QR de SENE PATRÓN no es válido"
+        }
         val identity = DeviceIdentity.get(app)
         val body = JSONObject()
             .put("qrToken", token)
@@ -59,17 +69,77 @@ class SeneApiClient(context: Context, baseUrl: String) {
             .put("fingerprint", identity.fingerprint)
         val result = bootstrapSigned("VENTAS_PAIR", "/v1/ventas/pair", body.toString(), identity)
         val id = result.optString("deviceId")
-        if (id.isNotBlank()) {
-            check(prefs.edit().putString("device_id", id).commit()) {
-                "No se pudo guardar la vinculación de SENE VENTAS"
-            }
+        val slot = result.optString("slot")
+        check(id.isNotBlank() && (slot == "VENTAS_1" || slot == "VENTAS_2")) {
+            "El servidor no devolvió una vinculación válida"
+        }
+        check(prefs.edit()
+            .putString("device_id", id)
+            .putString("device_slot", slot)
+            .putString("paired_business", result.optString("businessName"))
+            .commit()) {
+            "No se pudo guardar la vinculación de SENE VENTAS"
+        }
+        return result
+    }
+
+    /**
+     * Recupera el espacio VENTAS original después de reinstalar en el mismo teléfono.
+     * El Worker valida continuidad física, empresa y datos registrados; no crea una licencia
+     * ni consume un espacio adicional.
+     */
+    fun restoreSamePhone(
+        businessName: String,
+        registeredEmail: String,
+        registeredPhone: String
+    ): JSONObject {
+        val name = businessName.trim()
+        val email = registeredEmail.trim().lowercase(Locale.ROOT)
+        val phone = registeredPhone.filter { it.isDigit() }
+        require(name.isNotBlank() && name.length <= 100 &&
+            android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches() &&
+            phone.length in 10..15) {
+            "Revisa el nombre, correo y teléfono registrados de la empresa"
+        }
+        val identity = DeviceIdentity.get(app)
+        val body = JSONObject()
+            .put("businessName", name)
+            .put("registeredEmail", email)
+            .put("registeredPhone", phone)
+            .put("installationId", identity.installationId)
+            .put("continuityId", identity.continuityId)
+            .put("publicKeyBase64", identity.publicKeyBase64)
+            .put("fingerprint", identity.fingerprint)
+        val result = bootstrapSigned("VENTAS_RESTORE", "/v1/ventas/restore", body.toString(), identity)
+        val id = result.optString("deviceId")
+        val slot = result.optString("slot")
+        check(id.isNotBlank() && (slot == "VENTAS_1" || slot == "VENTAS_2")) {
+            "El servidor no devolvió una restauración válida"
+        }
+        check(prefs.edit()
+            .putString("device_id", id)
+            .putString("device_slot", slot)
+            .putString("paired_business", result.optString("businessName"))
+            .commit()) {
+            "No se pudo guardar la vinculación restaurada"
         }
         return result
     }
 
     fun session(deviceId: String = storedDeviceId()
-        ?: throw IllegalStateException("SENE VENTAS todavía no está vinculado")): JSONObject =
-        deviceSigned("DEVICE_AUTH", "/v1/device/session", "{}", deviceId)
+        ?: throw IllegalStateException("SENE VENTAS todavía no está vinculado")): JSONObject {
+        val result = deviceSigned("DEVICE_AUTH", "/v1/device/session", "{}", deviceId)
+        check(result.optString("role") == "VENTAS") {
+            "La licencia no reconoce este equipo como SENE VENTAS"
+        }
+        val slot = result.optString("slot")
+        if (slot == "VENTAS_1" || slot == "VENTAS_2") {
+            check(prefs.edit().putString("device_slot", slot).commit()) {
+                "No se pudo guardar el equipo asignado"
+            }
+        }
+        return result
+    }
 
     fun submitWorkRequest(
         type: String,
