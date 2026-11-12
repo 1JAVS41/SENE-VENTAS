@@ -5,6 +5,7 @@ on:
     branches:
       - integration/ventas-completa
       - integration/ack-universal
+      - consolidation/ventas-unificada
     paths:
       - "app/**"
       - "build.gradle.kts"
