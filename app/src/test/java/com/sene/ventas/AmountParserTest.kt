@@ -21,6 +21,14 @@ class AmountParserTest {
         assertEquals(25.5, parseAmount(" $ 25,50 ")!!, 0.000001)
     }
 
+    @Test fun openingCashMustBeFiniteAndNonNegative() {
+        assertEquals(0.0, parseOpeningCash("0")!!, 0.000001)
+        assertEquals(125.5, parseOpeningCash("$ 125,50")!!, 0.000001)
+        assertNull(parseOpeningCash("-0.01"))
+        assertNull(parseOpeningCash("NaN"))
+        assertNull(parseOpeningCash(""))
+    }
+
     @Test fun rejectsEmptyAndMalformedAmounts() {
         assertNull(parseAmount(""))
         assertNull(parseAmount("abc"))
