@@ -2754,14 +2754,10 @@ class MainActivity:FragmentActivity(){
   val v=page("VENTAS"){showToolsMenu()}
   val sales=Store.sales(this);var sum=0.0;var count=0
   for(i in 0 until sales.length()){val x=sales.optJSONObject(i)?:continue;if(x.optString("time").startsWith(day())){sum+=x.optDouble("subtotal");count++}}
-  val shift=Store.shift(this)?:JSONObject()
-  val startTs=shift.optLong("startTs",0L)
-  var shiftSales=0.0
-  for(i in 0 until sales.length()){val item=sales.optJSONObject(i)?:continue;if(startTs>0L&&item.optLong("ts",0L)>=startTs)shiftSales+=item.optDouble("subtotal",0.0)}
-  val opening=shift.optDouble("cash",0.0)
-  val expenses=try{Store.providerExpenses(this,startTs)}catch(_:Exception){0.0}
-  val cashNow=(opening+shiftSales-expenses).coerceAtLeast(0.0)
-  v.addView(txt("HOY\nDINERO EN CAJA: "+Store.money(cashNow)+"\nVENTAS DE HOY: "+Store.money(sum)+"  ·  $count ventas",16f).apply{
+  // Usa el cálculo central validado: un historial de gastos/ventas dañado no debe mostrarse como caja disponible.
+  val cashNow=try{Store.cashBalance(this)}catch(_:Exception){null}
+  val cashText=cashNow?.let{Store.money(it)}?:"NO DISPONIBLE · REVISAR HISTORIAL"
+  v.addView(txt("HOY\nDINERO EN CAJA: "+cashText+"\nVENTAS DE HOY: "+Store.money(sum)+"  ·  $count ventas",16f).apply{
    gravity=Gravity.CENTER;setPadding(dp(18),dp(18),dp(18),dp(18))
    background=rounded(0xFFE8F0FF.toInt(),20,0xFFD5E1F5.toInt())
   })
