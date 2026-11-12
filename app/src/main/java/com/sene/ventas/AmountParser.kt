@@ -26,3 +26,7 @@ internal fun parseAmount(raw: String): Double? {
     }
     return normalized.toDoubleOrNull()?.takeIf { it.isFinite() }
 }
+
+/** Importe de apertura válido: finito y nunca negativo. */
+internal fun parseOpeningCash(raw: String): Double? =
+    parseAmount(raw)?.takeIf { it >= 0.0 }
