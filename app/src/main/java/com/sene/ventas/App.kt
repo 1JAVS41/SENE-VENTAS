@@ -2147,8 +2147,6 @@ class MainActivity:FragmentActivity(){
    .put("salesLines",tickets)
    .put("supplierExpenses",expenses)
    .put("cashAtClose",cashAtClose)
-   // El inventario completo se envía una sola vez como parte del reporte final.
-   .put("inventory",Store.products(this))
   val prefs=seneServerPrefs()
   val base=prefs.getString("server_base_url",null)
   val device=prefs.getString("device_id",null)
