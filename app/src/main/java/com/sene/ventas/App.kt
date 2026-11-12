@@ -539,6 +539,7 @@ private object InventoryReader {
 private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
 
 private object ShiftReportSendLock { var active = false }
+private object DailyInventorySendLock { var active = false }
 
 class InicioTurnoActivity:FragmentActivity(){
  private var internet="Consultando internet…"
@@ -1602,16 +1603,34 @@ class MainActivity:FragmentActivity(){
     .joinToString(""){"%02x".format(it)}
   }catch(_:Exception){return}
   val key="daily_inventory_hash_"+date
-  if(server.getString(key,null)==hash || server.getBoolean("daily_inventory_sending",false))return
-  if(!server.edit().putBoolean("daily_inventory_sending",true).commit())return
+  if(server.getString(key,null)==hash)return
+  // Recupera una reserva huérfana si Android cerró el proceso durante el envío.
+  val reserved=synchronized(DailyInventorySendLock){
+   val now=System.currentTimeMillis()
+   if(DailyInventorySendLock.active)return@synchronized false
+   val sending=server.getBoolean("daily_inventory_sending",false)
+   val sendingAt=server.getLong("daily_inventory_sending_at",0L)
+   if(sending&&sendingAt>0L&&now>=sendingAt&&now-sendingAt<300000L)return@synchronized false
+   if(!server.edit().putBoolean("daily_inventory_sending",true)
+      .putLong("daily_inventory_sending_at",now).commit())return@synchronized false
+   DailyInventorySendLock.active=true
+   true
+  }
+  if(!reserved)return
   Thread{
    try{
     SeneApiClient(this,base).sendDailyInventory(date,snapshot,device)
-    server.edit().putString(key,hash).commit()
+    check(server.edit().putString(key,hash).commit()){
+     "El servidor recibió el inventario, pero no se pudo guardar la confirmación local."
+    }
    }catch(_:Exception){
-    // No se borra el inventario local; el siguiente ingreso o reanudación reintentará.
+    // No se borra el inventario local; se reintentará al reabrir o reanudar la pantalla.
    }finally{
-    server.edit().putBoolean("daily_inventory_sending",false).commit()
+    synchronized(DailyInventorySendLock){
+     server.edit().putBoolean("daily_inventory_sending",false)
+      .remove("daily_inventory_sending_at").commit()
+     DailyInventorySendLock.active=false
+    }
    }
   }.start()
  }
