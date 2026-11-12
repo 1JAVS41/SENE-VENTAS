@@ -56,23 +56,12 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          disable-animations: false
+          disable-animations: true
           emulator-boot-timeout: 900
           cores: 2
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-snapshot-save
           script: |
-            APK="app/build/outputs/apk/debug/app-debug.apk"
-            echo "APK esperado: $APK"
-            ls -l "$APK"
-            test -s "$APK"
-            adb wait-for-device
-            adb install -r "$APK"
-            adb shell am start -W -n com.sene.ventas/.InicioTurnoActivity
-            sleep 5
-            if ! adb shell pidof com.sene.ventas; then
-              adb logcat -d -t 500
-              exit 1
-            fi
+            adb wait-for-device && test -s "app/build/outputs/apk/debug/app-debug.apk" && adb install -r "app/build/outputs/apk/debug/app-debug.apk" && adb shell am start -W -n com.sene.ventas/.InicioTurnoActivity && sleep 5 && (adb shell pidof com.sene.ventas || { adb logcat -d -t 500; exit 1; })
       - name: Preparar nombre de entrega
         run: |
           mkdir -p dist
