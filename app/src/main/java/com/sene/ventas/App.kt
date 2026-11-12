@@ -853,10 +853,13 @@ class WorkerPortalActivity:Activity(){
   for(i in 0 until sales.length()){
    val item=sales.optJSONObject(i)?:continue
    val ts=item.optLong("ts",0L);if(ts<=0L)continue
-   val id=item.optString("saleId").takeIf{it.isNotBlank()}?:("legacy-"+ts)
+   // Solo ofrecer ventas con folio estable. Las filas antiguas sin saleId
+   // no pueden asociarse de forma segura a una solicitud/autorización.
+   val id=item.optString("saleId").trim()
+   if(id.isBlank())continue
    grouped.getOrPut(id){mutableListOf()}.add(item)
   }
-  if(grouped.isEmpty()){msg("Todavía no hay ventas registradas para solicitar una corrección.");return}
+  if(grouped.isEmpty()){msg("No hay ventas con folio válido disponibles para solicitar una corrección. Las ventas antiguas sin folio no se pueden corregir de forma segura.");return}
   val ids=grouped.keys.toList().asReversed()
   val labels=ids.map{id->
    val rows=grouped[id].orEmpty();var total=0.0
