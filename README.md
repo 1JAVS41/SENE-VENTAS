@@ -27,5 +27,5 @@ GitHub Actions compila un APK de prueba y publica el artefacto **SENE VENTAS-onl
 
 ## Backend
 
-La API de Cloudflare Workers y D1 está en preparación y validación. No usar la URL temporal Hello World como servidor. No activar licencias reales hasta completar despliegue controlado, migraciones y pruebas E2E.
+La integración Android apunta al Worker AISLADO de pruebas `sene-licensing-api-testing.1codex41.workers.dev`; no es producción ni debe usarse para cobrar clientes reales. La D1 de pruebas se migra automáticamente. La D1 y el Worker de producción permanecen separados. No activar licencias reales hasta completar pruebas E2E y una liberación comercial firmada.
 
