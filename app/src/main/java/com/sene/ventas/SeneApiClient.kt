@@ -159,6 +159,14 @@ class SeneApiClient(context: Context, baseUrl: String) {
         return deviceSigned("VENTAS_REQUEST", "/v1/ventas/requests", body.toString(), deviceId)
     }
 
+    /** Recupera el historial completo del equipo para reconstruirlo tras reinstalar o perder datos locales. */
+    fun requestHistory(
+        deviceId: String = storedDeviceId()
+            ?: throw IllegalStateException("SENE VENTAS todavía no está vinculado")
+    ): JSONObject = deviceSigned(
+        "VENTAS_REQUEST_HISTORY", "/v1/ventas/requests/history", "{}", deviceId
+    )
+
     fun requestUpdates(
         after: Long = 0L,
         deviceId: String = storedDeviceId()
