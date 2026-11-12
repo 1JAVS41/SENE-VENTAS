@@ -24,5 +24,5 @@ internal fun parseAmount(raw: String): Double? {
         }
         else -> value
     }
-    return normalized.toDoubleOrNull()
+    return normalized.toDoubleOrNull()?.takeIf { it.isFinite() }
 }
