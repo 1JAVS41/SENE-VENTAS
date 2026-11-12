@@ -608,7 +608,7 @@ class InicioTurnoActivity:FragmentActivity(){
    if(products.length()==0)throw java.io.IOException("El inventario cargado no contiene productos")
    Store.saveProducts(this,products)
    val now=System.currentTimeMillis()
-   val initialCash=parseAmount(cash)?.takeIf{it>=0.0}?:throw IllegalArgumentException("La caja inicial debe ser un importe válido y no negativo.")
+   val initialCash=parseOpeningCash(cash)?:throw IllegalArgumentException("La caja inicial debe ser un importe válido y no negativo.")
    val shift=JSONObject().put("worker",worker).put("phone",phone).put("cash",initialCash).put("started",stamp()).put("startTs",now).put("lastReport",now)
    val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock"))}
@@ -677,7 +677,7 @@ class InicioTurnoActivity:FragmentActivity(){
   shiftPanel.addView(n);shiftPanel.addView(p);shiftPanel.addView(cash)
   shiftPanel.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){
    if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton}
-   val initialCash=parseAmount(cash.text.toString())
+   val initialCash=parseOpeningCash(cash.text.toString())
    if(initialCash==null||initialCash<0.0){msg("La caja inicial debe ser un importe válido y no negativo.");return@powerButton}
    startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},initialCash.toString())
   })
