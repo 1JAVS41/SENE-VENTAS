@@ -38,12 +38,16 @@ class SeneVentasApiException(val httpStatus: Int, val responseBody: String) :
  * Ejecutar las llamadas en un hilo de trabajo, nunca en el hilo principal.
  */
 class SeneApiClient(context: Context, baseUrl: String) {
+    companion object {
+        private const val TEST_SERVER_URL = "https://sene-licensing-api-testing.1codex41.workers.dev"
+    }
+
     private val app = context.applicationContext
     private val root = baseUrl.trim().trimEnd('/')
     private val prefs = app.getSharedPreferences("sene_ventas_server", Context.MODE_PRIVATE)
 
     init {
-        require(root.startsWith("https://")) { "La dirección del servidor SENE debe usar HTTPS" }
+        require(root == TEST_SERVER_URL) { "Esta versión de SENE VENTAS solo puede conectarse al Worker de pruebas SENE configurado." }
     }
 
     fun storedDeviceId(): String? = prefs.getString("device_id", null)?.takeIf { it.isNotBlank() }
