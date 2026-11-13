@@ -16,7 +16,7 @@ if ! timeout 120s adb install -r "$APK_PATH"; then
   exit 1
 fi
 adb shell am force-stop com.sene.ventas
-START_OUTPUT="$(timeout 45s adb shell am start -W -n com.sene.ventas/.MainActivity 2>&1)" || {
+START_OUTPUT="$(timeout 45s adb shell am start -W -n com.sene.ventas/.InicioTurnoActivity 2>&1)" || {
   printf '%s\n' "$START_OUTPUT" > diagnostics/start.txt
   adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
   adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
