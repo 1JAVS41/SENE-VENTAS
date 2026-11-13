@@ -4,13 +4,19 @@ mkdir -p diagnostics
 STAGE=initial
 record_failure() {
   code=$?
+  [ "$code" -eq 0 ] && return 0
+  trap - EXIT HUP INT TERM
   echo "Fallo en etapa: $STAGE (código $code)" > diagnostics/result.txt
   timeout 30s adb logcat -d -v threadtime > diagnostics/logcat.txt 2>&1 || true
   timeout 20s adb shell dumpsys activity activities > diagnostics/activity.txt 2>&1 || true
+  timeout 20s adb shell dumpsys window windows > diagnostics/window.txt 2>&1 || true
   timeout 20s adb shell dumpsys package com.sene.ventas > diagnostics/package.txt 2>&1 || true
   exit "$code"
 }
-trap record_failure EXIT HUP INT TERM
+trap record_failure EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 test -n "${APK_PATH:-}" && test -s "$APK_PATH"
 STAGE=espera-adb
 timeout 90s adb wait-for-device
