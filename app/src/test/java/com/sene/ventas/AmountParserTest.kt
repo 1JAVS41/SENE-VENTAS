@@ -19,6 +19,7 @@ class AmountParserTest {
 
     @Test fun acceptsCurrencyAndWhitespace() {
         assertEquals(25.5, parseAmount(" $ 25,50 ")!!, 0.000001)
+        assertEquals(25.5, parseAmount("$\u00A025,50")!!, 0.000001)
     }
 
     @Test fun openingCashMustBeFiniteAndNonNegative() {
@@ -35,5 +36,11 @@ class AmountParserTest {
         assertNull(parseAmount("1.2.3"))
         assertNull(parseAmount("NaN"))
         assertNull(parseAmount("Infinity"))
+    }
+
+    @Test fun rejectsValuesWithTrailingGarbageAndKeepsNegativeAmountsParseable() {
+        assertNull(parseAmount("25,50 MXN"))
+        assertEquals(-12.5, parseAmount("-12,50")!!, 0.000001)
+        assertNull(parseOpeningCash("-12,50"))
     }
 }
