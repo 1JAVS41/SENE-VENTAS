@@ -69,6 +69,9 @@ class SeneApiClient(context: Context, baseUrl: String) {
             .put("publicKeyBase64", identity.publicKeyBase64)
             .put("fingerprint", identity.fingerprint)
         val result = bootstrapSigned("VENTAS_PAIR", "/v1/ventas/pair", body.toString(), identity)
+        check(result.optBoolean("sameDeviceId", false)) {
+            "El servidor no confirmó que se conserva la misma identidad del dispositivo"
+        }
         val id = result.optString("deviceId")
         val slot = result.optString("slot")
         check(id.isNotBlank() && (slot == "VENTAS_1" || slot == "VENTAS_2")) {
