@@ -1976,8 +1976,8 @@ class MainActivity:FragmentActivity(){
    .setView(field).setPositiveButton("Guardar"){_,_->
     val value=field.text.toString().trim().trimEnd('/')
     val uri=Uri.parse(value)
-    if(!value.startsWith("https://")||uri.host.isNullOrBlank()||value.any{it.isWhitespace()}){
-     msg("Dirección HTTPS no válida");return@setPositiveButton
+    if(value != SENE_TEST_SERVER_URL || !value.startsWith("https://")||uri.host.isNullOrBlank()||value.any{it.isWhitespace()}){
+     msg("Esta versión de SENE VENTAS solo puede conectarse al servidor de pruebas SENE configurado.");return@setPositiveButton
     }
     prefs.edit().putString("server_base_url",value).apply()
     after()
@@ -2011,11 +2011,11 @@ class MainActivity:FragmentActivity(){
     val mail=email.text.toString().trim()
     val number=phone.text.toString().filter{it.isDigit()}
     val uri=Uri.parse(url)
-    if(!url.startsWith("https://")||uri.host.isNullOrBlank()||url.any{it.isWhitespace()}||
+    if(url != SENE_TEST_SERVER_URL || !url.startsWith("https://")||uri.host.isNullOrBlank()||url.any{it.isWhitespace()}||
        company.isBlank()||company.length>100||
        !android.util.Patterns.EMAIL_ADDRESS.matcher(mail).matches()||
        number.length !in 10..15){
-     msg("Revisa servidor HTTPS, empresa, correo y teléfono registrados")
+     msg("Usa el servidor de pruebas SENE configurado y revisa empresa, correo y teléfono registrados")
      return@setPositiveButton
     }
     prefs.edit().putString("server_base_url",url).apply()
