@@ -79,10 +79,10 @@ class PaymentInfoActivity : Activity() {
                             dialog.dismiss()
                             AlertDialog.Builder(this)
                                 .setTitle("SENE VENTAS VINCULADO")
-                                .setMessage("La suscripción quedó activada por 30 días.\\nVence: " + result.optString("expires_at") +
-                                    "\\n\\nTU CÓDIGO DE ACTIVACIÓN: " + code +
-                                    "\\nFOLIO: " + folio +
-                                    "\\n\\nIMPORTANTE: SERVER-SENE conserva el registro de esta licencia durante 33 días. Guarda este código y folio en un lugar seguro. También quedaron guardados cifrados en este dispositivo.")
+                                .setMessage("La suscripción quedó activada por 30 días.\nVence: " + result.optString("expires_at") +
+                                    "\n\nTU CÓDIGO DE ACTIVACIÓN: " + code +
+                                    "\nFOLIO: " + folio +
+                                    "\n\nIMPORTANTE: SERVER-SENE conserva el registro de esta licencia durante 33 días. Guarda este código y folio en un lugar seguro. También quedaron guardados cifrados en este dispositivo.")
                                 .setPositiveButton("COPIAR CÓDIGO") { _, _ ->
                                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Código de activación SENE", code))
@@ -196,7 +196,7 @@ class PaymentInfoActivity : Activity() {
         val amountCents = intent.getIntExtra("amount_cents", ActivationApi.pendingAmount(this))
         if (folio.isNotBlank()) {
             root.addView(TextView(this).apply {
-                text = "FOLIO: $folio\\nIMPORTE: $" + String.format(java.util.Locale.US, "%.2f", amountCents / 100.0) + " MXN"
+                text = "FOLIO: $folio\nIMPORTE: $" + String.format(java.util.Locale.US, "%.2f", amountCents / 100.0) + " MXN"
                 textSize = 17f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
