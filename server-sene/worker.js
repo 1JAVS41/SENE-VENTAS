@@ -433,12 +433,26 @@ async function subscriptionStatus(request, env) {
   const body = await request.json();
   const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
   if (!validText(installationId, 20, 100)) return json({ ok: false, error: "INSTALACION_INVALIDA" }, 400);
-  const row = await env.DB.prepare(
-    "SELECT business_name,status,expires_at FROM businesses WHERE installation_id=? LIMIT 1"
+
+  const db = env.DB;
+  let row = await db.prepare(
+    "SELECT id,business_name,status,expires_at FROM businesses WHERE installation_id=? LIMIT 1"
   ).bind(installationId).first();
+
   const expiryTime = row?.expires_at ? new Date(row.expires_at).getTime() : 0;
+  const hasExpired = !!row && expiryTime > 0 && expiryTime <= Date.now();
+
+  // El servidor cambia el estado de la licencia al vencer los 30 días.
+  // No elimina el negocio ni su historial: queda disponible para renovación.
+  if (hasExpired && row.status === "active") {
+    await db.prepare(
+      "UPDATE businesses SET status='expired',updated_at=? WHERE id=? AND status='active' AND expires_at<=?"
+    ).bind(nowIso(), row.id, nowIso()).run();
+    row.status = "expired";
+  }
+
   const active = !!row && row.status === "active" && expiryTime > Date.now();
-  const expired = !!row && row.status === "active" && expiryTime > 0 && expiryTime <= Date.now();
+  const expired = !!row && row.status === "expired" && hasExpired;
   return json({ ok: true, linked: !!row, active, expired,
     business_name: row?.business_name || null,
     expires_at: row?.expires_at || null,
