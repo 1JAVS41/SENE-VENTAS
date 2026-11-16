@@ -29,12 +29,13 @@ class PaymentInfoActivity : Activity() {
         }
 
     private fun requestCodeDialog() {
-        val folio = intent.getStringExtra("folio") ?: ActivationApi.pendingFolio(this)
-        if (folio.isBlank()) {
-            AlertDialog.Builder(this).setTitle("Falta el folio")
-                .setMessage("Primero registra una solicitud desde VINCULAR SENE VENTAS.")
-                .setPositiveButton("ENTENDIDO", null).show()
-            return
+        val savedFolio = intent.getStringExtra("folio")?.takeIf { it.isNotBlank() } ?: ActivationApi.pendingFolio(this)
+        val folioField = EditText(this).apply {
+            hint = "Folio de tu solicitud"
+            setSingleLine(true)
+            setText(savedFolio)
+            textSize = 16f
+            setPadding(dp(16), dp(13), dp(16), dp(13))
         }
         val codeField = EditText(this).apply {
             hint = "Código de activación de 10 caracteres"
@@ -44,14 +45,24 @@ class PaymentInfoActivity : Activity() {
         }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Validar activación")
-            .setMessage("Folio: $folio\nEscribe el código que recibiste después de que el responsable verificó tu pago.")
-            .setView(codeField)
+            .setMessage("Escribe el folio de tu solicitud y el código de 10 caracteres que recibiste después de verificar tu pago.")
+            .setView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), 0, dp(20), 0)
+                addView(folioField)
+                addView(codeField)
+            })
             .setPositiveButton("VALIDAR CÓDIGO", null)
             .setNegativeButton("CANCELAR", null)
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val folio = folioField.text.toString().trim().uppercase()
                 val code = codeField.text.toString().trim().uppercase()
+                if (folio.isBlank()) {
+                    folioField.error = "Escribe el folio de tu solicitud"
+                    return@setOnClickListener
+                }
                 if (code.length != 10) {
                     codeField.error = "El código debe tener 10 caracteres"
                     return@setOnClickListener
