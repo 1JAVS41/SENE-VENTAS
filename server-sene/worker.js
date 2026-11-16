@@ -405,6 +405,14 @@ async function completeAccountRecovery(request, env) {
   ]);
   if (!results[0]?.meta || results[0].meta.changes !== 1 ||
       !results[1]?.meta || results[1].meta.changes !== 1) {
+    // Compensa el primer UPDATE si el segundo no pudo cambiar el dispositivo.
+    // Solo revierte esta operación concreta; no pisa una transferencia posterior.
+    await db.batch([
+      db.prepare("UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=? AND updated_at=?")
+        .bind(row.old_installation_id, nowIso(), row.business_id, installationId, completedAt),
+      db.prepare("UPDATE account_recovery_requests SET consumed_at=NULL,status='pending' WHERE id=? AND consumed_at=? AND EXISTS (SELECT 1 FROM businesses WHERE id=? AND installation_id=?)")
+        .bind(row.id, completedAt, row.business_id, row.old_installation_id)
+    ]);
     return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR", message: "La cuenta cambió mientras se procesaba la solicitud. Contacta al responsable de SENE." }, 409);
   }
 
