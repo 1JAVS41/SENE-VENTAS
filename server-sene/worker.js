@@ -244,6 +244,157 @@ async function redeemCode(request, env) {
   return json({ ok: true, status: "active", activated_at: activatedAt, expires_at: expiresAt });
 }
 
+
+async function requestAccountRecovery(request, env) {
+  const body = await request.json();
+  const businessName = typeof body.business_name === "string" ? body.business_name.trim() : "";
+  const phone = typeof body.whatsapp === "string" ? body.whatsapp.replace(/\D/g, "") : "";
+  const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
+  if (!validText(businessName, 2, 80) || phone.length < 10 || phone.length > 15 ||
+      !validText(installationId, 20, 100)) {
+    return json({ ok: false, error: "DATOS_INVALIDOS" }, 400);
+  }
+
+  const db = env.DB;
+  const ddl = [
+    "CREATE TABLE IF NOT EXISTS account_recovery_requests (",
+    "id TEXT PRIMARY KEY, folio TEXT NOT NULL UNIQUE, business_id TEXT NOT NULL,",
+    "old_installation_id TEXT NOT NULL, new_installation_id TEXT NOT NULL, code_hash TEXT NOT NULL,",
+    "attempt_count INTEGER NOT NULL DEFAULT 0, locked_at TEXT, consumed_at TEXT, invalidated_at TEXT,",
+    "status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, expires_at TEXT NOT NULL)"
+  ].join(" ");
+  await db.prepare(ddl).run();
+
+  const business = await db.prepare(
+    "SELECT id,business_name,whatsapp,installation_id,status FROM businesses WHERE business_name_normalized=? LIMIT 1"
+  ).bind(normalizeName(businessName)).first();
+
+  // Respuesta genérica para no revelar si existe una cuenta o si el teléfono coincide.
+  if (!business || (business.whatsapp || "").replace(/\D/g, "") !== phone ||
+      business.status === "blocked") {
+    return json({ ok: false, error: "DATOS_NO_VERIFICADOS", message: "No pudimos validar los datos. Revisa el nombre del negocio y el WhatsApp registrado." }, 404);
+  }
+  if (business.installation_id === installationId) {
+    return json({ ok: false, error: "DISPOSITIVO_YA_VINCULADO", message: "Este dispositivo ya está vinculado a este negocio." }, 409);
+  }
+
+  const deviceOwner = await db.prepare(
+    "SELECT business_name FROM businesses WHERE installation_id=? AND id<>? LIMIT 1"
+  ).bind(installationId, business.id).first();
+  if (deviceOwner) {
+    return json({ ok: false, error: "DISPOSITIVO_OCUPADO", message: "Este dispositivo ya está vinculado a otro negocio." }, 409);
+  }
+
+  const currentTime = nowIso();
+  const pendingBusinessRequest = await db.prepare(
+    "SELECT folio,expires_at FROM activation_requests WHERE business_id=? AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 1"
+  ).bind(business.id, currentTime).first();
+  if (pendingBusinessRequest) {
+    return json({ ok: false, error: "SOLICITUD_ACTIVA", folio: pendingBusinessRequest.folio,
+      expires_at: pendingBusinessRequest.expires_at,
+      message: "El negocio tiene una solicitud de pago pendiente. Espera a que termine antes de cambiar de dispositivo." }, 409);
+  }
+
+  const pendingRecovery = await db.prepare(
+    "SELECT folio,expires_at FROM account_recovery_requests WHERE business_id=? AND status='pending' AND expires_at>? AND consumed_at IS NULL AND invalidated_at IS NULL ORDER BY created_at DESC LIMIT 1"
+  ).bind(business.id, currentTime).first();
+  if (pendingRecovery) {
+    return json({ ok: false, error: "RECUPERACION_EN_CURSO", folio: pendingRecovery.folio,
+      expires_at: pendingRecovery.expires_at,
+      message: "Ya existe una recuperación pendiente para este negocio. Contacta al responsable de SENE." }, 409);
+  }
+
+  await db.prepare(
+    "UPDATE account_recovery_requests SET status='expired',invalidated_at=? WHERE business_id=? AND status='pending' AND expires_at<=? AND consumed_at IS NULL"
+  ).bind(currentTime, business.id, currentTime).run();
+
+  const id = crypto.randomUUID();
+  const folio = "TRAS-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + crypto.randomUUID().slice(0, 6).toUpperCase();
+  const code = randomCode();
+  const codeHash = await sha256(code);
+  const expiresAt = plusHours(new Date(), 48);
+  await db.prepare(
+    "INSERT INTO account_recovery_requests (id,folio,business_id,old_installation_id,new_installation_id,code_hash,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?)"
+  ).bind(id, folio, business.id, business.installation_id, installationId, codeHash, currentTime, expiresAt).run();
+
+  const message = [
+    "🔐 SOLICITUD DE CAMBIO DE DISPOSITIVO SENE",
+    "Folio: " + folio,
+    "Negocio: " + business.business_name,
+    "WhatsApp registrado: " + phone,
+    "Código de autorización (ENTREGAR SOLO DESPUÉS DE VERIFICAR LA IDENTIDAD): " + code,
+    "Vigencia: 48 horas",
+    "El dispositivo anterior seguirá vinculado hasta que el cliente introduzca el código."
+  ].join("\n");
+
+  try {
+    await telegram(env, message);
+  } catch (error) {
+    await db.prepare(
+      "UPDATE account_recovery_requests SET status='cancelled',invalidated_at=? WHERE id=? AND status='pending'"
+    ).bind(nowIso(), id).run();
+    return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Intenta más tarde." }, 503);
+  }
+
+  return json({ ok: true, folio, expires_at: expiresAt, message: "Solicitud recibida. El responsable verificará tu identidad antes de entregarte el código." }, 201);
+}
+
+async function completeAccountRecovery(request, env) {
+  const body = await request.json();
+  const folio = typeof body.folio === "string" ? body.folio.trim().toUpperCase() : "";
+  const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
+  const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
+  if (!validText(folio, 8, 50) || !/^[A-HJ-NP-Z2-9]{10}$/.test(code) ||
+      !validText(installationId, 20, 100)) {
+    return json({ ok: false, error: "DATOS_INVALIDOS" }, 400);
+  }
+
+  const db = env.DB;
+  const row = await db.prepare(
+    "SELECT r.*, b.status AS business_status, b.installation_id AS current_installation_id FROM account_recovery_requests r JOIN businesses b ON b.id=r.business_id WHERE r.folio=?"
+  ).bind(folio).first();
+
+  if (!row) return json({ ok: false, error: "FOLIO_NO_ENCONTRADO" }, 404);
+  if (row.status !== "pending" || row.consumed_at || row.invalidated_at) {
+    return json({ ok: false, error: "SOLICITUD_NO_DISPONIBLE" }, 409);
+  }
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    await db.prepare("UPDATE account_recovery_requests SET status='expired',invalidated_at=? WHERE id=?")
+      .bind(nowIso(), row.id).run();
+    return json({ ok: false, error: "SOLICITUD_EXPIRADA" }, 410);
+  }
+  if (row.locked_at || row.attempt_count >= 5) {
+    return json({ ok: false, error: "CODIGO_BLOQUEADO" }, 429);
+  }
+  if (row.new_installation_id !== installationId ||
+      row.current_installation_id !== row.old_installation_id ||
+      row.business_status === "blocked") {
+    return json({ ok: false, error: "DISPOSITIVO_NO_AUTORIZADO" }, 403);
+  }
+
+  const suppliedHash = await sha256(code);
+  if (suppliedHash !== row.code_hash) {
+    await db.prepare("UPDATE account_recovery_requests SET attempt_count=attempt_count+1,locked_at=CASE WHEN attempt_count+1>=5 THEN ? ELSE locked_at END WHERE id=?")
+      .bind(nowIso(), row.id).run();
+    return json({ ok: false, error: "CODIGO_INCORRECTO" }, 401);
+  }
+
+  const completedAt = nowIso();
+  const results = await db.batch([
+    db.prepare("UPDATE account_recovery_requests SET consumed_at=?,status='completed' WHERE id=? AND status='pending' AND consumed_at IS NULL AND invalidated_at IS NULL AND EXISTS (SELECT 1 FROM businesses WHERE id=? AND installation_id=?)")
+      .bind(completedAt, row.id, row.business_id, row.old_installation_id),
+    db.prepare("UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=? AND EXISTS (SELECT 1 FROM account_recovery_requests WHERE id=? AND consumed_at=?)")
+      .bind(installationId, completedAt, row.business_id, row.old_installation_id, row.id, completedAt)
+  ]);
+  if (!results[0]?.meta || results[0].meta.changes !== 1 ||
+      !results[1]?.meta || results[1].meta.changes !== 1) {
+    return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR", message: "La cuenta cambió mientras se procesaba la solicitud. Contacta al responsable de SENE." }, 409);
+  }
+
+  return json({ ok: true, status: "transferred",
+    message: "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
+}
+
 async function subscriptionStatus(request, env) {
   const body = await request.json();
   const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
@@ -273,6 +424,8 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/requests") return await createRequest(request, env);
       if (request.method === "POST" && url.pathname === "/redeem") return await redeemCode(request, env);
+      if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
+      if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
       return json({ ok: false, error: "RUTA_NO_ENCONTRADA" }, 404);
     } catch (error) {
