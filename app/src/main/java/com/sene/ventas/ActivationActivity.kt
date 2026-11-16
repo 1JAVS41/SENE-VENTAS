@@ -95,6 +95,10 @@ class ActivationActivity : Activity() {
             addView(RadioButton(this@ActivationActivity).apply { id = 1; text = "ACTIVAR NEGOCIO NUEVO"; isChecked = true })
             addView(RadioButton(this@ActivationActivity).apply { id = 2; text = "PAGAR MENSUALIDAD" })
         }
+        if (intent.getBooleanExtra("force_renewal", false)) {
+            type.check(2)
+            for (i in 0 until type.childCount) type.getChildAt(i).isEnabled = false
+        }
         root.addView(type)
         holder = field("Nombre del titular")
         phone = field("Teléfono con WhatsApp", true)
@@ -164,7 +168,7 @@ class ActivationActivity : Activity() {
         type.isEnabled = !locked
         for (i in 0 until type.childCount) type.getChildAt(i).isEnabled = !locked
         submit.isEnabled = !locked
-        submit.text = if (locked) "SOLICITUD EN CURSO" else "ENVIAR SOLICITUD"
+        submit.text = if (locked) "SOLICITUD EN CURSO" else if (intent.getBooleanExtra("force_renewal", false)) "PAGAR MENSUALIDAD · LICENCIA VENCIDA" else "ENVIAR SOLICITUD"
     }
 
     private fun updateCountdown() {
@@ -214,7 +218,7 @@ class ActivationActivity : Activity() {
             }
             runOnUiThread {
                 submit.isEnabled = true
-                submit.text = "ENVIAR SOLICITUD"
+                submit.text = if (intent.getBooleanExtra("force_renewal", false)) "PAGAR MENSUALIDAD · LICENCIA VENCIDA" else "ENVIAR SOLICITUD"
                 if (result.optBoolean("ok")) {
                     val folio = result.optString("folio")
                     val amount = result.optInt("amount_cents", 10000)
