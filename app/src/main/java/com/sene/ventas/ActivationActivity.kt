@@ -177,6 +177,7 @@ class ActivationActivity : Activity() {
         val remaining = expiry - System.currentTimeMillis()
         if (remaining <= 0L) {
             countdownLabel.text = "SOLICITUD VENCIDA. Puedes generar una nueva solicitud."
+            updateRequestFormLock()
             return
         }
         val totalSeconds = remaining / 1000L
