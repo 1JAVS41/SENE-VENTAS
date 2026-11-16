@@ -39,7 +39,8 @@ El código del Worker está en `server-sene/worker.js`. Está preparado para el 
 - La suscripción comienza al validar el código y dura 30 días.
 - La renovación del mismo dispositivo suma 30 días a la fecha de vencimiento vigente.
 - El responsable verifica el pago manualmente y comparte el código recibido por Telegram solo después de confirmar el depósito.
-- El nombre del negocio es único; cada negocio queda vinculado a una sola instalación y cada instalación solo puede registrar un negocio.\n- Una instalación no puede crear otra solicitud mientras tenga una solicitud pendiente dentro de las 48 horas.
+- El nombre del negocio es único; cada negocio queda vinculado a una sola instalación y cada instalación solo puede registrar un negocio.
+- Una instalación no puede crear otra solicitud mientras tenga una solicitud pendiente dentro de las 48 horas.
 
 ## Comprobación posterior
 
