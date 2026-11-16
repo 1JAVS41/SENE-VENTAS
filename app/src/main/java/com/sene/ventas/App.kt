@@ -42,7 +42,9 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 
 private const val GREEN=0xFF168B45.toInt()
-private const val PIN="2910"
+private const val DEFAULT_PIN="2910"
+private const val PATRON_PREFS="sene_patron_security"
+private fun currentPatronPin(c:Context)=c.getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).getString("pin",DEFAULT_PIN)?:DEFAULT_PIN
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 private fun parseAmount(raw:String):Double? {
  val value=raw.trim().replace("$","").replace(" ","").replace("\u00A0","")
@@ -183,7 +185,7 @@ private fun Activity.display(v:LinearLayout){
  sc.viewTreeObserver.addOnGlobalLayoutListener{sc.post{revealFocused()}}
 }
 private fun Activity.msg(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
-private fun Activity.pin(ok:()->Unit){val e=input("PIN del patrón",true);e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;AlertDialog.Builder(this).setTitle("Soy Patrón").setView(e).setPositiveButton("Entrar"){_,_->if(e.text.toString()==PIN)ok()else msg("PIN incorrecto")}.setNegativeButton("Cancelar",null).show()}
+private fun Activity.pin(ok:()->Unit){val e=input("PIN del patrón",true);e.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;AlertDialog.Builder(this).setTitle("Soy Patrón").setView(e).setPositiveButton("Entrar"){_,_->if(e.text.toString()==currentPatronPin(this))ok()else msg("PIN incorrecto")}.setNegativeButton("Cancelar",null).show()}
 private object InventoryCrypto {
  private const val ALIAS="SENE_INVENTORY_AES_KEY"
  private val MAGIC="SENEENC1".toByteArray(Charsets.US_ASCII)
@@ -775,7 +777,23 @@ class AgregarInventarioActivity:Activity(){
 class PatronActivity:Activity(){
  private var pendingInventorySave=false
  override fun onCreate(b:Bundle?){super.onCreate(b);pin{draw()}}
- private fun draw(){val v=page("Administrador - Patrón");v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
+ private fun draw(){val v=page("Administrador - Patrón");v.addView(button("Cambiar PIN de Soy Patrón",false){changePatronPin()});v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
+ private fun changePatronPin(){
+  val next=input("Nuevo PIN (mínimo 4 dígitos)",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER}
+  val confirm=input("Confirma el nuevo PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER}
+  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(next);addView(confirm)}
+  AlertDialog.Builder(this).setTitle("Cambiar PIN de Soy Patrón").setMessage("El PIN inicial es 2910. El nuevo PIN quedará guardado solo en este dispositivo.").setView(box)
+   .setPositiveButton("GUARDAR",null).setNegativeButton("Cancelar",null).create().also{dialog->
+    dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+     val a=next.text.toString();val b=confirm.text.toString()
+     if(a.length<4||a.length>12||a.any{!it.isDigit()}){next.error="Usa de 4 a 12 dígitos";return@setOnClickListener}
+     if(a!=b){confirm.error="Los PIN no coinciden";return@setOnClickListener}
+     getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).edit().putString("pin",a).apply()
+     dialog.dismiss();msg("PIN de Soy Patrón actualizado")
+    }}
+    dialog.show()
+   }
+ }
  private var pendingFirstInventory=false
  private var firstInventoryCode:EditText?=null
  private val firstInventoryItems=JSONArray()
