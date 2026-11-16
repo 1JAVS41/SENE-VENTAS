@@ -62,7 +62,7 @@ class AccountLoginActivity : Activity() {
                     if (result.optBoolean("ok")) {
                         val folio = result.optString("folio")
                         ActivationApi.savePendingRecovery(this, folio)
-                        showCodeDialog(folio)
+                        showCodeDialog(folio, result.optString("activation_folio"))
                     } else if (result.optString("error") == "DISPOSITIVO_YA_VINCULADO") {
                         checkCurrentSession()
                     } else {
@@ -98,7 +98,7 @@ class AccountLoginActivity : Activity() {
             }
         }.start()
     }
-    private fun showCodeDialog(folio: String) {
+    private fun showCodeDialog(folio: String, activationFolio: String = "") {
         val code = EditText(this).apply {
             hint = "Código de autorización de 10 caracteres"; textSize = 17f; setSingleLine(true)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
@@ -122,6 +122,15 @@ class AccountLoginActivity : Activity() {
                             AlertDialog.Builder(this).setTitle("INICIO DE SESIÓN CORRECTO")
                                 .setMessage("Dispositivo autorizado para " + status.optString("business_name", "tu negocio") + ". Tu suscripción y fecha de vencimiento se conservaron.")
                                 .setPositiveButton("CONTINUAR") { _, _ -> finish() }.show()
+                        } else if (result.optBoolean("ok") && result.optString("status") == "activation_device_rebound") {
+                            ActivationApi.clearPendingRecovery(this); dialog.dismiss()
+                            AlertDialog.Builder(this).setTitle("DISPOSITIVO AUTORIZADO")
+                                .setMessage("Recuperaste tu solicitud de activación pendiente. Ahora introduce el folio y el código de activación que recibiste al confirmar tu pago.")
+                                .setPositiveButton("CONTINUAR") { _, _ ->
+                                    startActivity(android.content.Intent(this, PaymentInfoActivity::class.java)
+                                        .putExtra("folio", result.optString("activation_folio", activationFolio)))
+                                    finish()
+                                }.show()
                         } else {
                             dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                             val message = result.optString("message", if (result.optBoolean("ok")) "El dispositivo se transfirió, pero no se pudo confirmar una suscripción vigente." else result.optString("error", "No se pudo validar el código."))
