@@ -451,7 +451,8 @@ class InicioTurnoActivity:FragmentActivity(){
   }catch(e:Exception){AlertDialog.Builder(this).setTitle("No se pudo iniciar el turno").setMessage("No se pudo guardar el respaldo en INVENTARIO SENE. Verifica que la carpeta esté disponible y tenga permisos de escritura.\n\nDetalle: "+(e.message?:"Error desconocido.")).setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}.setNegativeButton("Cerrar",null).show()}
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
- private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})\n v.addView(button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))})
+ private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
+ v.addView(button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))})
  val n=input("Nombre del trabajador");val p=input("Número de celular del trabajador",true);val cash=input("¿Con cuánto inicia caja chica? $",true);v.addView(n);v.addView(p);v.addView(cash)
  v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton};startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())})
  v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
@@ -606,7 +607,8 @@ class MainActivity:FragmentActivity(){
   val sales=Store.sales(this);var sum=0.0;var count=0
   for(i in 0 until sales.length()){val x=sales.optJSONObject(i)?:continue;if(x.optString("time").startsWith(day())){sum+=x.optDouble("subtotal");count++}}
   v.addView(txt("HOY  ·  $count ventas     "+Store.money(sum),14f).apply{gravity=Gravity.CENTER})
-  v.addView(button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))})\n  v.addView(button("ESCANEAR PRODUCTO"){openScanner()})
+  v.addView(button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))})
+  v.addView(button("ESCANEAR PRODUCTO"){openScanner()})
   code=input("Código de barras");v.addView(code)
   v.addView(button("AGREGAR AL TICKET",false){addCode(code.text.toString());code.setText("")})
   ticketView=txt("Ticket vacío",18f);v.addView(ticketView)
