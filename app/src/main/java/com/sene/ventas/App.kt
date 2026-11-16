@@ -1018,7 +1018,7 @@ private fun Activity.openScanner(){
    }else{
     val message=status.optString("message","No hay una suscripción vigente.")
     AlertDialog.Builder(host).setTitle("VINCULA SENE VENTAS")
-     .setMessage(message+"\\n\\nPara utilizar el escáner necesitas una suscripción vigente y este dispositivo autorizado.")
+     .setMessage(message+"\n\nPara utilizar el escáner necesitas una suscripción vigente y este dispositivo autorizado.")
      .setPositiveButton("VINCULAR SENE VENTAS"){_,_->host.startActivity(Intent(host,ActivationActivity::class.java))}
      .setNegativeButton("CANCELAR",null).show()
    }
