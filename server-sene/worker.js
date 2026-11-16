@@ -81,10 +81,10 @@ async function createRequest(request, env) {
     return json({ ok: false, error: "NEGOCIO_YA_ACTIVO", message: "Este negocio ya está registrado. Elige PAGAR MENSUALIDAD." }, 409);
   }
   if (type === "renewal" && !business) {
-    return json({ ok: false, error: "NEGOCIO_NO_ENCONTRADO" }, 404);
+    return json({ ok: false, error: "NEGOCIO_NO_ENCONTRADO", message: "No encontramos ese negocio. Revisa el nombre registrado." }, 404);
   }
   if (type === "renewal" && business.installation_id && business.installation_id !== installationId) {
-    return json({ ok: false, error: "DISPOSITIVO_NO_AUTORIZADO" }, 403);
+    return json({ ok: false, error: "DISPOSITIVO_NO_AUTORIZADO", message: "Este negocio está vinculado a otro dispositivo." }, 403);
   }
   if (type === "renewal" && business.status === "blocked") {
     return json({ ok: false, error: "NEGOCIO_BLOQUEADO" }, 403);
@@ -167,7 +167,7 @@ async function createRequest(request, env) {
       db.prepare("UPDATE activation_requests SET status='cancelled' WHERE id=? AND status='pending'").bind(requestId),
       db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL").bind(nowIso(), requestId)
     ]);
-    return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", folio }, 503);
+    return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Puedes volver a enviar la solicitud.", folio }, 503);
   }
 
   return json({
