@@ -64,6 +64,16 @@ async function createRequest(request, env) {
     "SELECT * FROM businesses WHERE business_name_normalized=?"
   ).bind(normalized).first();
 
+  if (type === "activation" && !business) {
+    const linked = await db.prepare(
+      "SELECT business_name FROM businesses WHERE installation_id=? LIMIT 1"
+    ).bind(installationId).first();
+    if (linked) {
+      return json({ ok: false, error: "DISPOSITIVO_YA_VINCULADO",
+        message: "Este dispositivo ya está vinculado al negocio: " + linked.business_name + ". Para renovar, usa PAGAR MENSUALIDAD." }, 409);
+    }
+  }
+
   if (type === "activation" && business && business.installation_id !== installationId) {
     return json({ ok: false, error: "NOMBRE_EN_USO", message: "NOMBRE EN USO. ELIGE OTRO NOMBRE." }, 409);
   }
