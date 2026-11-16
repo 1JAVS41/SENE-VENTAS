@@ -154,8 +154,11 @@ async function createRequest(request, env) {
     await db.prepare("UPDATE notifications SET status='sent',sent_at=? WHERE request_id=?")
       .bind(nowIso(), requestId).run();
   } catch (error) {
-    await db.prepare("UPDATE notifications SET status='failed' WHERE request_id=?")
-      .bind(requestId).run();
+    await db.batch([
+      db.prepare("UPDATE notifications SET status='failed' WHERE request_id=?").bind(requestId),
+      db.prepare("UPDATE activation_requests SET status='cancelled' WHERE id=? AND status='pending'").bind(requestId),
+      db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL").bind(nowIso(), requestId)
+    ]);
     return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", folio }, 503);
   }
 
