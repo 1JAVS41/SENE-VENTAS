@@ -197,13 +197,17 @@ class ActivationActivity : Activity() {
                         .setPositiveButton("CONTINUAR AL PAGO") { _, _ -> openPayment() }
                         .setNegativeButton("MÁS TARDE", null)
                         .show()
-                    pending.visibility = android.view.View.VISIBLE\n                    countdownLabel.visibility = android.view.View.VISIBLE\n                    updateCountdown()\n                    countdownLabel.visibility = android.view.View.VISIBLE\n                    updateCountdown()
+                    pending.visibility = android.view.View.VISIBLE
+                    countdownLabel.visibility = android.view.View.VISIBLE
+                    updateCountdown()
                 } else if (result.optString("error") == "SOLICITUD_ACTIVA" && result.optString("folio").isNotBlank()) {
                     val folio = result.optString("folio")
                     ActivationApi.savePending(this, folio, result.optInt("amount_cents", 10000), result.optString("expires_at"))
                     pending.visibility = android.view.View.VISIBLE
+                    countdownLabel.visibility = android.view.View.VISIBLE
+                    updateCountdown()
                     AlertDialog.Builder(this).setTitle("YA EXISTE UNA SOLICITUD")
-                        .setMessage("Folio: $folio\\nTu solicitud sigue dentro de las 48 horas. No necesitas crear otra.")
+                        .setMessage("Folio: $folio\nTu solicitud sigue dentro de las 48 horas. No necesitas crear otra.")
                         .setPositiveButton("VER DATOS DE PAGO") { _, _ -> openPayment() }
                         .setNegativeButton("MÁS TARDE", null).show()
                 } else {
