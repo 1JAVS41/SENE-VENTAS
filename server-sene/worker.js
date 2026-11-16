@@ -64,6 +64,11 @@ async function createRequest(request, env) {
     "SELECT * FROM businesses WHERE business_name_normalized=?"
   ).bind(normalized).first();
 
+  if (business && business.status === "blocked") {
+    return json({ ok: false, error: "NEGOCIO_BLOQUEADO",
+      message: "Este negocio está bloqueado. Contacta al responsable de SENE." }, 403);
+  }
+
   if (type === "activation" && !business) {
     const linked = await db.prepare(
       "SELECT business_name FROM businesses WHERE installation_id=? LIMIT 1"
@@ -204,7 +209,10 @@ async function redeemCode(request, env) {
 
   if (!row) return json({ ok: false, error: "FOLIO_NO_ENCONTRADO" }, 404);
   if (row.request_status !== "pending") return json({ ok: false, error: "SOLICITUD_NO_DISPONIBLE" }, 409);
-  if (new Date(row.request_expires).getTime() <= Date.now()) {
+  if (row.business_status === "blocked") {
+    return json({ ok: false, error: "NEGOCIO_BLOQUEADO" }, 403);
+  }
+  if (!row.request_expires || new Date(row.request_expires).getTime() <= Date.now()) {
     const expiredAt = nowIso();
     await db.batch([
       db.prepare("UPDATE activation_requests SET status='expired' WHERE id=? AND status='pending'").bind(row.request_id),
