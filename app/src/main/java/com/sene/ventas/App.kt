@@ -1008,7 +1008,13 @@ private const val IMPORT_FILE_REQUEST=7418
 private const val START_INVENTORY_TREE_REQUEST=7416
 private const val INVENTORY_TREE_REQUEST=7417
 private const val SCAN_CODES="scan_codes"
-private fun hideLinkButtonWhenActive(activity:Activity,button:Button){\n Thread{\n  val active=try{ActivationApi.subscriptionStatus(activity).optBoolean("active",false)}catch(_:Exception){false}\n  activity.runOnUiThread{if(!activity.isFinishing&&!activity.isDestroyed&&active)button.visibility=View.GONE}\n }.start()\n}\nprivate fun Activity.openScanner(){
+private fun hideLinkButtonWhenActive(activity:Activity,button:Button){
+ Thread{
+  val active=try{ActivationApi.subscriptionStatus(activity).optBoolean("active",false)}catch(_:Exception){false}
+  activity.runOnUiThread{if(!activity.isFinishing&&!activity.isDestroyed&&active)button.visibility=View.GONE}
+ }.start()
+}
+private fun Activity.openScanner(){
  val host=this
  Thread{
   val status=try{ActivationApi.subscriptionStatus(host)}catch(_:Exception){org.json.JSONObject().put("ok",false).put("message","No se pudo conectar con SERVER-SENE. Revisa tu conexión.")}
