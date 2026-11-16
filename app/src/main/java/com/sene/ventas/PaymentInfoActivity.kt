@@ -193,8 +193,13 @@ class PaymentInfoActivity : Activity() {
             setTextColor(Color.WHITE)
             background = rounded(0xFF168B45.toInt(), 14)
             setOnClickListener {
-                val url = "https://wa.me/523325142147?text=" +
-                    Uri.encode("Hola, envío mi comprobante de pago de SENE VENTAS. Folio: " + (intent.getStringExtra("folio") ?: ActivationApi.pendingFolio(this)) + ". Importe: $" + String.format(java.util.Locale.US, "%.2f", (intent.getIntExtra("amount_cents", ActivationApi.pendingAmount(this))) / 100.0) + " MXN.")
+                val message = if (folio.isBlank()) {
+                    "Hola, envío mi comprobante de pago de SENE VENTAS."
+                } else {
+                    "Hola, envío mi comprobante de pago de SENE VENTAS. Folio: " + folio +
+                        ". Importe: $" + String.format(java.util.Locale.US, "%.2f", amountCents / 100.0) + " MXN."
+                }
+                val url = "https://wa.me/523325142147?text=" + Uri.encode(message)
                 try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
                 catch (_: Exception) { Toast.makeText(this@PaymentInfoActivity, "No se pudo abrir WhatsApp", Toast.LENGTH_LONG).show() }
             }
