@@ -82,7 +82,7 @@ async function createRequest(request, env) {
       "SELECT id, expires_at FROM activation_requests WHERE business_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1"
     ).bind(business.id).first();
     if (pending && new Date(pending.expires_at).getTime() > Date.now()) {
-      return json({ ok: false, error: "SOLICITUD_ACTIVA", expires_at: pending.expires_at }, 409);
+      return json({ ok: false, error: "SOLICITUD_ACTIVA", folio: pending.folio, expires_at: pending.expires_at }, 409);
     }
     if (pending) {
       await db.batch([
