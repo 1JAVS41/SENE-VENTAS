@@ -360,7 +360,7 @@ private object InventoryReader {
 }
 private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
 
-class InicioTurnoActivity:Activity(){
+class InicioTurnoActivity:FragmentActivity(){
  private var internet="Consultando internet…"
  private lateinit var internetLabel:TextView
  private var internetBaseMillis=0L
@@ -460,7 +460,7 @@ class InicioTurnoActivity:Activity(){
  v.addView(txt("Historial de Turnos"));val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f));display(v)}
 }
 
-class MainActivity:Activity(){
+class MainActivity:FragmentActivity(){
  private lateinit var salesDeviceClock:TextView
  private lateinit var salesInternetClock:TextView
  private val salesClockHandler=Handler(Looper.getMainLooper())
