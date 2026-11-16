@@ -381,7 +381,7 @@ class InicioTurnoActivity:FragmentActivity(){
  private var refreshAfterPatron=false
  override fun onResume(){super.onResume();if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
- private fun continueAfterAuthorization(){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return};draw();consultInternetTime()}
+ private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return};draw();consultInternetTime()}}
  private fun consultInternetTime(){
   internet="Consultando hora de Internet…"
   if(::internetLabel.isInitialized)internetLabel.text="Internet: "+internet
@@ -489,8 +489,8 @@ class MainActivity:FragmentActivity(){
  private val lock=object:Runnable{override fun run(){if(::sell.isInitialized){updateReportCountdown();if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}};h.postDelayed(this,1000)}}
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(7200000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=7200000}
- override fun onCreate(b:Bundle?){super.onCreate(b);if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock()}
- override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock()}}
+ override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
  private fun refreshSalesInternetClock(){
   salesInternetText="Consultando…"
@@ -1008,6 +1008,36 @@ private const val IMPORT_FILE_REQUEST=7418
 private const val START_INVENTORY_TREE_REQUEST=7416
 private const val INVENTORY_TREE_REQUEST=7417
 private const val SCAN_CODES="scan_codes"
+private fun parseLicenseExpiry(raw:String):Long {
+ val patterns=listOf("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'","yyyy-MM-dd'T'HH:mm:ss'Z'")
+ for(pattern in patterns)try{
+  val parser=SimpleDateFormat(pattern,Locale.US).apply{timeZone=TimeZone.getTimeZone("UTC")}
+  val parsed=parser.parse(raw)
+  if(parsed!=null)return parsed.time
+ }catch(_:Exception){}
+ return 0L
+}
+private fun enforceLicenseGate(activity:Activity,onAllowed:()->Unit){
+ Thread{
+  val status=try{ActivationApi.subscriptionStatus(activity)}catch(_:Exception){null}
+  val serverActive=status?.optBoolean("active")==true
+  val serverExpired=status?.optBoolean("expired")==true
+  val cachedExpiry=ActivationApi.savedLicenseExpiry(activity)
+  val cachedExpired=parseLicenseExpiry(cachedExpiry)>0L&&parseLicenseExpiry(cachedExpiry)<=System.currentTimeMillis()
+  val expired=serverExpired||(!serverActive&&cachedExpired)
+  val business=status?.optString("business_name").orEmpty()
+  val expiry=status?.optString("expires_at").orEmpty().ifBlank{cachedExpiry}
+  activity.runOnUiThread{
+   if(activity.isFinishing||activity.isDestroyed)return@runOnUiThread
+   if(expired){
+    activity.startActivity(Intent(activity,LicenseExpiredActivity::class.java)
+     .putExtra("business_name",business)
+     .putExtra("expires_at",expiry))
+    activity.finish()
+   }else onAllowed()
+  }
+ }.start()
+}
 private fun hideLinkButtonWhenActive(activity:Activity,button:Button){
  Thread{
   val active=try{ActivationApi.subscriptionStatus(activity).optBoolean("active",false)}catch(_:Exception){false}
