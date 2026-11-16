@@ -155,6 +155,29 @@ object ActivationApi {
     fun pendingExpiresAt(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("pending_expires_at", "").orEmpty()
 
+    fun saveActivationCredential(context: Context, folio: String, code: String, expiresAt: String) {
+        val encryptedCode = encryptIdentity(code.trim().uppercase())
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("saved_activation_folio", folio.trim().uppercase())
+            .putString("saved_activation_code_enc", encryptedCode)
+            .putString("saved_license_expires_at", expiresAt)
+            .apply()
+    }
+
+    fun savedActivationCode(context: Context): String {
+        val encrypted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("saved_activation_code_enc", null) ?: return ""
+        return try { decryptIdentity(encrypted) } catch (_: Exception) { "" }
+    }
+
+    fun savedActivationFolio(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("saved_activation_folio", "").orEmpty()
+
+    fun savedLicenseExpiry(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("saved_license_expires_at", "").orEmpty()
+
     fun clearPending(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove("pending_folio").remove("pending_amount_cents").remove("pending_expires_at").apply()
