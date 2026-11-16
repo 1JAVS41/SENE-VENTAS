@@ -381,7 +381,7 @@ class InicioTurnoActivity:FragmentActivity(){
  private var refreshAfterPatron=false
  override fun onResume(){super.onResume();if(::internetLabel.isInitialized)enforceLicenseGate(this){};if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
- private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return};draw();consultInternetTime()}}
+ private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return@enforceLicenseGate};draw();consultInternetTime()}}
  private fun consultInternetTime(){
   internet="Consultando hora de Internet…"
   if(::internetLabel.isInitialized)internetLabel.text="Internet: "+internet
