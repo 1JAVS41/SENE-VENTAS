@@ -82,6 +82,9 @@ object ActivationApi {
     fun pendingAmount(context: Context): Int =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("pending_amount_cents", 10000)
 
+    fun pendingExpiresAt(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("pending_expires_at", "").orEmpty()
+
     fun clearPending(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove("pending_folio").remove("pending_amount_cents").remove("pending_expires_at").apply()
