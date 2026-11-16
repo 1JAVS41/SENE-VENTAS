@@ -131,6 +131,14 @@ class ActivationActivity : Activity() {
                         .setNegativeButton("MÁS TARDE", null)
                         .show()
                     pending.visibility = android.view.View.VISIBLE
+                } else if (result.optString("error") == "SOLICITUD_ACTIVA" && result.optString("folio").isNotBlank()) {
+                    val folio = result.optString("folio")
+                    ActivationApi.savePending(this, folio, result.optInt("amount_cents", 10000), result.optString("expires_at"))
+                    pending.visibility = android.view.View.VISIBLE
+                    AlertDialog.Builder(this).setTitle("YA EXISTE UNA SOLICITUD")
+                        .setMessage("Folio: $folio\\nTu solicitud sigue dentro de las 48 horas. No necesitas crear otra.")
+                        .setPositiveButton("VER DATOS DE PAGO") { _, _ -> openPayment() }
+                        .setNegativeButton("MÁS TARDE", null).show()
                 } else {
                     val message = result.optString("message", result.optString("error", "No se pudo registrar la solicitud."))
                     AlertDialog.Builder(this).setTitle("No se pudo completar")
