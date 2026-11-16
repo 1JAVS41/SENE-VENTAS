@@ -49,8 +49,8 @@ class LicenseExpiredActivity : Activity() {
             setPadding(0, dp(18), 0, dp(18))
         })
         root.addView(TextView(this).apply {
-            text = (if (business.isNotBlank()) "Negocio: $business\\n" else "") +
-                (if (expiry.isNotBlank()) "Vencimiento: $expiry\\n\\n" else "\\n") +
+            text = (if (business.isNotBlank()) "Negocio: $business\n" else "") +
+                (if (expiry.isNotBlank()) "Vencimiento: $expiry\n\n" else "\n") +
                 "La mensualidad de SENE VENTAS terminó. La aplicación está bloqueada hasta que renueves tu licencia."
             textSize = 17f
             gravity = Gravity.CENTER
