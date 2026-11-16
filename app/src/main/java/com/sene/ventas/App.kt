@@ -379,7 +379,7 @@ class InicioTurnoActivity:FragmentActivity(){
  }}
  private var pendingStartAfterWhatsApp=false
  private var refreshAfterPatron=false
- override fun onResume(){super.onResume();if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
+ override fun onResume(){super.onResume();if(::internetLabel.isInitialized)enforceLicenseGate(this){};if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
  private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return};draw();consultInternetTime()}}
  private fun consultInternetTime(){
@@ -810,7 +810,7 @@ class AgregarInventarioActivity:Activity(){
 
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
- override fun onCreate(b:Bundle?){super.onCreate(b);pin{draw()}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){pin{draw()}}}
  private fun draw(){val v=page("Administrador - Patrón");v.addView(button(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA",false){togglePatronBiometric()});v.addView(button("Cambiar PIN de Soy Patrón",false){changePatronPin()});v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
  private fun togglePatronBiometric(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
@@ -1021,12 +1021,15 @@ private fun enforceLicenseGate(activity:Activity,onAllowed:()->Unit){
  Thread{
   val status=try{ActivationApi.subscriptionStatus(activity)}catch(_:Exception){null}
   val serverActive=status?.optBoolean("active")==true
-  val serverExpired=status?.optBoolean("expired")==true
+  val serverExpiry=status?.optString("expires_at").orEmpty()
+  val serverExpiryMillis=parseLicenseExpiry(serverExpiry)
+  val serverExpired=status?.optBoolean("expired")==true||(!serverActive&&serverExpiryMillis>0L&&serverExpiryMillis<=System.currentTimeMillis())
   val cachedExpiry=ActivationApi.savedLicenseExpiry(activity)
-  val cachedExpired=parseLicenseExpiry(cachedExpiry)>0L&&parseLicenseExpiry(cachedExpiry)<=System.currentTimeMillis()
+  val cachedExpiryMillis=parseLicenseExpiry(cachedExpiry)
+  val cachedExpired=cachedExpiryMillis>0L&&cachedExpiryMillis<=System.currentTimeMillis()
   val expired=serverExpired||(!serverActive&&cachedExpired)
   val business=status?.optString("business_name").orEmpty()
-  val expiry=status?.optString("expires_at").orEmpty().ifBlank{cachedExpiry}
+  val expiry=serverExpiry.ifBlank{cachedExpiry}
   activity.runOnUiThread{
    if(activity.isFinishing||activity.isDestroyed)return@runOnUiThread
    if(expired){
