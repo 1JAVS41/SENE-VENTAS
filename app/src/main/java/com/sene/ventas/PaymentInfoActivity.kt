@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -26,6 +27,60 @@ class PaymentInfoActivity : Activity() {
             cornerRadius = dp(radius).toFloat()
             if (stroke != 0) setStroke(dp(1), stroke)
         }
+
+    private fun requestCodeDialog() {
+        val folio = intent.getStringExtra("folio") ?: ActivationApi.pendingFolio(this)
+        if (folio.isBlank()) {
+            AlertDialog.Builder(this).setTitle("Falta el folio")
+                .setMessage("Primero registra una solicitud desde VINCULAR SENE VENTAS.")
+                .setPositiveButton("ENTENDIDO", null).show()
+            return
+        }
+        val codeField = EditText(this).apply {
+            hint = "Código de activación de 10 caracteres"
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Validar activación")
+            .setMessage("Folio: $folio\nEscribe el código que recibiste después de que el responsable verificó tu pago.")
+            .setView(codeField)
+            .setPositiveButton("VALIDAR CÓDIGO", null)
+            .setNegativeButton("CANCELAR", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val code = codeField.text.toString().trim().uppercase()
+                if (code.length != 10) {
+                    codeField.error = "El código debe tener 10 caracteres"
+                    return@setOnClickListener
+                }
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                Thread {
+                    val result = try { ActivationApi.redeem(this, folio, code) }
+                    catch (_: Exception) { org.json.JSONObject().put("ok", false).put("message", "No se pudo conectar con SERVER-SENE.") }
+                    runOnUiThread {
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                        if (result.optBoolean("ok")) {
+                            ActivationApi.clearPending(this)
+                            dialog.dismiss()
+                            AlertDialog.Builder(this)
+                                .setTitle("SENE VENTAS VINCULADO")
+                                .setMessage("La suscripción quedó activada por 30 días.\nVence: " + result.optString("expires_at"))
+                                .setPositiveButton("CONTINUAR") { _, _ -> finish() }
+                                .show()
+                        } else {
+                            AlertDialog.Builder(this).setTitle("No se pudo validar")
+                                .setMessage(result.optString("error", result.optString("message", "Revisa el código y el folio.")))
+                                .setPositiveButton("ENTENDIDO", null).show()
+                        }
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,6 +159,20 @@ class PaymentInfoActivity : Activity() {
             root.addView(row, params)
         }
 
+        val folio = intent.getStringExtra("folio") ?: ActivationApi.pendingFolio(this)
+        val amountCents = intent.getIntExtra("amount_cents", ActivationApi.pendingAmount(this))
+        if (folio.isNotBlank()) {
+            root.addView(TextView(this).apply {
+                text = "FOLIO: $folio\\nIMPORTE: $" + String.format(java.util.Locale.US, "%.2f", amountCents / 100.0) + " MXN"
+                textSize = 17f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(0xFF073B83.toInt())
+                setPadding(dp(12), dp(13), dp(12), dp(13))
+                background = rounded(Color.WHITE, 14, 0xFFD3E0F4.toInt())
+            })
+        }
+
         copyRow("Titular", "JUAN ANTONIO VAZQUEZ")
         copyRow("Banco", "BBVA")
         copyRow("CLABE", "012180015267857481")
@@ -125,7 +194,7 @@ class PaymentInfoActivity : Activity() {
             background = rounded(0xFF168B45.toInt(), 14)
             setOnClickListener {
                 val url = "https://wa.me/523325142147?text=" +
-                    Uri.encode("Hola, envío mi comprobante de pago de SENE VENTAS.")
+                    Uri.encode("Hola, envío mi comprobante de pago de SENE VENTAS. Folio: " + (intent.getStringExtra("folio") ?: ActivationApi.pendingFolio(this)) + ". Importe: $" + String.format(java.util.Locale.US, "%.2f", (intent.getIntExtra("amount_cents", ActivationApi.pendingAmount(this))) / 100.0) + " MXN.")
                 try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
                 catch (_: Exception) { Toast.makeText(this@PaymentInfoActivity, "No se pudo abrir WhatsApp", Toast.LENGTH_LONG).show() }
             }
@@ -139,13 +208,7 @@ class PaymentInfoActivity : Activity() {
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
             setTextColor(Color.WHITE)
             background = rounded(0xFF149B35.toInt(), 16)
-            setOnClickListener {
-                AlertDialog.Builder(this@PaymentInfoActivity)
-                    .setTitle("Validación de pago")
-                    .setMessage("La validación del código se habilitará al conectar esta pantalla con SERVER-SENE. Por ahora, envía tu comprobante por WhatsApp.")
-                    .setPositiveButton("ENTENDIDO", null)
-                    .show()
-            }
+            setOnClickListener { requestCodeDialog() }
         }
         root.addView(confirm, LinearLayout.LayoutParams(-1, dp(66)))
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
