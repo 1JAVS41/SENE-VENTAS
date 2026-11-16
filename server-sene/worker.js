@@ -436,11 +436,13 @@ async function subscriptionStatus(request, env) {
   const row = await env.DB.prepare(
     "SELECT business_name,status,expires_at FROM businesses WHERE installation_id=? LIMIT 1"
   ).bind(installationId).first();
-  const active = !!row && row.status === "active" && !!row.expires_at &&
-    new Date(row.expires_at).getTime() > Date.now();
-  return json({ ok: true, active, business_name: row?.business_name || null,
+  const expiryTime = row?.expires_at ? new Date(row.expires_at).getTime() : 0;
+  const active = !!row && row.status === "active" && expiryTime > Date.now();
+  const expired = !!row && row.status === "active" && expiryTime > 0 && expiryTime <= Date.now();
+  return json({ ok: true, linked: !!row, active, expired,
+    business_name: row?.business_name || null,
     expires_at: row?.expires_at || null,
-    message: active ? "Suscripción vigente." : "Se requiere vincular o renovar SENE VENTAS." });
+    message: active ? "Suscripción vigente." : expired ? "LICENCIA_VENCIDA" : "Se requiere vincular o renovar SENE VENTAS." });
 }
 
 export default {
