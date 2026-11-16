@@ -306,7 +306,7 @@ async function requestAccountRecovery(request, env) {
   const pendingBusinessRequest = await db.prepare(
     "SELECT folio,expires_at FROM activation_requests WHERE business_id=? AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 1"
   ).bind(business.id, currentTime).first();
-  if (pendingBusinessRequest) {
+  if (pendingBusinessRequest && business.status !== "pending") {
     return json({ ok: false, error: "SOLICITUD_ACTIVA", folio: pendingBusinessRequest.folio,
       expires_at: pendingBusinessRequest.expires_at,
       message: "El negocio tiene una solicitud de pago pendiente. Espera a que termine antes de cambiar de dispositivo." }, 409);
@@ -339,6 +339,7 @@ async function requestAccountRecovery(request, env) {
     "Folio: " + folio,
     "Negocio: " + business.business_name,
     "WhatsApp registrado: " + phone,
+    ...(pendingBusinessRequest ? ["Solicitud de activación pendiente: " + pendingBusinessRequest.folio] : []),
     "Código de autorización (ENTREGAR SOLO DESPUÉS DE VERIFICAR LA IDENTIDAD): " + code,
     "Vigencia: 48 horas",
     "El dispositivo anterior seguirá vinculado hasta que el cliente introduzca el código."
@@ -353,7 +354,9 @@ async function requestAccountRecovery(request, env) {
     return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Intenta más tarde." }, 503);
   }
 
-  return json({ ok: true, folio, expires_at: expiresAt, message: "Solicitud recibida. El responsable verificará tu identidad antes de entregarte el código." }, 201);
+  return json({ ok: true, folio, expires_at: expiresAt,
+    activation_folio: pendingBusinessRequest?.folio || null,
+    message: "Solicitud recibida. El responsable verificará tu identidad antes de entregarte el código." }, 201);
 }
 
 async function completeAccountRecovery(request, env) {
@@ -416,8 +419,14 @@ async function completeAccountRecovery(request, env) {
     return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR", message: "La cuenta cambió mientras se procesaba la solicitud. Contacta al responsable de SENE." }, 409);
   }
 
-  return json({ ok: true, status: "transferred",
-    message: "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
+  const pendingActivation = await db.prepare(
+    "SELECT folio FROM activation_requests WHERE business_id=? AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 1"
+  ).bind(row.business_id, nowIso()).first();
+  return json({ ok: true, status: row.business_status === "pending" ? "activation_device_rebound" : "transferred",
+    activation_folio: pendingActivation?.folio || null,
+    message: row.business_status === "pending"
+      ? "Dispositivo autorizado para continuar la activación pendiente."
+      : "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
 }
 
 async function subscriptionStatus(request, env) {
