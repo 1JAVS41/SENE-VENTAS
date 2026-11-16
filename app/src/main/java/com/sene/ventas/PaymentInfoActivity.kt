@@ -71,8 +71,20 @@ class PaymentInfoActivity : Activity() {
                                 .setPositiveButton("CONTINUAR") { _, _ -> finish() }
                                 .show()
                         } else {
+                            val error = result.optString("error")
+                            val message = result.optString("message").ifBlank {
+                                when (error) {
+                                    "CODIGO_INCORRECTO" -> "El código no coincide. Revisa los 10 caracteres e inténtalo otra vez."
+                                    "CODIGO_BLOQUEADO" -> "Se agotaron los intentos permitidos. Contacta al responsable."
+                                    "CODIGO_YA_UTILIZADO" -> "Este código ya fue utilizado."
+                                    "CODIGO_INVALIDADO" -> "Este código fue invalidado al generarse una solicitud nueva."
+                                    "DISPOSITIVO_NO_AUTORIZADO" -> "Este código pertenece a otro dispositivo."
+                                    "FOLIO_NO_ENCONTRADO" -> "No encontramos ese folio. Verifica tu solicitud."
+                                    else -> "No se pudo activar. Revisa el código y el folio."
+                                }
+                            }
                             AlertDialog.Builder(this).setTitle("No se pudo validar")
-                                .setMessage(result.optString("error", result.optString("message", "Revisa el código y el folio.")))
+                                .setMessage(message)
                                 .setPositiveButton("ENTENDIDO", null).show()
                         }
                     }
