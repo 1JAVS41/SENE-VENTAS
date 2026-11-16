@@ -12,7 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validar sintaxis de SERVER-SENE\n        run: node --input-type=module --check < server-sene/worker.js\n      - uses: actions/setup-java@v4
+      - name: Validar sintaxis de SERVER-SENE
+        run: node --input-type=module --check < server-sene/worker.js
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
