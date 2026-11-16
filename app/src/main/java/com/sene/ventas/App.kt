@@ -1028,7 +1028,7 @@ private fun enforceLicenseGate(activity:Activity,onAllowed:()->Unit){
   val cachedExpiryMillis=parseLicenseExpiry(cachedExpiry)
   val cachedExpired=cachedExpiryMillis>0L&&cachedExpiryMillis<=System.currentTimeMillis()
   val expired=serverExpired||(!serverActive&&cachedExpired)
-  val business=status?.optString("business_name").orEmpty()
+  val business=status?.optString("business_name").orEmpty().ifBlank{ActivationApi.savedLicenseBusiness(activity)}
   val expiry=serverExpiry.ifBlank{cachedExpiry}
   activity.runOnUiThread{
    if(activity.isFinishing||activity.isDestroyed)return@runOnUiThread
