@@ -102,7 +102,7 @@ class ActivationActivity : Activity() {
         root.addView(holder); root.addView(phone); root.addView(business)
         submit = action("ENVIAR SOLICITUD") { sendRequest() }
         root.addView(submit)
-        pending = action("VER DATOS DE PAGO / INGRESAR CÓDIGO", false) { openPayment() }
+        pending = action("YA REALICÉ EL PAGO", false) { openPayment() }
         root.addView(pending)
         countdownLabel = TextView(this).apply {
             textSize = 14f
@@ -117,7 +117,7 @@ class ActivationActivity : Activity() {
         root.addView(action("VOLVER", false) { finish() })
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         setContentView(scroll)
-        pending.visibility = if (ActivationApi.pendingFolio(this).isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        pending.visibility = android.view.View.VISIBLE
         updateRequestFormLock()
     }
 
@@ -126,7 +126,7 @@ class ActivationActivity : Activity() {
         if (::pending.isInitialized) {
             val hasPending = ActivationApi.pendingFolio(this).isNotBlank()
             updateRequestFormLock()
-            pending.visibility = if (hasPending) android.view.View.VISIBLE else android.view.View.GONE
+            pending.visibility = android.view.View.VISIBLE
             countdownLabel.visibility = if (hasPending) android.view.View.VISIBLE else android.view.View.GONE
             countdownHandler.removeCallbacks(countdownTick)
             if (hasPending) countdownHandler.post(countdownTick)
@@ -191,7 +191,7 @@ class ActivationActivity : Activity() {
         updateRequestFormLock()
         if (submit.isEnabled.not()) {
             AlertDialog.Builder(this).setTitle("SOLICITUD EN CURSO")
-                .setMessage("Ya tienes una solicitud activa. No puedes registrar otra ni cambiar los datos hasta que termine el contador de 48 horas. Usa VER DATOS DE PAGO / INGRESAR CÓDIGO para continuar.")
+                .setMessage("Ya tienes una solicitud activa. No puedes registrar otra ni cambiar los datos hasta que termine el contador de 48 horas. Usa YA REALICÉ EL PAGO para ingresar el código cuando lo recibas.")
                 .setPositiveButton("ENTENDIDO", null).show()
             return
         }
@@ -257,11 +257,6 @@ class ActivationActivity : Activity() {
 
     private fun openPayment() {
         val folio = ActivationApi.pendingFolio(this)
-        if (folio.isBlank()) {
-            AlertDialog.Builder(this).setMessage("Primero registra una solicitud para obtener tu folio.")
-                .setPositiveButton("ENTENDIDO", null).show()
-            return
-        }
         startActivity(Intent(this, PaymentInfoActivity::class.java)
             .putExtra("folio", folio)
             .putExtra("amount_cents", ActivationApi.pendingAmount(this)))
