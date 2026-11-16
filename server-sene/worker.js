@@ -214,6 +214,8 @@ async function redeemCode(request, env) {
         .bind(activatedAt, row.code_id),
       db.prepare("UPDATE activation_requests SET status='completed' WHERE id=?")
         .bind(row.request_id),
+      db.prepare("UPDATE payments SET verification_status='verified',verified_at=? WHERE request_id=?")
+        .bind(activatedAt, row.request_id),
       db.prepare("UPDATE businesses SET status='active',activated_at=COALESCE(activated_at,?),expires_at=?,updated_at=? WHERE id=?")
         .bind(activatedAt, expiresAt, activatedAt, row.business_id),
       db.prepare("INSERT INTO subscriptions (id,business_id,request_id,starts_at,expires_at,created_at) VALUES (?,?,?,?,?,?)")
@@ -225,13 +227,28 @@ async function redeemCode(request, env) {
   return json({ ok: true, status: "active", activated_at: activatedAt, expires_at: expiresAt });
 }
 
+async function subscriptionStatus(request, env) {
+  const body = await request.json();
+  const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
+  if (!validText(installationId, 20, 100)) return json({ ok: false, error: "INSTALACION_INVALIDA" }, 400);
+  const row = await env.DB.prepare(
+    "SELECT business_name,status,expires_at FROM businesses WHERE installation_id=? LIMIT 1"
+  ).bind(installationId).first();
+  const active = !!row && row.status === "active" && !!row.expires_at &&
+    new Date(row.expires_at).getTime() > Date.now();
+  return json({ ok: true, active, business_name: row?.business_name || null,
+    expires_at: row?.expires_at || null,
+    message: active ? "Suscripción vigente." : "Se requiere vincular o renovar SENE VENTAS." });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && url.pathname === "/health") {
-        return json({ servidor: "SERVER-SENE", estado: "funcionando", base_de_datos: "conectada" });
+        const check = await env.DB.prepare("SELECT 1 AS ok").first();
+        return json({ servidor: "SERVER-SENE", estado: "funcionando", base_de_datos: check?.ok === 1 ? "conectada" : "sin respuesta" });
       }
       if (request.method === "GET" && url.pathname === "/config") {
         const amount = await getAmount(env.DB);
@@ -239,6 +256,7 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/requests") return await createRequest(request, env);
       if (request.method === "POST" && url.pathname === "/redeem") return await redeemCode(request, env);
+      if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
       return json({ ok: false, error: "RUTA_NO_ENCONTRADA" }, 404);
     } catch (error) {
       return json({ ok: false, error: "ERROR_INTERNO" }, 500);
