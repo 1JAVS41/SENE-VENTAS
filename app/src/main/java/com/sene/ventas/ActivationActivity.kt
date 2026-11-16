@@ -6,6 +6,11 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import android.view.Gravity
 import android.widget.*
 
@@ -48,6 +53,14 @@ class ActivationActivity : Activity() {
     private lateinit var type: RadioGroup
     private lateinit var submit: Button
     private lateinit var pending: Button
+    private lateinit var countdownLabel: TextView
+    private val countdownHandler = Handler(Looper.getMainLooper())
+    private val countdownTick = object : Runnable {
+        override fun run() {
+            if (::countdownLabel.isInitialized) updateCountdown()
+            countdownHandler.postDelayed(this, 1000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +104,16 @@ class ActivationActivity : Activity() {
         root.addView(submit)
         pending = action("VER DATOS DE PAGO / INGRESAR CÓDIGO", false) { openPayment() }
         root.addView(pending)
+        countdownLabel = TextView(this).apply {
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(0xFF24447C.toInt())
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = panel()
+            visibility = android.view.View.GONE
+        }
+        root.addView(countdownLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4); bottomMargin = dp(8) })
         root.addView(action("VOLVER", false) { finish() })
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         setContentView(scroll)
@@ -100,8 +123,45 @@ class ActivationActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (::pending.isInitialized) {
-            pending.visibility = if (ActivationApi.pendingFolio(this).isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+            val hasPending = ActivationApi.pendingFolio(this).isNotBlank()
+            pending.visibility = if (hasPending) android.view.View.VISIBLE else android.view.View.GONE
+            countdownLabel.visibility = if (hasPending) android.view.View.VISIBLE else android.view.View.GONE
+            countdownHandler.removeCallbacks(countdownTick)
+            if (hasPending) countdownHandler.post(countdownTick)
         }
+    }
+
+    override fun onPause() {
+        countdownHandler.removeCallbacks(countdownTick)
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        countdownHandler.removeCallbacks(countdownTick)
+        super.onDestroy()
+    }
+
+    private fun updateCountdown() {
+        val raw = ActivationApi.pendingExpiresAt(this)
+        val expiry = try {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.parse(raw)?.time ?: 0L
+        } catch (_: Exception) { 0L }
+        if (expiry <= 0L) {
+            countdownLabel.text = "Solicitud registrada. Consulta tu folio para continuar."
+            return
+        }
+        val remaining = expiry - System.currentTimeMillis()
+        if (remaining <= 0L) {
+            countdownLabel.text = "SOLICITUD VENCIDA. Puedes generar una nueva solicitud."
+            return
+        }
+        val totalSeconds = remaining / 1000L
+        val hours = totalSeconds / 3600L
+        val minutes = (totalSeconds % 3600L) / 60L
+        val seconds = totalSeconds % 60L
+        countdownLabel.text = String.format(Locale.US, "TIEMPO RESTANTE: %02d:%02d:%02d", hours, minutes, seconds)
     }
 
     private fun sendRequest() {
@@ -137,7 +197,7 @@ class ActivationActivity : Activity() {
                         .setPositiveButton("CONTINUAR AL PAGO") { _, _ -> openPayment() }
                         .setNegativeButton("MÁS TARDE", null)
                         .show()
-                    pending.visibility = android.view.View.VISIBLE
+                    pending.visibility = android.view.View.VISIBLE\n                    countdownLabel.visibility = android.view.View.VISIBLE\n                    updateCountdown()\n                    countdownLabel.visibility = android.view.View.VISIBLE\n                    updateCountdown()
                 } else if (result.optString("error") == "SOLICITUD_ACTIVA" && result.optString("folio").isNotBlank()) {
                     val folio = result.optString("folio")
                     ActivationApi.savePending(this, folio, result.optInt("amount_cents", 10000), result.optString("expires_at"))
