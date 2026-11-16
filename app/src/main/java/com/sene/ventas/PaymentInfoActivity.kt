@@ -74,12 +74,22 @@ class PaymentInfoActivity : Activity() {
                     runOnUiThread {
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                         if (result.optBoolean("ok")) {
+                            ActivationApi.saveActivationCredential(this, folio, code, result.optString("expires_at"))
                             ActivationApi.clearPending(this)
                             dialog.dismiss()
                             AlertDialog.Builder(this)
                                 .setTitle("SENE VENTAS VINCULADO")
-                                .setMessage("La suscripción quedó activada por 30 días.\nVence: " + result.optString("expires_at"))
-                                .setPositiveButton("CONTINUAR") { _, _ -> finish() }
+                                .setMessage("La suscripción quedó activada por 30 días.\\nVence: " + result.optString("expires_at") +
+                                    "\\n\\nTU CÓDIGO DE ACTIVACIÓN: " + code +
+                                    "\\nFOLIO: " + folio +
+                                    "\\n\\nIMPORTANTE: SERVER-SENE conserva el registro de esta licencia durante 33 días. Guarda este código y folio en un lugar seguro. También quedaron guardados cifrados en este dispositivo.")
+                                .setPositiveButton("COPIAR CÓDIGO") { _, _ ->
+                                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Código de activación SENE", code))
+                                    Toast.makeText(this, "Código copiado. Guárdalo en un lugar seguro.", Toast.LENGTH_LONG).show()
+                                    finish()
+                                }
+                                .setNegativeButton("CONTINUAR") { _, _ -> finish() }
                                 .show()
                         } else {
                             val error = result.optString("error")
