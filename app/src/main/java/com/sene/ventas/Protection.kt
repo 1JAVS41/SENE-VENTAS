@@ -53,8 +53,12 @@ object Protection {
             .setView(field)
             .setCancelable(false)
             .setPositiveButton("AUTORIZAR", null)
+            .setNeutralButton("VER DATOS DE PAGO", null)
             .create()
         dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                activity.startActivity(android.content.Intent(activity, PaymentInfoActivity::class.java))
+            }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val entered = field.text?.toString().orEmpty()
                 if (verifyMasterKey(entered) && deviceId(activity).isNotBlank()) {
