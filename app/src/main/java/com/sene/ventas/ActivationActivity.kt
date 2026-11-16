@@ -97,6 +97,13 @@ class ActivationActivity : Activity() {
         pending.visibility = if (ActivationApi.pendingFolio(this).isBlank()) android.view.View.GONE else android.view.View.VISIBLE
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::pending.isInitialized) {
+            pending.visibility = if (ActivationApi.pendingFolio(this).isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        }
+    }
+
     private fun sendRequest() {
         val holderText = holder.text.toString().trim()
         val phoneText = phone.text.toString().filter { it.isDigit() }
