@@ -4,6 +4,9 @@ El código del Worker está en `server-sene/worker.js`. Está preparado para el 
 
 ## Configuración en Cloudflare
 
+- Editor del Worker: https://dash.cloudflare.com/6eeadce2289b24581f94b0f874806eac/workers/services/view/server-sene-api/production
+- Panel de D1: https://dash.cloudflare.com/6eeadce2289b24581f94b0f874806eac/workers/d1
+
 1. Abre el Worker **server-sene-api**.
 2. En el editor, sustituye el contenido por el archivo `worker.js` completo y pulsa **Deploy**.
 3. En **Settings → Bindings**, confirma que el binding D1 se llame exactamente `DB` y apunte a la base `server-sene`.
