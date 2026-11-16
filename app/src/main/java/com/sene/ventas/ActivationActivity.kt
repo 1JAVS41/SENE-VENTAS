@@ -165,8 +165,9 @@ class ActivationActivity : Activity() {
         holder.isEnabled = !locked
         phone.isEnabled = !locked
         business.isEnabled = !locked
-        type.isEnabled = !locked
-        for (i in 0 until type.childCount) type.getChildAt(i).isEnabled = !locked
+        val forceRenewal = intent.getBooleanExtra("force_renewal", false)
+        type.isEnabled = !locked && !forceRenewal
+        for (i in 0 until type.childCount) type.getChildAt(i).isEnabled = !locked && !forceRenewal
         submit.isEnabled = !locked
         submit.text = if (locked) "SOLICITUD EN CURSO" else if (intent.getBooleanExtra("force_renewal", false)) "PAGAR MENSUALIDAD · LICENCIA VENCIDA" else "ENVIAR SOLICITUD"
     }
