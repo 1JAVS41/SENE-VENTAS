@@ -64,8 +64,11 @@ async function createRequest(request, env) {
     "SELECT * FROM businesses WHERE business_name_normalized=?"
   ).bind(normalized).first();
 
-  if (type === "activation" && business) {
+  if (type === "activation" && business && business.installation_id !== installationId) {
     return json({ ok: false, error: "NOMBRE_EN_USO", message: "NOMBRE EN USO. ELIGE OTRO NOMBRE." }, 409);
+  }
+  if (type === "activation" && business && business.status === "active") {
+    return json({ ok: false, error: "NEGOCIO_YA_ACTIVO", message: "Este negocio ya está registrado. Elige PAGAR MENSUALIDAD." }, 409);
   }
   if (type === "renewal" && !business) {
     return json({ ok: false, error: "NEGOCIO_NO_ENCONTRADO" }, 404);
