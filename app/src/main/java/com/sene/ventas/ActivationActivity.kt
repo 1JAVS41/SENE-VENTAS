@@ -118,12 +118,14 @@ class ActivationActivity : Activity() {
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         setContentView(scroll)
         pending.visibility = if (ActivationApi.pendingFolio(this).isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        updateRequestFormLock()
     }
 
     override fun onResume() {
         super.onResume()
         if (::pending.isInitialized) {
             val hasPending = ActivationApi.pendingFolio(this).isNotBlank()
+            updateRequestFormLock()
             pending.visibility = if (hasPending) android.view.View.VISIBLE else android.view.View.GONE
             countdownLabel.visibility = if (hasPending) android.view.View.VISIBLE else android.view.View.GONE
             countdownHandler.removeCallbacks(countdownTick)
@@ -141,13 +143,33 @@ class ActivationActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun updateCountdown() {
+    private fun pendingExpiryMillis(): Long {
         val raw = ActivationApi.pendingExpiresAt(this)
-        val expiry = try {
+        return try {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }.parse(raw)?.time ?: 0L
         } catch (_: Exception) { 0L }
+    }
+
+    private fun updateRequestFormLock() {
+        val hasPending = ActivationApi.pendingFolio(this).isNotBlank()
+        val expiry = pendingExpiryMillis()
+        // If a folio exists but its expiry cannot be read, keep the form locked
+        // rather than risk creating a duplicate request.
+        val locked = hasPending && (expiry <= 0L || expiry > System.currentTimeMillis())
+        holder.isEnabled = !locked
+        phone.isEnabled = !locked
+        business.isEnabled = !locked
+        type.isEnabled = !locked
+        for (i in 0 until type.childCount) type.getChildAt(i).isEnabled = !locked
+        submit.isEnabled = !locked
+        submit.text = if (locked) "SOLICITUD EN CURSO" else "ENVIAR SOLICITUD"
+    }
+
+    private fun updateCountdown() {
+        val raw = ActivationApi.pendingExpiresAt(this)
+        val expiry = pendingExpiryMillis()
         if (expiry <= 0L) {
             countdownLabel.text = "Solicitud registrada. Consulta tu folio para continuar."
             return
@@ -165,6 +187,13 @@ class ActivationActivity : Activity() {
     }
 
     private fun sendRequest() {
+        updateRequestFormLock()
+        if (submit.isEnabled.not()) {
+            AlertDialog.Builder(this).setTitle("SOLICITUD EN CURSO")
+                .setMessage("Ya tienes una solicitud activa. No puedes registrar otra ni cambiar los datos hasta que termine el contador de 48 horas. Usa VER DATOS DE PAGO / INGRESAR CÓDIGO para continuar.")
+                .setPositiveButton("ENTENDIDO", null).show()
+            return
+        }
         val holderText = holder.text.toString().trim()
         val phoneText = phone.text.toString().filter { it.isDigit() }
         val businessText = business.text.toString().trim()
@@ -199,6 +228,7 @@ class ActivationActivity : Activity() {
                         .show()
                     pending.visibility = android.view.View.VISIBLE
                     countdownLabel.visibility = android.view.View.VISIBLE
+                    updateRequestFormLock()
                     updateCountdown()
                     countdownHandler.removeCallbacks(countdownTick)
                     countdownHandler.post(countdownTick)
@@ -207,6 +237,7 @@ class ActivationActivity : Activity() {
                     ActivationApi.savePending(this, folio, result.optInt("amount_cents", 10000), result.optString("expires_at"))
                     pending.visibility = android.view.View.VISIBLE
                     countdownLabel.visibility = android.view.View.VISIBLE
+                    updateRequestFormLock()
                     updateCountdown()
                     countdownHandler.removeCallbacks(countdownTick)
                     countdownHandler.post(countdownTick)
