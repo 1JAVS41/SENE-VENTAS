@@ -460,6 +460,16 @@ async function subscriptionStatus(request, env) {
 }
 
 export default {
+  // Ejecución automática programada: marca vencidas las licencias al pasar su fecha.
+  async scheduled(controller, env, ctx) {
+    const now = nowIso();
+    ctx.waitUntil(
+      env.DB.prepare(
+        "UPDATE businesses SET status='expired',updated_at=? WHERE status='active' AND expires_at IS NOT NULL AND expires_at<=?"
+      ).bind(now, now).run()
+    );
+  },
+
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
     const url = new URL(request.url);
