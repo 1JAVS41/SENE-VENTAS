@@ -87,7 +87,15 @@ object ActivationApi {
     }
 
     fun subscriptionStatus(context: Context): JSONObject {
-        return post("/subscription/status", JSONObject().put("installation_id", installationId(context)))
+        val result = post("/subscription/status", JSONObject().put("installation_id", installationId(context)))
+        val expiry = result.optString("expires_at")
+        if (expiry.isNotBlank()) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString("saved_license_expires_at", expiry)
+                .putString("saved_license_business_name", result.optString("business_name"))
+                .apply()
+        }
+        return result
     }
 
     fun createRequest(
@@ -177,6 +185,10 @@ object ActivationApi {
     fun savedLicenseExpiry(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("saved_license_expires_at", "").orEmpty()
+
+    fun savedLicenseBusiness(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("saved_license_business_name", "").orEmpty()
 
     fun clearPending(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
