@@ -80,19 +80,17 @@ async function createRequest(request, env) {
     return json({ ok: false, error: "NEGOCIO_BLOQUEADO" }, 403);
   }
 
-  if (business) {
-    const pending = await db.prepare(
-      "SELECT id,folio,expires_at,amount_cents FROM activation_requests WHERE business_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1"
-    ).bind(business.id).first();
-    if (pending && new Date(pending.expires_at).getTime() > Date.now()) {
-      return json({ ok: false, error: "SOLICITUD_ACTIVA", folio: pending.folio, amount_cents: pending.amount_cents, expires_at: pending.expires_at }, 409);
-    }
-    if (pending) {
-      await db.batch([
-        db.prepare("UPDATE activation_requests SET status='expired' WHERE id=? AND status='pending'").bind(pending.id),
-        db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL AND invalidated_at IS NULL").bind(nowIso(), pending.id)
-      ]);
-    }
+  const pending = await db.prepare(
+    "SELECT r.id,r.folio,r.expires_at,r.amount_cents FROM activation_requests r JOIN businesses b ON b.id=r.business_id WHERE b.installation_id=? AND r.status='pending' ORDER BY r.created_at DESC LIMIT 1"
+  ).bind(installationId).first();
+  if (pending && new Date(pending.expires_at).getTime() > Date.now()) {
+    return json({ ok: false, error: "SOLICITUD_ACTIVA", folio: pending.folio, amount_cents: pending.amount_cents, expires_at: pending.expires_at }, 409);
+  }
+  if (pending) {
+    await db.batch([
+      db.prepare("UPDATE activation_requests SET status='expired' WHERE id=? AND status='pending'").bind(pending.id),
+      db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL AND invalidated_at IS NULL").bind(nowIso(), pending.id)
+    ]);
   }
 
   const amount = await getAmount(db);
