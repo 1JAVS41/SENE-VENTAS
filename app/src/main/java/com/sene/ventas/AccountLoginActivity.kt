@@ -73,11 +73,10 @@ class AccountLoginActivity : Activity() {
                 }
             }.start()
         })
-        root.addView(action("CONTINUAR CON SOLICITUD PENDIENTE", false) {
-            val folio = ActivationApi.pendingRecoveryFolio(this)
-            if (folio.isBlank()) AlertDialog.Builder(this).setMessage("No hay una recuperación pendiente en este dispositivo.")
-                .setPositiveButton("ENTENDIDO", null).show()
-            else showCodeDialog(folio)
+        root.addView(action("YA REALICÉ EL PAGO", false) {
+            startActivity(android.content.Intent(this, PaymentInfoActivity::class.java)
+                .putExtra("folio", ActivationApi.pendingFolio(this))
+                .putExtra("amount_cents", ActivationApi.pendingAmount(this)))
         })
         root.addView(action("VOLVER", false) { finish() })
         setContentView(ScrollView(this).apply { isFillViewport = true; addView(root) })
