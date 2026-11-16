@@ -194,7 +194,7 @@ async function redeemCode(request, env) {
   const row = await db.prepare(`
     SELECT ac.id AS code_id, ac.code_hash, ac.consumed_at, ac.invalidated_at,
            ac.attempt_count, ac.locked_at, ar.id AS request_id, ar.business_id,
-           ar.request_type, ar.status AS request_status, b.installation_id,
+           ar.request_type, ar.status AS request_status, ar.expires_at AS request_expires, b.installation_id,
            b.status AS business_status, b.expires_at AS business_expires
     FROM activation_requests ar
     JOIN activation_codes ac ON ac.request_id=ar.id
@@ -203,6 +203,15 @@ async function redeemCode(request, env) {
   `).bind(folio).first();
 
   if (!row) return json({ ok: false, error: "FOLIO_NO_ENCONTRADO" }, 404);
+  if (row.request_status !== "pending") return json({ ok: false, error: "SOLICITUD_NO_DISPONIBLE" }, 409);
+  if (new Date(row.request_expires).getTime() <= Date.now()) {
+    const expiredAt = nowIso();
+    await db.batch([
+      db.prepare("UPDATE activation_requests SET status='expired' WHERE id=? AND status='pending'").bind(row.request_id),
+      db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE id=? AND consumed_at IS NULL AND invalidated_at IS NULL").bind(expiredAt, row.code_id)
+    ]);
+    return json({ ok: false, error: "SOLICITUD_EXPIRADA" }, 410);
+  }
   if (row.consumed_at) return json({ ok: false, error: "CODIGO_YA_UTILIZADO" }, 409);
   if (row.invalidated_at) return json({ ok: false, error: "CODIGO_INVALIDADO" }, 409);
   if (row.locked_at || row.attempt_count >= 5) return json({ ok: false, error: "CODIGO_BLOQUEADO" }, 429);
