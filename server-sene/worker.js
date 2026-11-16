@@ -215,18 +215,21 @@ async function redeemCode(request, env) {
   const expiresAt = expires.toISOString();
 
   try {
-    await db.batch([
-      db.prepare("UPDATE activation_codes SET consumed_at=? WHERE id=? AND consumed_at IS NULL AND invalidated_at IS NULL")
+    const results = await db.batch([
+      db.prepare("UPDATE activation_codes SET consumed_at=? WHERE id=? AND consumed_at IS NULL AND invalidated_at IS NULL AND locked_at IS NULL")
         .bind(activatedAt, row.code_id),
-      db.prepare("UPDATE activation_requests SET status='completed' WHERE id=?")
-        .bind(row.request_id),
-      db.prepare("UPDATE payments SET verification_status='verified',verified_at=? WHERE request_id=?")
-        .bind(activatedAt, row.request_id),
-      db.prepare("UPDATE businesses SET status='active',activated_at=COALESCE(activated_at,?),expires_at=?,updated_at=? WHERE id=?")
-        .bind(activatedAt, expiresAt, activatedAt, row.business_id),
-      db.prepare("INSERT INTO subscriptions (id,business_id,request_id,starts_at,expires_at,created_at) VALUES (?,?,?,?,?,?)")
-        .bind(crypto.randomUUID(), row.business_id, row.request_id, starts.toISOString(), expiresAt, activatedAt)
+      db.prepare("UPDATE activation_requests SET status='completed' WHERE id=? AND EXISTS (SELECT 1 FROM activation_codes WHERE id=? AND consumed_at=?)")
+        .bind(row.request_id, row.code_id, activatedAt),
+      db.prepare("UPDATE payments SET verification_status='verified',verified_at=? WHERE request_id=? AND EXISTS (SELECT 1 FROM activation_codes WHERE id=? AND consumed_at=?)")
+        .bind(activatedAt, row.request_id, row.code_id, activatedAt),
+      db.prepare("UPDATE businesses SET status='active',activated_at=COALESCE(activated_at,?),expires_at=?,updated_at=? WHERE id=? AND EXISTS (SELECT 1 FROM activation_codes WHERE id=? AND consumed_at=?)")
+        .bind(activatedAt, expiresAt, activatedAt, row.business_id, row.code_id, activatedAt),
+      db.prepare("INSERT INTO subscriptions (id,business_id,request_id,starts_at,expires_at,created_at) SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM activation_codes WHERE id=? AND consumed_at=?)")
+        .bind(crypto.randomUUID(), row.business_id, row.request_id, starts.toISOString(), expiresAt, activatedAt, row.code_id, activatedAt)
     ]);
+    if (!results[0]?.meta || results[0].meta.changes !== 1) {
+      return json({ ok: false, error: "CODIGO_YA_UTILIZADO" }, 409);
+    }
   } catch (_) {
     return json({ ok: false, error: "NO_SE_PUDO_ACTIVAR" }, 500);
   }
