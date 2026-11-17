@@ -1099,7 +1099,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   var total=0.0
   for(i in 0 until all.length()){
    val sale=all.optJSONObject(i)?:continue
-   if(sale.optLong("ts")>=shift.optLong("startTs",0L)){
+   if(sale.optLong("ts")>=shift.optLong("startTs",0L) && (sale.optString("employeeId")==shift.optString("employeeId") || (sale.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank()))){
     val amount=sale.optDouble("subtotal");total+=amount
     val kind=sale.optString("type","SALE")
     val label=when(kind){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE_OLD"->"PRODUCTO DEVUELTO";"SALE_REPLACE_NEW"->"PRODUCTO ENTREGADO";else->"VENTA"}
@@ -1691,7 +1691,7 @@ object ReportFile {
   val sales=data.optJSONArray("sales") ?: org.json.JSONArray();var total=0.0
   for(i in 0 until sales.length()){
    val x=sales.optJSONObject(i)?:continue
-   if(x.optLong("ts")>=shift.optLong("startTs",0)){
+   if(x.optLong("ts")>=shift.optLong("startTs",0) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank()))){
     total+=x.optDouble("subtotal")
     val kind=when(x.optString("type","SALE")){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE_OLD"->"PRODUCTO DEVUELTO";"SALE_REPLACE_NEW"->"PRODUCTO ENTREGADO";else->"VENTA"}
     out.append("\n[ ").append(kind).append(" ] ").append(x.optString("time"))
@@ -1703,22 +1703,22 @@ object ReportFile {
   }
   val moves=data.optJSONArray("moves") ?: org.json.JSONArray()
   var providerTotal=0.0;var loanTotal=0.0
-  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L)){if(x.optString("type")=="PROVIDER_PAYMENT")providerTotal+=x.optDouble("amount",0.0);if(x.optString("type")=="LOAN_DISBURSEMENT")loanTotal+=x.optDouble("amount",0.0)}}
+  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank()))){if(x.optString("type")=="PROVIDER_PAYMENT")providerTotal+=x.optDouble("amount",0.0);if(x.optString("type")=="LOAN_DISBURSEMENT")loanTotal+=x.optDouble("amount",0.0)}}
   out.append("\n\nETIQUETA: RESUMEN DE CAJA")
    .append("\nVENTAS NETAS (INCLUYE DEVOLUCIONES): ").append(Store.money(total))
    .append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal))
    .append("\nPRÉSTAMOS ENTREGADOS: ").append(Store.money(loanTotal))
    .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal-loanTotal))
    .append("\n\nETIQUETA: GASTOS Y MOVIMIENTOS")
-  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
+  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
   out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
   val products=data.optJSONArray("products") ?: org.json.JSONArray()
   for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock"))}
-  val dir=c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir
-  if(!dir.exists())dir.mkdirs()
-  val file=java.io.File(dir,"SENE-VENTAS-REPORTE.txt")
-  val reportText=out.toString();val workerId=shift.optString("employeeId")
-  file.writeText(if(workerId.isBlank())reportText else reportText.replace(workerId,""),Charsets.UTF_8)
+  val workerId=shift.optString("employeeId")
+  val dir=if(workerId.isNotBlank())WorkerArchive.localReportsFolder(c,workerId,shift.optString("worker")) else (c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir)
+  if(!dir.exists()&&!dir.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local del reporte")
+  val file=java.io.File(dir,if(workerId.isBlank())"SENE-VENTAS-REPORTE.txt" else "SENE-VENTAS-REPORTE-$workerId.txt")
+  file.writeText(out.toString(),Charsets.UTF_8)
   return file
  }
 }
