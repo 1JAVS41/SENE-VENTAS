@@ -120,6 +120,15 @@ object ActivationApi {
             .put("installation_id", installationId(context)))
     }
 
+    // Transferencia de licencia desde YA SOY CLIENTE SENE.
+    // El endpoint se implementará en SERVER-SENE en la siguiente etapa.
+    fun transferAccountDevice(context: Context, folio: String, code: String): JSONObject {
+        return post("/account/device/transfer", JSONObject()
+            .put("folio", folio.trim().uppercase())
+            .put("code", code.trim().uppercase())
+            .put("installation_id", installationId(context)))
+    }
+
     fun requestAccountRecovery(context: Context, business: String, whatsapp: String): JSONObject {
         return post("/account/recovery/request", JSONObject()
             .put("business_name", business.trim())
