@@ -531,7 +531,7 @@ class InicioTurnoActivity:FragmentActivity(){
    val updated=snapshot?.updated?:prefs.getString("inventory_source_updated","Cargado desde TXT")!!
    val products=snapshot?.products?:localProducts
    if(products.length()==0)throw java.io.IOException("El inventario cargado no contiene productos")
-   Store.saveProducts(this,products,false)
+   Store.saveProducts(this,products,workerSnapshot==null)
    // Fijar una copia inicial independiente para este perfil antes de abrir el turno.
    InventoryArchive.save(this,products,workerId,worker)
    val now=System.currentTimeMillis()
