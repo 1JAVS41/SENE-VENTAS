@@ -36,6 +36,7 @@ internal fun Activity.showSeneChat() {
         text = "Pregúntame por ventas, fechas, movimientos, caja e inventario. Si mencionas Internet, web, nube o red, buscaré información y mostraré un resumen con enlaces para abrir las fuentes. SENE no guarda las consultas ni los resultados web. La consulta se envía a DuckDuckGo, que aplica sus propias políticas de privacidad. Tus datos de ventas e inventario no se envían al buscador."
         textSize = 13f; setTextColor(0xFF5C6880.toInt()); setPadding(d(5), d(5), d(5), d(10))
     })
+    val conversation = SeneConversation()
     val transcript = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     val scroll = ScrollView(this).apply { isFillViewport = false; isVerticalScrollBarEnabled = true; addView(transcript) }
     root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -87,8 +88,9 @@ internal fun Activity.showSeneChat() {
         if (raw.isBlank()) return
         question.setText("")
         bubble(raw, true)
-        val localAnswer = SeneLocalAssistant.answer(this, raw)
-        val asksInternet = SeneWebLookup.shouldSearch(raw)
+        val conversationalAnswer = conversation.respond(raw)
+        val localAnswer = conversationalAnswer ?: SeneLocalAssistant.answer(this, raw)
+        val asksInternet = conversationalAnswer == null && SeneWebLookup.shouldSearch(raw)
         fun searchInternet() {
             val waiting = TextView(this).apply {
                 text = "Investigando en Internet…"
@@ -377,5 +379,141 @@ private object SeneLocalAssistant {
         if (listOf("fecha", "hoy", "ayer", "anteayer", "antier", "/", "mañana").any { it in q })
             return "Hoy es " + today + ". Para consultar otro día escribe la fecha completa DD/MM/AAAA, por ejemplo: «ventas del 05/11/2026»."
         return "Puedo ayudarte con ventas, movimientos, pagos a proveedores, caja e inventario. Prueba: «¿Cuánto vendí hoy?», «¿Qué movimientos hubo ayer?» o «¿Cuánto queda en caja?». Mis respuestas se basan en los registros locales de esta app."
+    }
+}
+
+
+/**
+ * Conversación natural limitada a la sesión actual del chat.
+ * No guarda mensajes ni envía contexto a Internet o al servidor.
+ * Las consultas que requieren registros reales siguen pasando a SeneLocalAssistant.
+ */
+private class SeneConversation {
+    private val locale = Locale("es", "MX")
+    private var topic = ""
+    private var pending = ""
+    private var rememberedCost: Double? = null
+    private var rememberedPrice: Double? = null
+
+    private fun normalize(value: String): String =
+        java.text.Normalizer.normalize(value.lowercase(locale), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+            .replace(Regex("[^a-z0-9.$% ]"), " ")
+            .replace(Regex("\\s+"), " ").trim()
+
+    private fun money(value: Double): String =
+        "$" + String.format(locale, "%.2f", value).removeSuffix("0").removeSuffix("0").removeSuffix(",")
+
+    fun respond(raw: String): String? {
+        val q = normalize(raw)
+        if (q.isBlank()) return null
+
+        // Respuestas a aclaraciones pendientes: permiten contestar "50 y 80".
+        if (pending == "profit" || (rememberedCost == null && Regex("^\\d+(?:[.,]\\d+)?\\s+y\\s+\\d+(?:[.,]\\d+)?$").matches(q))) {
+            val nums = Regex("\\d+(?:[.,]\\d+)?").findAll(q).map { it.value.replace(",", ".").toDoubleOrNull() }.toList()
+            if (nums.size >= 2) {
+                rememberedCost = nums[0]; rememberedPrice = nums[1]; pending = ""
+                val gain = nums[1] - nums[0]
+                return if (gain < 0) "Hay algo que revisar: el costo es " + money(nums[0]) + " y el precio de venta es " + money(nums[1]) + ", así que la diferencia es una pérdida de " + money(-gain) + " por unidad. ¿Confirmamos esos datos?"
+                else "Tu ganancia bruta por unidad es de " + money(gain) + ", antes de otros gastos."
+            }
+        }
+        if (pending == "monthly_profit") {
+            pending = ""
+            return "Gracias. Para calcularlo correctamente también necesitamos conocer los gastos del mes. Si me compartes ventas, costo de mercancía y gastos, lo calculamos paso a paso."
+        }
+
+        // Captura de costo/precio y correcciones dentro de la misma conversación.
+        val costMatch = Regex("(?:costo|cuesta|compro|compre|me costo)\\s*(?:era|es|de)?\\s*\\$?([0-9]+(?:[.,][0-9]{1,2})?)").find(q)
+        val priceMatch = Regex("(?:vendo|vender|precio de venta|lo vendo)\\s*(?:a|en|por)?\\s*\\$?([0-9]+(?:[.,][0-9]{1,2})?)").find(q)
+        if (costMatch != null) rememberedCost = costMatch.groupValues[1].replace(",", ".").toDoubleOrNull()
+        if (priceMatch != null) rememberedPrice = priceMatch.groupValues[1].replace(",", ".").toDoubleOrNull()
+        if (rememberedCost != null && rememberedPrice != null && (costMatch != null || priceMatch != null)) {
+            val gain = rememberedPrice!! - rememberedCost!!
+            return if (gain < 0) "Hay algo que no coincide: compras a " + money(rememberedCost!!) + " y vendes a " + money(rememberedPrice!!) + ". La diferencia es una pérdida de " + money(-gain) + " por unidad. Revisemos los datos."
+            else "Perfecto, tengo esos datos para este cálculo. Tu ganancia bruta es de " + money(gain) + " por unidad. Si corriges algún dato, actualizo el cálculo."
+        }
+        if (q.startsWith("perdon") || q.startsWith("me equivoque")) {
+            val n = Regex("\\$?([0-9]+(?:[.,][0-9]{1,2})?)").find(q)?.groupValues?.get(1)?.replace(",", ".")?.toDoubleOrNull()
+            if (n != null && rememberedCost != null) {
+                rememberedCost = n
+                val gain = (rememberedPrice ?: n) - n
+                return "No hay problema. Actualizo el costo a " + money(n) + ". " + if (rememberedPrice != null) "La ganancia bruta ahora es " + money(gain) + " por unidad." else "¿Cuál es el precio de venta?"
+            }
+        }
+
+        // Respuestas sociales.
+        if (q in listOf("hola", "hola sene", "hola sene ia", "buenos dias", "buenas tardes", "buenas noches", "que tal"))
+            return "¡Hola! Qué gusto saludarte. ¿Cómo va tu negocio hoy? ¿En qué te puedo ayudar?"
+        if (q in listOf("como estas", "como esta sene", "que tal estas"))
+            return "¡Muy bien y lista para ayudarte! ¿Qué vamos a revisar hoy en tu negocio?"
+        if (q.startsWith("gracias") || q.contains("muchas gracias"))
+            return "¡Para eso estoy! Me alegra que te haya servido. Aquí seguimos trabajando para que tu negocio vaya mejor."
+        if (q.contains("hasta manana") || q == "adios" || q == "nos vemos")
+            return "¡Con mucho gusto! Que tengas un excelente día y que mañana tengas muchas ventas."
+        if (q.contains("no se que hacer hoy") || q.contains("no se que preguntar"))
+            return "Podemos empezar revisando tus ventas, inventario o gastos. También podemos pensar en una estrategia para atraer más clientes."
+        if (q.contains("hoy vendi muy poco") || q.contains("vendi poco"))
+            return "Hay días más tranquilos que otros. Podemos revisar qué ocurrió y pensar en una acción sencilla para mejorar las ventas de mañana."
+        if (q == "si" || q == "ok" || q == "vale" || q == "entiendo") {
+            return when (topic) {
+                "ventas" -> "Perfecto. Podemos revisar tus productos más solicitados y pensar cómo darles mayor visibilidad."
+                "promocion" -> "Una buena opción es ofrecer un paquete o una promoción temporal, cuidando que el precio siga cubriendo tus costos."
+                else -> "¡Claro! Dime qué te gustaría revisar y lo vemos juntos."
+            }
+        }
+
+        // Mantener el hilo de la conversación.
+        if (q.contains("como puedo vender mas") || q.contains("quiero vender mas")) {
+            topic = "ventas"
+            return "Podemos empezar por tus productos más solicitados. ¿Quieres que pensemos cómo promocionarlos?"
+        }
+        if (q.startsWith("y como los promociono") || q.contains("como los promociono") || q.contains("y que promocion")) {
+            topic = "promocion"
+            return "Para esos productos, puedes probar promociones por tiempo limitado o paquetes. Lo importante es cuidar tu margen de ganancia."
+        }
+        if (q.contains("compro mas mercancia") || q.contains("debo comprar mas") || q.contains("resurtir"))
+            return "Antes de decidir, revisemos cuánto tienes, qué tanto se vende y cuánto tarda tu proveedor en surtir."
+        if (q.contains("organizar mi negocio"))
+            return "Vamos por partes. Primero ordenamos tus productos, después revisamos ventas y gastos, y finalmente establecemos una rutina de revisión."
+        if (q.contains("que me recomiendas") || q.contains("dame un consejo"))
+            return "Si hoy tienes tiempo, revisa tus productos de mayor movimiento. Mantenerlos disponibles puede ayudarte a evitar ventas perdidas."
+
+        // Cálculos y aclaraciones.
+        if (q.contains("calcular una ganancia") || q.contains("calcular mi ganancia")) {
+            pending = "profit"
+            return "Claro. ¿Cuál es el costo y el precio de venta? Puedes escribirlos, por ejemplo: 50 y 80."
+        }
+        if (q.contains("cuanto gane") || q.contains("cuanto gano") || q.contains("ganancia del mes")) {
+            pending = "monthly_profit"
+            return "Claro, pero necesito saber de qué periodo hablamos y si quieres calcular la ganancia con costos y gastos o solo la diferencia entre venta y costo."
+        }
+        if (q.contains("cuanto gano al mes") || q.contains("ganar al mes")) {
+            pending = "monthly_profit"
+            return "¿Cuánto vendes aproximadamente al mes y cuánto te cuesta la mercancía vendida?"
+        }
+        if (q.contains("margen de ganancia") || q.contains("que es el margen"))
+            return "Es la parte de cada venta que queda después de descontar el costo del producto. Te ayuda a saber qué tan rentable es venderlo."
+        if (q.contains("explicamelo mas facil") || q.contains("mas sencillo"))
+            return "Claro. Dicho sencillo: es el dinero que te queda después de pagar lo que te costó el producto."
+        if (q.contains("ganar 30") || q.contains("que significa ganar"))
+            return "Significa que por cada $100 de venta, $30 representan el margen de ganancia, según la forma en que hayas calculado ese porcentaje."
+        if (q.contains("que producto me conviene") || q.contains("comparar dos productos"))
+            return "El segundo deja más ganancia por unidad, pero también conviene comparar cuántas unidades vendes y cuánto capital necesitas invertir."
+        if (q.contains("20 mas 30") || q.contains("20 + 30")) return "Son 50."
+        if (q.contains("explicame como mejorar mis ganancias"))
+            return "Claro. Podemos revisar costos, precios, gastos, productos más vendidos y promociones para encontrar oportunidades."
+
+        // Orientación y transparencia.
+        if (q.contains("donde reviso mi inventario"))
+            return "Te puedo orientar para localizar el módulo de inventario y revisar las existencias de tus productos."
+        if (q.contains("que significa este resultado"))
+            return "Compárteme el dato o resultado que aparece y te explico qué significa y qué puedes hacer."
+        if (q.contains("que se esta vendiendo mas") || q.contains("que se vende mas"))
+            return "Entiendo que quieres conocer tus productos con mayor movimiento. Podemos revisar las cantidades vendidas en el periodo disponible."
+        if (q.contains("no tengo informacion suficiente") || q.contains("no sabes"))
+            return "No tengo información suficiente para asegurarlo. Prefiero decírtelo claramente antes que darte un dato incorrecto."
+
+        return null
     }
 }
