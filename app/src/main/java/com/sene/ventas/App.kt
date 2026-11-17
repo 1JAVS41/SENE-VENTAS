@@ -863,12 +863,17 @@ class MainActivity:FragmentActivity(){
    panel.addView(TextView(this).apply{text="TOTAL: "+Store.money(total);textSize=20f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF168B45.toInt());gravity=Gravity.CENTER;setPadding(0,dp(8),0,dp(6))})
    panel.addView(ImageView(this).apply{setImageBitmap(bitmap);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER})
    panel.addView(TextView(this).apply{text="Conserva este código QR. Se necesita para corregir esta venta.";textSize=12f;setTextColor(0xFF65718A.toInt());gravity=Gravity.CENTER;setPadding(0,dp(6),0,0)})
-   AlertDialog.Builder(this).setTitle("COMPROBANTE SENE").setView(panel).setPositiveButton("CERRAR",null).show()
-   printReceiptIfConfigured(ticketId,total,items)
+   AlertDialog.Builder(this).setTitle("COMPROBANTE SENE").setView(panel).setPositiveButton("CERRAR",null).setNeutralButton("IMPRIMIR TICKET"){_,_->
+    if(getSharedPreferences("sene_ventas_local",0).getString("printer_address",null).isNullOrBlank())showPrinterSetup() else printReceiptIfConfigured(ticketId,total,items)
+   }.show()
   }catch(e:Exception){msg("Venta guardada. No se pudo generar el QR en pantalla: "+(e.message?:"error"))}
  }
  private fun showWorkday(){val shift=Store.shift(this)?:run{msg("No hay una jornada activa");return};val start=shift.optLong("startTs",0L);val hours=shift.optInt("workHours",configuredWorkHours(this));val end=shift.optLong("expectedEndTs",start+hours*3600000L);val remaining=(end-System.currentTimeMillis()).coerceAtLeast(0L);val h=remaining/3600000L;val m=(remaining%3600000L)/60000L;val text="TRABAJADOR: "+shift.optString("worker","-")+ "\nHORA DE ENTRADA: "+shift.optString("started","-")+"\nJORNADA: "+hours+" horas\nHORA PROGRAMADA DE SALIDA: "+shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end)))+"\n"+if(remaining>0)"TIEMPO RESTANTE: "+String.format(Locale.US,"%02d h %02d min",h,m) else "JORNADA COMPLETADA. Ya puedes finalizar el turno.";AlertDialog.Builder(this).setTitle("MI JORNADA LABORAL").setMessage(text).setPositiveButton("ENTENDIDO",null).show()}
  private fun requestFinishWorkday(){val shift=Store.shift(this)?:return;val end=shift.optLong("expectedEndTs",shift.optLong("startTs",0L)+shift.optInt("workHours",configuredWorkHours(this))*3600000L);if(System.currentTimeMillis()<end){val left=end-System.currentTimeMillis();val hh=left/3600000L;val mm=(left%3600000L)/60000L;AlertDialog.Builder(this).setTitle("JORNADA NO COMPLETADA").setMessage("Aún no puedes finalizar el turno. Te faltan "+String.format(Locale.US,"%02d h %02d min",hh,mm)+".").setPositiveButton("ENTENDIDO",null).show();return};AlertDialog.Builder(this).setTitle("FINALIZAR TURNO").setMessage("Tu jornada está completa. Se preparará el reporte final para enviarlo al WhatsApp de Soy Patrón. ¿Deseas continuar?").setPositiveButton("ENVIAR REPORTE"){_,_->sendReport(true)}.setNegativeButton("CANCELAR",null).show()}
+ private fun showMyTurnMenu(){
+  val options=arrayOf("SOLICITA","MI NÓMINA","MI JORNADA LABORAL")
+  AlertDialog.Builder(this).setTitle("MI TURNO").setItems(options){_,which->when(which){0->startActivity(Intent(this,PayrollRequestActivity::class.java));1->startActivity(Intent(this,PayrollEmployeeActivity::class.java));2->showWorkday()}}.setNegativeButton("CERRAR",null).show()
+ }
  private fun showToolsMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
   val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
@@ -881,9 +886,6 @@ class MainActivity:FragmentActivity(){
    Triple("GASTOS A PROVEEDORES","Consultar pagos y salidas de caja",2),
    Triple("VER STOCK","Consultar existencias, precios y alertas",3),
    Triple("SOY PATRÓN / ADMINISTRADOR","Administrar inventario y configuración",4),
-   Triple("MI JORNADA LABORAL","Consultar hora de entrada, salida programada y tiempo restante",12),
-   Triple("SOLICITA","Registrar consumo o préstamo del trabajador",13),
-   Triple("MI NÓMINA","Consultar sueldo, descuentos e historial",14),
    Triple("GUARDAR REPORTE TXT","Exportar el reporte organizado",6)
   )
   for((label,description,action) in items){
@@ -897,9 +899,6 @@ class MainActivity:FragmentActivity(){
     2->showProviderExpenses()
     3->stock()
     4->pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}
-    12->showWorkday()
-    13->startActivity(Intent(this,PayrollRequestActivity::class.java))
-    14->startActivity(Intent(this,PayrollEmployeeActivity::class.java))
     6->saveReportToPhone()
     10->showPrinterSetup()
     11->beginTicketCorrection()
@@ -995,6 +994,7 @@ class MainActivity:FragmentActivity(){
   Protection.addBlindButton(this,v)
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
   v.addView(powerButton("FINALIZAR TURNO"){requestFinishWorkday()})
+  v.addView(button("MI TURNO",false){showMyTurnMenu()})
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
  }
 private fun reviewScannedCodes(codes:ArrayList<String>){
@@ -1709,7 +1709,8 @@ object ReportFile {
   val dir=c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir
   if(!dir.exists())dir.mkdirs()
   val file=java.io.File(dir,"SENE-VENTAS-REPORTE.txt")
-  file.writeText(out.toString(),Charsets.UTF_8)
+  val reportText=out.toString();val workerId=shift.optString("employeeId")
+  file.writeText(if(workerId.isBlank())reportText else reportText.replace(workerId,""),Charsets.UTF_8)
   return file
  }
 }
