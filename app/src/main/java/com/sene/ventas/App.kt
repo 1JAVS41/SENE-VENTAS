@@ -1056,7 +1056,9 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val s=Store.shift(this)?:return
   try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
-   // Respaldo numerado del inventario: siempre se escribe localmente antes de preparar WhatsApp.\n   InventoryArchive.save(this,Store.products(this))\n   val file=ReportFile.update(this)
+   // Respaldo numerado del inventario: siempre se escribe localmente antes de preparar WhatsApp.
+   InventoryArchive.save(this,Store.products(this))
+   val file=ReportFile.update(this)
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file)
