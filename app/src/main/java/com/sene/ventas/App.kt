@@ -305,8 +305,8 @@ private object InventoryArchive {
   return target
  }
  private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
-  val out=StringBuilder("INVENTARIO_SENE_V1\\nActualizado: ").append(stamp()).append("\\nCódigo | Producto | Precio | Existencia")
-  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
+  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia")
+  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
   stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
  }
  fun save(activity:Activity,products:JSONArray):Boolean {
