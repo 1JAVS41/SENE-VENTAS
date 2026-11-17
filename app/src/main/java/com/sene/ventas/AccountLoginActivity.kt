@@ -76,9 +76,7 @@ class AccountLoginActivity : Activity() {
             )
             .setPositiveButton("CONTINUAR", null)
             .setNegativeButton("CANCELAR") { _, _ -> finish() }
-            .setOnShowListener {
-                // La pantalla de acceso solo queda disponible después de aceptar el aviso.
-            }.show()
+            .show()
     }
 
     private fun confirmTransfer() {
