@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
  <queries><package android:name="com.whatsapp"/><package android:name="com.whatsapp.w4b"/></queries>
- <uses-permission android:name="android.permission.CAMERA"/><uses-permission android:name="android.permission.INTERNET"/>
+ <uses-permission android:name="android.permission.CAMERA"/>
+ <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+ <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+ <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/><uses-permission android:name="android.permission.INTERNET"/>
  <uses-feature android:name="android.hardware.camera" android:required="false"/>
  <application android:allowBackup="false" android:label="SENE-VENTAS" android:theme="@style/AppTheme" android:icon="@drawable/logo_sene_pv">
   <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths"/></provider>
