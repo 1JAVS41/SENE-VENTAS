@@ -22,10 +22,13 @@ private fun FragmentActivity.payInput(hintText:String,number:Boolean=false)=Edit
  background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=16f;setStroke(1,0xFFCAD7EA.toInt())}
  if(number)inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
 }
-private fun FragmentActivity.payButton(label:String,action:()->Unit)=Button(this).apply{
- text=label;isAllCaps=false;textSize=15f;typeface=Typeface.DEFAULT_BOLD;setTextColor(-1)
- background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF17447F.toInt(),0xFF09264F.toInt())).apply{cornerRadius=18f}
- setPadding(18,12,18,12);setOnClickListener{action()}
+private fun FragmentActivity.payButton(label:String,action:()->Unit)=LinearLayout(this).apply{
+ orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(18,15,18,15)
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(0xFFFFFFFF.toInt());cornerRadius=18f;setStroke(1,0xFFDCE5F2.toInt())}
+ elevation=3f;isClickable=true;isFocusable=true
+ addView(TextView(this@payButton).apply{text=label;textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1C315B.toInt())},LinearLayout.LayoutParams(0,-2,1f))
+ addView(TextView(this@payButton).apply{text="›";textSize=25f;setTextColor(0xFF365BA4.toInt())})
+ setOnClickListener{action()}
 }
 private fun FragmentActivity.payPage(title:String)=LinearLayout(this).apply{
  orientation=1;setPadding(18,18,18,24);setBackgroundColor(0xFFF2F6FC.toInt())
