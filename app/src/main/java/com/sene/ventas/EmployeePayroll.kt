@@ -167,7 +167,7 @@ object EmployeePayroll {
         val updated=entries(c).map{if(it.employeeId==employeeId&&it.periodKey==period&&!it.settled)it.copy(settled=true)else it}
         return saveEntries(c,updated)
     }
-    fun entriesForCurrentPeriod(c:Context,employeeId:String=activeId(),ts:Long=System.currentTimeMillis()):List<Entry>{
+    fun entriesForCurrentPeriod(c:Context,employeeId:String=activeId(c),ts:Long=System.currentTimeMillis()):List<Entry>{
         val cfg=config(c,employeeId)?:return emptyList();val key=periodKey(ts,cfg.payDay)
         return entries(c,employeeId).filter{it.periodKey==key&&!it.settled}
     }
