@@ -280,34 +280,60 @@ private object InventoryCrypto {
  }
 }
 private object InventoryArchive {
- fun save(activity:Activity,products:JSONArray):Boolean {
-  val prefs=activity.getSharedPreferences("sene_ventas_local",0)
-  val saved=prefs.getString("report_tree_uri",null)?:return false
-  val tree=Uri.parse(saved);val resolver=activity.contentResolver
-  val rootId=DocumentsContract.getTreeDocumentId(tree)
-  val root=DocumentsContract.buildDocumentUriUsingTree(tree,rootId)
-  val date=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
-  fun child(parent:Uri,name:String):Uri? {
-   val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(parent))
-   resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
-    val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-    while(cur.moveToNext())if(id>=0&&col>=0&&cur.getString(col)==name)return DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+ private fun nextNumber(activity:Activity,tree:Uri?=null):Long {
+  var highest=0L
+  fun inspectNames(names:Sequence<String>){for(name in names){val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(name)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}}
+  val local=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
+  inspectNames(local.list()?.asSequence()?:emptySequence())
+  if(tree!=null)try{
+   val resolver=activity.contentResolver
+   val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+   val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
+   resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+    val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+    while(cur.moveToNext())if(col>=0){val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(cur.getString(col)?: "")?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
    }
-   return null
-  }
-  val folder=child(root,date)?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,date)?:throw java.io.IOException("No se pudo crear la carpeta de fecha")
-  val time=SimpleDateFormat("HH-mm-ss-SSS",Locale.US).format(Date())
-  val name="SENE-INVENTARIO-$date-$time.txt"
-  val target=DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear el archivo TXT")
-  val updatedAt=stamp()
-  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(updatedAt).append("\nCódigo | Producto | Precio | Existencia")
-  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
-  resolver.openOutputStream(target,"w")?.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}?:throw java.io.IOException("No se pudo escribir el inventario TXT")
-  prefs.edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",name).putString("inventory_source_updated",updatedAt).apply()
-  return true
+  }catch(_:Exception){}
+  return highest+1L
+ }
+ fun saveLocal(activity:Activity,products:JSONArray):java.io.File {
+  val folder=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
+  if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear INVENTARIO-SENE en el teléfono")
+  val number=nextNumber(activity)
+  val target=java.io.File(folder,"inventario-$number.txt")
+  writeInventory(target.outputStream(),products)
+  if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el inventario local")
+  activity.getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",target.name).putString("inventory_source_updated",stamp()).apply()
+  return target
+ }
+ private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
+  val out=StringBuilder("INVENTARIO_SENE_V1\\nActualizado: ").append(stamp()).append("\\nCódigo | Producto | Precio | Existencia")
+  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
+  stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
+ }
+ fun save(activity:Activity,products:JSONArray):Boolean {
+  val local=saveLocal(activity,products)
+  val saved=activity.getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?:return false
+  return try{
+   val tree=Uri.parse(saved);val resolver=activity.contentResolver
+   val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+   fun child(parent:Uri,name:String):Uri?{
+    val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(parent))
+    resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+     val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+     while(cur.moveToNext())if(id>=0&&col>=0&&cur.getString(col)==name)return DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+    };return null
+   }
+   val folder=child(root,"INVENTARIO-SENE")?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,"INVENTARIO-SENE")?:throw java.io.IOException("No se pudo crear INVENTARIO-SENE")
+   val number=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(local.name)?.groupValues?.get(1)?:throw java.io.IOException("Número de inventario inválido")
+   val name="inventario-$number.txt"
+   val existing=child(folder,name)
+   val target=existing?:DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear $name")
+   resolver.openOutputStream(target,"w")?.use{out->local.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir $name")
+   true
+  }catch(_:Exception){false}
  }
 }
-
 private data class InventorySnapshot(val folder:String,val file:String,val updated:String,val products:JSONArray)
 private object InventoryReader {
  fun readSnapshot(activity:Activity,uri:Uri,fileName:String?=null,folderName:String=""):InventorySnapshot {
@@ -387,7 +413,7 @@ private object InventoryReader {
  fun latest(activity:Activity,tree:Uri):InventorySnapshot {
   val snapshots=listSnapshots(activity,tree)
   val formatter=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX"))
-  return snapshots.maxByOrNull{snapshot->try{formatter.parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}}
+  return snapshots.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{snapshot->try{formatter.parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}})
    ?:throw java.io.IOException("No se encontró un inventario válido en INVENTARIO SENE")
  }
 }
@@ -1032,7 +1058,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val s=Store.shift(this)?:return
   try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
-   val file=ReportFile.update(this)
+   // Respaldo numerado del inventario: siempre se escribe localmente antes de preparar WhatsApp.\n   InventoryArchive.save(this,Store.products(this))\n   val file=ReportFile.update(this)
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file)
@@ -1315,7 +1341,7 @@ class PatronActivity:FragmentActivity(){
  }
  private fun loadLatestInventory(tree:Uri){
   try{
-   val snapshots=InventoryReader.listSnapshots(this,tree).sortedByDescending{snapshot->try{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}}
+   val snapshots=InventoryReader.listSnapshots(this,tree).sortedWith(compareByDescending<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenByDescending{snapshot->try{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}})
    if(snapshots.isEmpty()){
     AlertDialog.Builder(this).setTitle("No hay inventarios válidos")
      .setMessage("No se encontraron archivos de inventario válidos en esta carpeta. Puedes buscar otra carpeta donde esté guardado INVENTARIO SENE.")
