@@ -474,14 +474,11 @@ class InicioTurnoActivity:FragmentActivity(){
   pendingWorkerId=workerId
   val localProducts=Store.products(this)
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
-  // Si el inventario ya fue importado desde TXT, se usa el inventario cargado
-  // y se genera el respaldo interno; nunca se vuelve a pedir elegir carpeta.
-  if(localProducts.length()>0){
+  // Cada perfil recupera su propio inventario más reciente; si aún no tiene uno,
+  // el primer turno parte del inventario general existente.
+  WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.let{WorkerArchive.ensureProfileFolders(this,it.id,it.name)}
+  if(localProducts.length()>0 || !saved.isNullOrBlank()){
    createShiftReport(workerId,worker,phone,cash,saved?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)})
-   return
-  }
-  if(!saved.isNullOrBlank()){
-   createShiftReport(workerId,worker,phone,cash,Uri.parse(saved))
    return
   }
   AlertDialog.Builder(this).setTitle("PRIMER USO DE SENE-VENTAS")
@@ -495,8 +492,15 @@ class InicioTurnoActivity:FragmentActivity(){
    val savedTree=tree?:getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)}
    // Un TXT cargado ya deja el inventario disponible en Store. Si no existe
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
-   val snapshot=if(localProducts.length()==0 && savedTree!=null)InventoryReader.latest(this,savedTree)else null
-   val latest=snapshot?.folder?: "INVENTARIO SENE"
+   val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
+   val profileKey=WorkerArchive.profileKey(workerId,profileName)
+   val workerSnapshot=if(savedTree!=null)InventoryReader.listSnapshots(this,savedTree)
+    .filter{it.folder.contains(profileKey,true)}
+    .maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}
+     .thenBy{it.updated}) else null
+   val snapshot=workerSnapshot ?: if(localProducts.length()==0 && savedTree!=null)InventoryReader.latest(this,savedTree)else null
+   WorkerArchive.ensureProfileFolders(this,workerId,profileName)
+   val latest=snapshot?.folder?: "INVENTARIO SENE / TRABAJADORES / $profileKey / INVENTARIOS"
    val prefs=getSharedPreferences("sene_ventas_local",0)
    val newest=snapshot?.file?:prefs.getString("inventory_source_file","Inventario local")!!
    val updated=snapshot?.updated?:prefs.getString("inventory_source_updated","Cargado desde TXT")!!
@@ -1147,11 +1151,11 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
    // Respaldo numerado del inventario: siempre se escribe localmente antes de preparar WhatsApp.
-   InventoryArchive.save(this,Store.products(this))
+   InventoryArchive.save(this,Store.products(this),s.optString("employeeId").takeIf{it.isNotBlank()},s.optString("worker"))
    val file=ReportFile.update(this)
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
-   val dailyUri=saveDailyReport(tree,file)
+   val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
    pendingShareUri=dailyUri
    pendingReportText=body
    pendingFinalShare=final
@@ -1178,20 +1182,19 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
    .show()
  }
- private fun saveDailyReport(tree:Uri,source:java.io.File):Uri{
+ private fun saveDailyReport(tree:Uri,source:java.io.File,employeeId:String="",workerName:String=""):Uri{
   val resolver=contentResolver
-  val rootId=DocumentsContract.getTreeDocumentId(tree)
-  val root=DocumentsContract.buildDocumentUriUsingTree(tree,rootId)
+  val base=if(employeeId.isNotBlank())WorkerArchive.profileSection(this,tree,employeeId,workerName,"REPORTES") else DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
   val date=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
   fun findChild(parent:Uri,name:String):Uri?{
    val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(parent))
    resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
     val idCol=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val nameCol=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-    while(cur.moveToNext()){if(nameCol>=0&&idCol>=0&&cur.getString(nameCol)==name)return DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(idCol))}
+    while(cur.moveToNext())if(nameCol>=0&&idCol>=0&&cur.getString(nameCol)==name)return DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(idCol))
    }
    return null
   }
-  val folder=findChild(root,date)?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,date)?:throw java.io.IOException("No se pudo crear la carpeta del día")
+  val folder=findChild(base,date)?:DocumentsContract.createDocument(resolver,base,DocumentsContract.Document.MIME_TYPE_DIR,date)?:throw java.io.IOException("No se pudo crear la carpeta del día")
   val time=SimpleDateFormat("HH-mm-ss",Locale.US).format(Date())
   val name="SENE-VENTAS-$date-$time.txt"
   val target=DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear el TXT")
