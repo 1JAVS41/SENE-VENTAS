@@ -512,18 +512,25 @@ class MainActivity:FragmentActivity(){
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private fun showToolsMenu(){
-  val items=arrayOf("Ventas hasta el momento","Llegó proveedor / Agregar inventario","Gastos a proveedores","Ver stock","Soy Patrón / Administrador","Cerrar turno","Guardar reporte TXT")
-  val adapter=object:android.widget.ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,items){
-   override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
-    val row=super.getView(position,convertView,parent) as TextView
-    row.setTextColor(0xFF245DB8.toInt());row.textSize=16f
-    row.typeface=Typeface.create("sans-serif-medium",Typeface.BOLD)
-    row.setPadding(dp(20),dp(16),dp(16),dp(16))
-    return row
-   }
-  }
-  AlertDialog.Builder(this).setTitle("SENE · HERRAMIENTAS").setAdapter(adapter){_,which->
-   when(which){
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
+  val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
+  val dialog=AlertDialog.Builder(this).setTitle("HERRAMIENTAS SENE").setView(scroll).setNegativeButton("CERRAR",null).create()
+  val items=listOf(
+   Triple("🖨  CONECTE SU IMPRESORA","Configurar Bluetooth e imprimir un ticket de prueba",10),
+   Triple("VENTAS DEL TURNO","Resumen de ventas, piezas y caja",0),
+   Triple("AGREGAR INVENTARIO","Registrar mercancía recibida del proveedor",1),
+   Triple("GASTOS A PROVEEDORES","Consultar pagos y salidas de caja",2),
+   Triple("VER STOCK","Consultar existencias, precios y alertas",3),
+   Triple("SOY PATRÓN / ADMINISTRADOR","Administrar inventario y configuración",4),
+   Triple("CERRAR TURNO","Generar reporte final y cerrar caja",5),
+   Triple("GUARDAR REPORTE TXT","Exportar el reporte organizado",6)
+  )
+  for((label,description,action) in items){
+   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(13),dp(16),dp(13));background=rounded(0xFFFFFFFF.toInt(),16,0xFFDCE3F0.toInt());isClickable=true;isFocusable=true;elevation=dp(1).toFloat()}
+   card.addView(TextView(this).apply{text=label;textSize=15f;setTextColor(0xFF1C315B.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);letterSpacing=.025f})
+   card.addView(TextView(this).apply{text=description;textSize=12f;setTextColor(0xFF74809A.toInt());setPadding(0,dp(5),0,0)})
+   val lp=LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(9);panel.addView(card,lp)
+   card.setOnClickListener{dialog.dismiss();when(action){
     0->showCurrentSalesSummary()
     1->startActivity(Intent(this,AgregarInventarioActivity::class.java))
     2->showProviderExpenses()
@@ -531,8 +538,10 @@ class MainActivity:FragmentActivity(){
     4->pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}
     5->AlertDialog.Builder(this).setTitle("Cerrar turno").setMessage("¿Enviar reporte final y cerrar turno?").setPositiveButton("Enviar y cerrar"){_,_->sendReport(true)}.setNegativeButton("Cancelar",null).show()
     6->saveReportToPhone()
-   }
-  }.setNegativeButton("Volver",null).show()
+    10->showPrinterSetup()
+   }}
+  }
+  dialog.show()
  }
  private fun showCurrentSalesSummary(){
   val shift=Store.shift(this)?:JSONObject()
@@ -681,10 +690,43 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  val saleTime=stamp();val saleTs=System.currentTimeMillis();val saleItems=ArrayList<JSONObject>()
  for((x,q) in list){x.put("stock",x.optInt("stock")-q);saleItems.add(JSONObject().put("ts",saleTs).put("time",saleTime).put("code",x.optString("code")).put("name",x.optString("name")).put("qty",q).put("price",x.optDouble("price")).put("subtotal",x.optDouble("price")*q).put("worker",s.optString("worker")))}
  Store.saveProducts(this,p);Store.addSales(this,saleItems);val change=pay-sum;val n=list.size;ticket.clear();paid.setText("");msg("Venta guardada: "+n+" productos | Total "+Store.money(sum)+" | Cambio "+Store.money(change));draw()}
- private fun reportText(final:Boolean):String{val s=Store.shift(this)?:JSONObject();val all=Store.sales(this);val b=StringBuilder("SENE.VENTAS - "+if(final)"CIERRE DE TURNO" else "REPORTE");var sum=0.0;b.append("\nTrabajador: ").append(s.optString("worker")).append("\nFecha/hora celular: ").append(stamp()).append("\nCaja inicial: ").append(Store.money(s.optDouble("cash"))).append("\nVentas del turno")
- for(i in 0 until all.length()){val x=all.optJSONObject(i)?:continue;if(x.optLong("ts")>=s.optLong("startTs",0)){sum+=x.optDouble("subtotal");b.append("\n").append(x.optString("time")).append(" ").append(x.optString("name")).append(" x").append(x.optInt("qty")).append(" = ").append(Store.money(x.optDouble("subtotal")))}}
- val expenses=Store.providerExpenses(this,s.optLong("startTs",0L))
- b.append("\nTotal: ").append(Store.money(sum)).append("\nPagos a proveedores: ").append(Store.money(expenses)).append("\nCaja ahora: ").append(Store.money(s.optDouble("cash")+sum-expenses)).append("\nINVENTARIO_SENE_V1\ncodigo | nombre | precio | stock");val p=Store.products(this);for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;b.append("\n").append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(x.optDouble("price")).append(" | ").append(x.optInt("stock"))};return b.toString()}
+ private fun reportText(final:Boolean):String{
+  val shift=Store.shift(this)?:JSONObject();val all=Store.sales(this)
+  val out=StringBuilder("SENE VENTAS  •  "+if(final)"CIERRE DE TURNO" else "REPORTE DE TURNO")
+  out.append("\n━━━━━━━━━━━━━━━━━━━━").append("\nETIQUETA: DATOS DEL TURNO")
+   .append("\nTRABAJADOR: ").append(shift.optString("worker","-"))
+   .append("\nFECHA Y HORA: ").append(stamp())
+   .append("\nINICIO: ").append(shift.optString("started","-"))
+   .append("\nCAJA INICIAL: ").append(Store.money(shift.optDouble("cash")))
+   .append("\n\nETIQUETA: MOVIMIENTOS DE VENTA")
+  var total=0.0
+  for(i in 0 until all.length()){
+   val sale=all.optJSONObject(i)?:continue
+   if(sale.optLong("ts")>=shift.optLong("startTs",0L)){
+    val amount=sale.optDouble("subtotal");total+=amount
+    val kind=sale.optString("type","SALE")
+    val label=when(kind){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE"->"CORRECCIÓN";else->"VENTA"}
+    out.append("\n[").append(label).append("] ").append(sale.optString("time"))
+     .append("\n").append(sale.optString("name")).append(" x").append(sale.optInt("qty",1))
+     .append("  |  ").append(Store.money(amount))
+    if(sale.optString("reason").isNotBlank())out.append("\nMOTIVO: ").append(sale.optString("reason"))
+   }
+  }
+  val expenses=Store.providerExpenses(this,shift.optLong("startTs",0L))
+  out.append("\n\nETIQUETA: RESUMEN DE CAJA")
+   .append("\nVENTAS NETAS: ").append(Store.money(total))
+   .append("\nPAGOS A PROVEEDORES: ").append(Store.money(expenses))
+   .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-expenses))
+   .append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
+  val products=Store.products(this)
+  for(i in 0 until products.length()){
+   val item=products.optJSONObject(i)?:continue
+   out.append("\n").append(item.optString("name")).append(" | COD: ").append(item.optString("code"))
+    .append(" | PRECIO: ").append(Store.money(item.optDouble("price")))
+    .append(" | STOCK: ").append(item.optInt("stock"))
+  }
+  return out.toString()
+ }
  private fun sendReport(final:Boolean){
   if(Store.shift(this)==null)return
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
@@ -753,8 +795,23 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   resolver.openOutputStream(target,"w")?.use{out->source.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el TXT")
   return target
  }
- private fun stock(){val p=Store.products(this);val b=StringBuilder();for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;b.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Stock ").append(x.optInt("stock")).append("\n")};AlertDialog.Builder(this).setTitle("Stock actual").setMessage(if(b.isEmpty())"Sin productos" else b.toString()).setPositiveButton("Cerrar",null).show()}
- private fun saveReportToPhone(){val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/plain";putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")};try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(_:Exception){msg("No se pudo abrir el selector para guardar")}}
+ private fun stock(){
+  val products=Store.products(this)
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(8),dp(14),dp(8));setBackgroundColor(0xFFF4F6FB.toInt())}
+  val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
+  var low=0;var total=0
+  for(i in 0 until products.length()){
+   val item=products.optJSONObject(i)?:continue;total++
+   val quantity=item.optInt("stock");if(quantity<=5)low++
+   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(12),dp(14),dp(12));background=rounded(0xFFFFFFFF.toInt(),15,0xFFDCE3F0.toInt())}
+   card.addView(TextView(this).apply{text=item.optString("name");textSize=16f;setTextColor(0xFF1B2E53.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD)})
+   card.addView(TextView(this).apply{text="CÓDIGO  "+item.optString("code")+"   •   PRECIO  "+Store.money(item.optDouble("price"));textSize=12f;setTextColor(0xFF73809A.toInt());setPadding(0,dp(5),0,dp(7))})
+   card.addView(TextView(this).apply{text="EXISTENCIA:  "+quantity+" "+if(quantity==1)"pieza" else "piezas";textSize=14f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(if(quantity<=5)0xFFB3261E.toInt() else 0xFF168B45.toInt());background=rounded(if(quantity<=5)0xFFFFEEEE.toInt() else 0xFFEAF6EF.toInt(),10);setPadding(dp(10),dp(8),dp(10),dp(8))})
+   val lp=LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(8);panel.addView(card,lp)
+  }
+  panel.addView(TextView(this).apply{text="PRODUCTOS: "+total+"     •     STOCK BAJO: "+low;textSize=13f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF314B7C.toInt());setPadding(dp(5),dp(5),dp(5),dp(10))},0)
+  AlertDialog.Builder(this).setTitle("INVENTARIO · EXISTENCIAS").setView(scroll).setPositiveButton("CERRAR",null).show()
+ }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty())reviewScannedCodes(codes);return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
 
