@@ -282,54 +282,59 @@ private object InventoryCrypto {
  }
 }
 private object InventoryArchive {
- private fun nextNumber(activity:Activity,tree:Uri?=null):Long {
+ private fun nextNumber(activity:Activity,tree:Uri?=null,employeeId:String?=null,workerName:String=""):Long {
   var highest=0L
-  fun inspectNames(names:Sequence<String>){for(name in names){val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(name)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}}
-  val local=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
-  inspectNames(local.list()?.asSequence()?:emptySequence())
+  val local=if(!employeeId.isNullOrBlank())WorkerArchive.localInventoryFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
+  local.list()?.forEach{name->val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(name)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
   if(tree!=null)try{
-   InventoryReader.listSnapshots(activity,tree).forEach{snapshot->
-    val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(snapshot.file)?.groupValues?.get(1)?.toLongOrNull()?:0L
-    if(n>highest)highest=n
-   }
+   InventoryReader.listSnapshots(activity,tree).filter{snap->
+    if(employeeId.isNullOrBlank()) !snap.folder.contains("/ TRABAJADORES /") && !snap.folder.contains("TRABAJADORES /")
+    else snap.folder.contains(WorkerArchive.profileKey(employeeId,workerName),true)
+   }.forEach{snap->val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(snap.file)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
   }catch(_:Exception){}
   return highest+1L
  }
- fun saveLocal(activity:Activity,products:JSONArray):java.io.File {
-  val folder=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
-  if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear INVENTARIO-SENE en el teléfono")
+ fun saveLocal(activity:Activity,products:JSONArray,employeeId:String?=null,workerName:String=""):java.io.File {
+  val folder=if(!employeeId.isNullOrBlank())WorkerArchive.localInventoryFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
+  if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local de inventarios")
   val savedTree=activity.getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.let{Uri.parse(it)}
-  val number=nextNumber(activity,savedTree)
+  val number=nextNumber(activity,savedTree,employeeId,workerName)
   val target=java.io.File(folder,"inventario-$number.txt")
   writeInventory(target.outputStream(),products)
   if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el inventario local")
-  activity.getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",target.name).putString("inventory_source_updated",stamp()).apply()
+  if(employeeId.isNullOrBlank())activity.getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",target.name).putString("inventory_source_updated",stamp()).apply()
   return target
  }
  private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
-  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia")
-  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
+  val out=StringBuilder("INVENTARIO_SENE_V1\\nActualizado: ").append(stamp()).append("\\nCódigo | Producto | Precio | Existencia")
+  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
   stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
  }
- fun save(activity:Activity,products:JSONArray):Boolean {
-  val local=saveLocal(activity,products)
+ fun save(activity:Activity,products:JSONArray,employeeId:String?=null,workerName:String=""):Boolean {
+  val local=saveLocal(activity,products,employeeId,workerName)
   val saved=activity.getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?:return false
   return try{
    val tree=Uri.parse(saved);val resolver=activity.contentResolver
-   val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-   fun child(parent:Uri,name:String):Uri?{
-    val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(parent))
+   val folder=if(!employeeId.isNullOrBlank())WorkerArchive.profileSection(activity,tree,employeeId,workerName,"INVENTARIOS") else {
+    val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+    val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
+    var found:Uri?=null
     resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
      val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-     while(cur.moveToNext())if(id>=0&&col>=0&&cur.getString(col)==name)return DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
-    };return null
+     while(cur.moveToNext())if(id>=0&&col>=0&&cur.getString(col)=="INVENTARIO-SENE")found=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+    }
+    found?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,"INVENTARIO-SENE")?:throw java.io.IOException("No se pudo crear INVENTARIO-SENE")
    }
-   val folder=child(root,"INVENTARIO-SENE")?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,"INVENTARIO-SENE")?:throw java.io.IOException("No se pudo crear INVENTARIO-SENE")
    val number=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(local.name)?.groupValues?.get(1)?:throw java.io.IOException("Número de inventario inválido")
    val name="inventario-$number.txt"
-   val existing=child(folder,name)
-   val target=existing?:DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear $name")
-   resolver.openOutputStream(target,"w")?.use{out->local.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir $name")
+   val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(folder))
+   var target:Uri?=null
+   resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+    val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+    while(cur.moveToNext())if(id>=0&&col>=0&&cur.getString(col)==name)target=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+   }
+   val file=target?:DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear $name")
+   resolver.openOutputStream(file,"w")?.use{out->local.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir $name")
    true
   }catch(_:Exception){false}
  }
