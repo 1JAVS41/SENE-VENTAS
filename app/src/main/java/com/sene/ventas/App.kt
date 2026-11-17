@@ -679,7 +679,13 @@ class MainActivity:FragmentActivity(){
  }
  private fun askCorrectionReason(newCode:String?){
   val reason=input("Describe el motivo de la corrección")
-  val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8));addView(TextView(this@MainActivity).apply{text=if(newCode==null)"El producto original regresará al inventario y se devolverá al cliente su precio." else "El producto original regresará al inventario y se descontará el nuevo producto. Se calculará la diferencia.";textSize=13f;setTextColor(0xFF53617A.toInt())});addView(reason)}
+  val all=Store.sales(this);var original:JSONObject?=null
+  for(i in 0 until all.length()){val row=all.optJSONObject(i)?:continue;if(row.optString("ticketId")==correctionTicketId&&row.optString("type","SALE")=="SALE"&&row.optString("code")==correctionOriginalCode){original=row;break}}
+  val oldPrice=original?.optDouble("price",0.0)?:0.0
+  var newPrice=0.0;var newName=""
+  if(newCode!=null){val products=Store.products(this);for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;if(item.optString("code")==newCode){newPrice=item.optDouble("price");newName=item.optString("name");break}}}
+  val summary=if(newCode==null)"PRODUCTO: "+(original?.optString("name")?:"-")+"\nVALOR A DEVOLVER: "+Store.money(oldPrice)+"\nEl producto regresará al inventario." else "PRODUCTO ORIGINAL: "+(original?.optString("name")?:"-")+"\nVALOR ORIGINAL: "+Store.money(oldPrice)+"\nPRODUCTO NUEVO: "+newName+"\nVALOR NUEVO: "+Store.money(newPrice)+"\n"+if(newPrice>oldPrice)"DIFERENCIA A COBRAR: "+Store.money(newPrice-oldPrice) else if(newPrice<oldPrice)"DIFERENCIA A DEVOLVER: "+Store.money(oldPrice-newPrice) else "SIN DIFERENCIA DE PRECIO"
+  val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8));addView(TextView(this@MainActivity).apply{text=summary;textSize=13f;setTextColor(0xFF263D70.toInt());setPadding(0,0,0,dp(10))});addView(TextView(this@MainActivity).apply{text="MOTIVO DE LA CORRECCIÓN";textSize=12f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF53617A.toInt())});addView(reason)}
   val dialog=AlertDialog.Builder(this).setTitle("MOTIVO DE LA CORRECCIÓN").setView(content)
    .setPositiveButton("CONFIRMAR",null).setNegativeButton("CANCELAR"){_,_->correctionStage=0}.create()
   dialog.setOnShowListener{
