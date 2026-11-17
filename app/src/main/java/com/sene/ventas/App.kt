@@ -55,6 +55,7 @@ private const val GREEN=0xFF168B45.toInt()
 private const val DEFAULT_PIN="2910"
 private const val PATRON_PREFS="sene_patron_security"
 private fun currentPatronPin(c:Context)=c.getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).getString("pin",DEFAULT_PIN)?:DEFAULT_PIN
+private fun configuredWorkHours(c:Context)=c.getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).getInt("work_hours",8).coerceIn(1,24)
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 private fun parseAmount(raw:String):Double? {
  val value=raw.trim().replace("$","").replace(" ","").replace("\u00A0","")
@@ -444,7 +445,7 @@ class InicioTurnoActivity:FragmentActivity(){
    if(products.length()==0)throw java.io.IOException("El inventario cargado no contiene productos")
    Store.saveProducts(this,products)
    val now=System.currentTimeMillis()
-   val shift=JSONObject().put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("lastReport",now)
+   val hours=configuredWorkHours(this);val shift=JSONObject().put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now)
    val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
@@ -736,6 +737,8 @@ class MainActivity:FragmentActivity(){
    printReceiptIfConfigured(ticketId,total,items)
   }catch(e:Exception){msg("Venta guardada. No se pudo generar el QR en pantalla: "+(e.message?:"error"))}
  }
+ private fun showWorkday(){val shift=Store.shift(this)?:run{msg("No hay una jornada activa");return};val start=shift.optLong("startTs",0L);val hours=shift.optInt("workHours",configuredWorkHours(this));val end=shift.optLong("expectedEndTs",start+hours*3600000L);val remaining=(end-System.currentTimeMillis()).coerceAtLeast(0L);val h=remaining/3600000L;val m=(remaining%3600000L)/60000L;val text="TRABAJADOR: "+shift.optString("worker","-")+"\\nHORA DE ENTRADA: "+shift.optString("started","-")+"\\nJORNADA: "+hours+" horas\\nHORA PROGRAMADA DE SALIDA: "+shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end)))+"\\n"+if(remaining>0)"TIEMPO RESTANTE: "+String.format(Locale.US,"%02d h %02d min",h,m) else "JORNADA COMPLETADA. Ya puedes finalizar el turno.";AlertDialog.Builder(this).setTitle("MI JORNADA LABORAL").setMessage(text).setPositiveButton("ENTENDIDO",null).show()}
+ private fun requestFinishWorkday(){val shift=Store.shift(this)?:return;val end=shift.optLong("expectedEndTs",shift.optLong("startTs",0L)+shift.optInt("workHours",configuredWorkHours(this))*3600000L);if(System.currentTimeMillis()<end){val left=end-System.currentTimeMillis();val hh=left/3600000L;val mm=(left%3600000L)/60000L;AlertDialog.Builder(this).setTitle("JORNADA NO COMPLETADA").setMessage("Aún no puedes finalizar el turno. Te faltan "+String.format(Locale.US,"%02d h %02d min",hh,mm)+".").setPositiveButton("ENTENDIDO",null).show();return};AlertDialog.Builder(this).setTitle("FINALIZAR TURNO").setMessage("Tu jornada está completa. Se preparará el reporte final para enviarlo al WhatsApp de Soy Patrón. ¿Deseas continuar?").setPositiveButton("ENVIAR REPORTE"){_,_->sendReport(true)}.setNegativeButton("CANCELAR",null).show()}
  private fun showToolsMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
   val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
@@ -748,7 +751,7 @@ class MainActivity:FragmentActivity(){
    Triple("GASTOS A PROVEEDORES","Consultar pagos y salidas de caja",2),
    Triple("VER STOCK","Consultar existencias, precios y alertas",3),
    Triple("SOY PATRÓN / ADMINISTRADOR","Administrar inventario y configuración",4),
-   Triple("CERRAR TURNO","Generar reporte final y cerrar caja",5),
+   Triple("MI JORNADA LABORAL","Consultar hora de entrada, salida programada y tiempo restante",12),
    Triple("GUARDAR REPORTE TXT","Exportar el reporte organizado",6)
   )
   for((label,description,action) in items){
@@ -762,7 +765,7 @@ class MainActivity:FragmentActivity(){
     2->showProviderExpenses()
     3->stock()
     4->pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}
-    5->AlertDialog.Builder(this).setTitle("Cerrar turno").setMessage("¿Enviar reporte final y cerrar turno?").setPositiveButton("Enviar y cerrar"){_,_->sendReport(true)}.setNegativeButton("Cancelar",null).show()
+    12->showWorkday()
     6->saveReportToPhone()
     10->showPrinterSetup()
     11->beginTicketCorrection()
@@ -852,8 +855,9 @@ class MainActivity:FragmentActivity(){
   paid=input("¿Cuánto te pagan?",true);v.addView(paid)
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
-  sell=button("COBRAR Y REGISTRAR VENTA"){sellTicket()};v.addView(sell)
+  sell=button("COBRAR",false){if(parseAmount(paid.text.toString())==null){paid.requestFocus();paid.background=rounded(0xFFFFF1F0.toInt(),14,0xFFE53935.toInt());paid.error="Introduce cuánto te pagan";msg("Introduce cuánto te pagan para continuar");return@button};sellTicket()};v.addView(sell)
   v.addView(button("CORRECCIÓN DE VENTA",false){beginTicketCorrection()})
+  v.addView(powerButton("FINALIZAR TURNO"){requestFinishWorkday()})
   Protection.addBlindButton(this,v)
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
@@ -909,7 +913,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }
   offerSupplierInventory(c,null)
  }
- private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);val b=StringBuilder();var sum=0.0;for((c,q) in ticket){for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\n");break}}};ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString();val diff=(parseAmount(paid.text.toString())?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff)}
+ private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);val b=StringBuilder();var sum=0.0;for((c,q) in ticket){for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\n");break}}};ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString();val entered=parseAmount(paid.text.toString());val diff=(entered?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff);if(::sell.isInitialized){val ready=entered!=null&&entered>=sum&&sum>0.0&&!due();sell.text="COBRAR";sell.background=if(ready)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF39F36B.toInt(),0xFF00C853.toInt())).apply{cornerRadius=dp(14).toFloat()}else GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFFE53935.toInt(),0xFFB71C1C.toInt())).apply{cornerRadius=dp(14).toFloat()};sell.setTextColor(0xFFFFFFFF.toInt());sell.isEnabled=!due();sell.alpha=if(due())0.45f else 1f};if(::paid.isInitialized&&entered!=null)paid.background=rounded(0xFFFFFFFF.toInt(),14,0xFFDCE2EF.toInt())}
  private fun sellTicket(){
   if(due()){showReportAlert();return}
   if(ticket.isEmpty()){msg("Ticket vacío. Escanea un producto.");return}
@@ -1125,7 +1129,7 @@ class AgregarInventarioActivity:Activity(){
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
  override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){pin{draw()}}}
- private fun draw(){val v=page("Administrador - Patrón");v.addView(button(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA",false){togglePatronBiometric()});v.addView(button("Cambiar PIN de Soy Patrón",false){changePatronPin()});v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
+ private fun draw(){val v=page("Administrador - Patrón");val hoursInput=input("Horas que debe trabajar cada empleado (1 a 24)",true).apply{setText(configuredWorkHours(this@PatronActivity).toString())};v.addView(txt("CONFIGURACIÓN DE JORNADA",15f));v.addView(hoursInput);v.addView(button("GUARDAR HORAS DE JORNADA"){val hours=hoursInput.text.toString().toIntOrNull();if(hours==null||hours !in 1..24){hoursInput.error="Introduce entre 1 y 24 horas";return@button};getSharedPreferences(PATRON_PREFS,0).edit().putInt("work_hours",hours).apply();msg("Jornada configurada: "+hours+" horas. Se aplicará a los próximos turnos.")});v.addView(button(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA",false){togglePatronBiometric()});v.addView(button("Cambiar PIN de Soy Patrón",false){changePatronPin()});v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
  private fun togglePatronBiometric(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
   val enabled=prefs.getBoolean("biometric_enabled",false)
