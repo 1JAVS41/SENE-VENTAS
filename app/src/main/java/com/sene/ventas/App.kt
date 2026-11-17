@@ -583,7 +583,7 @@ class InicioTurnoActivity:FragmentActivity(){
   v.addView(deviceLabel)
   internetLabel=txt("Hora de Internet: "+internet,15f)
   v.addView(internetLabel)
-  v.addView(button("INICIAR TURNO",true){chooseWorker()})
+  v.addView(button("INICIAR TURNO",true){if(currentPatronPin(this)==DEFAULT_PIN){AlertDialog.Builder(this).setTitle("CAMBIO DE PIN PENDIENTE").setMessage("Dirígete a SOY PATRÓN para cambiar el PIN predeterminado de fábrica antes de iniciar un turno.").setPositiveButton("ENTENDIDO",null).show()}else{chooseWorker()}})
   v.addView(button("SOY PATRÓN",false){refreshAfterPatron=true;val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE);if(currentPatronPin(this)==DEFAULT_PIN&&!prefs.getBoolean("default_pin_warning_shown",false)){forceDefaultPinChange{pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}}}else{pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}}})
   Protection.addBlindButton(this,v)
   v.addView(button("MI TURNO LABORAL",false){showWorkHistory()})
