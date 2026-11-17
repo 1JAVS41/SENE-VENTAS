@@ -841,7 +841,7 @@ class MainActivity:FragmentActivity(){
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
   sell=button("COBRAR Y REGISTRAR VENTA"){sellTicket()};v.addView(sell)
-  v.addView(button("Limpiar ticket",false){ticket.clear();refresh()})
+  v.addView(button("CORRECCIÓN DE VENTA",false){beginTicketCorrection()})
   Protection.addBlindButton(this,v)
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
