@@ -1057,9 +1057,10 @@ private fun Activity.openScanner(){
     host.startActivityForResult(Intent(host,ScanActivity::class.java),SCAN_REQUEST)
    }else{
     val message=status.optString("message","No hay una suscripción vigente.")
-    AlertDialog.Builder(host).setTitle("VINCULA SENE VENTAS")
-     .setMessage(message+"\n\nPara utilizar el escáner necesitas una suscripción vigente y este dispositivo autorizado.")
-     .setPositiveButton("VINCULAR SENE VENTAS"){_,_->host.startActivity(Intent(host,ActivationActivity::class.java))}
+    AlertDialog.Builder(host).setTitle("ACCEDE A SENE VENTAS")
+     .setMessage(message+"\n\nPara utilizar el escáner necesitas una suscripción vigente y este dispositivo autorizado. Elige cómo deseas continuar:")
+     .setPositiveButton("YA SOY CLIENTE SENE · INICIAR SESIÓN"){_,_->host.startActivity(Intent(host,AccountLoginActivity::class.java))}
+     .setNeutralButton("VINCULAR SENE VENTAS"){_,_->host.startActivity(Intent(host,ActivationActivity::class.java))}
      .setNegativeButton("CANCELAR",null).show()
    }
   }
