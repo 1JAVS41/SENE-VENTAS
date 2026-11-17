@@ -461,18 +461,20 @@ class InicioTurnoActivity:FragmentActivity(){
  override fun onDestroy(){internetClockHandler.removeCallbacks(internetClockTick);super.onDestroy()}
  private var pendingWorker=""
  private var pendingWorkerPhone=""
+ private var pendingWorkerId=""
  private var pendingCash=""
- private fun startShiftWithLatestInventory(worker:String,phone:String,cash:String){
+ private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
+  pendingWorkerId=workerId
   val localProducts=Store.products(this)
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
   // Si el inventario ya fue importado desde TXT, se usa el inventario cargado
   // y se genera el respaldo interno; nunca se vuelve a pedir elegir carpeta.
   if(localProducts.length()>0){
-   createShiftReport(worker,phone,cash,saved?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)})
+   createShiftReport(workerId,worker,phone,cash,saved?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)})
    return
   }
   if(!saved.isNullOrBlank()){
-   createShiftReport(worker,phone,cash,Uri.parse(saved))
+   createShiftReport(workerId,worker,phone,cash,Uri.parse(saved))
    return
   }
   AlertDialog.Builder(this).setTitle("PRIMER USO DE SENE-VENTAS")
@@ -480,7 +482,7 @@ class InicioTurnoActivity:FragmentActivity(){
    .setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}
    .setNegativeButton("Cerrar",null).show()
  }
- private fun createShiftReport(worker:String,phone:String,cash:String,tree:Uri?){
+ private fun createShiftReport(workerId:String,worker:String,phone:String,cash:String,tree:Uri?){
   try{
    val localProducts=Store.products(this)
    val savedTree=tree?:getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)}
@@ -495,7 +497,7 @@ class InicioTurnoActivity:FragmentActivity(){
    if(products.length()==0)throw java.io.IOException("El inventario cargado no contiene productos")
    Store.saveProducts(this,products)
    val now=System.currentTimeMillis()
-   val hours=configuredWorkHours(this);val shift=JSONObject().put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now)
+   val hours=configuredWorkHours(this);val shift=JSONObject().put("employeeId",workerId).put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now)
    val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
@@ -507,12 +509,60 @@ class InicioTurnoActivity:FragmentActivity(){
    if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado y el respaldo TXT está guardado en el teléfono, en SENE VENTAS / INVENTARIO SENE. Revisa el número de WhatsApp del patrón.")
   }catch(e:Exception){AlertDialog.Builder(this).setTitle("No se pudo iniciar el turno").setMessage("No se pudo guardar el respaldo en INVENTARIO SENE. Verifica que la carpeta esté disponible y tenga permisos de escritura.\n\nDetalle: "+(e.message?:"Error desconocido.")).setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}.setNegativeButton("Cerrar",null).show()}
  }
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorkerId,pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
+ private fun chooseWorker(){
+  val profiles=WorkerProfiles.all(this)
+  if(profiles.isEmpty()){registerWorker();return}
+  val labels=profiles.map{it.name}.toTypedArray()
+  AlertDialog.Builder(this).setTitle("SELECCIONA TU PERFIL").setItems(labels){_,which->authenticateWorker(profiles[which])}
+   .setPositiveButton("REGISTRAR NUEVO"){_,_->registerWorker()}
+   .setNegativeButton("CANCELAR",null).show()
+ }
+ private fun registerWorker(){
+  val name=input("Nombre del trabajador")
+  val phone=input("Número de celular (opcional)",true)
+  val pinCode=input("Crea tu PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val confirm=input("Confirma tu PIN de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(name);addView(phone);addView(pinCode);addView(txt("Este será tu PIN para iniciar tu turno. No lo olvides",14f));addView(confirm)}
+  val dialog=AlertDialog.Builder(this).setTitle("REGISTRAR TRABAJADOR").setView(box).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
+   val p=pinCode.text.toString()
+   if(name.text.isBlank()){name.error="Escribe el nombre";return@setOnClickListener}
+   if(p.length!=4||p.any{!it.isDigit()}){pinCode.error="El PIN debe tener exactamente 4 dígitos";return@setOnClickListener}
+   if(p!=confirm.text.toString()){confirm.error="Los PIN no coinciden";return@setOnClickListener}
+   val created=WorkerProfiles.create(this,name.text.toString(),phone.text.toString(),p)
+   if(created==null){name.error="Ese nombre ya existe o no se pudo guardar";return@setOnClickListener}
+   dialog.dismiss();enterWorker(created)
+  }}
+  dialog.show()
+ }
+ private fun authenticateWorker(profile:WorkerProfiles.Profile){
+  val pinCode=input("PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val dialog=AlertDialog.Builder(this).setTitle("HOLA, "+profile.name.uppercase(Locale("es","MX"))).setMessage("Introduce tu PIN para iniciar turno.").setView(pinCode)
+   .setPositiveButton("CONTINUAR",null).setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
+   if(!WorkerProfiles.verify(profile,pinCode.text.toString())){pinCode.text?.clear();pinCode.error="PIN incorrecto";return@setOnClickListener}
+   dialog.dismiss();enterWorker(profile)
+  }}
+  dialog.show()
+ }
+ private fun enterWorker(profile:WorkerProfiles.Profile){
+  val cash=input("Cuenta el efectivo que hay actualmente en caja e introduce el importe $",true)
+  val dialog=AlertDialog.Builder(this).setTitle("CAJA INICIAL · "+profile.name).setMessage("Cuenta físicamente el efectivo disponible antes de comenzar tu jornada.").setView(cash)
+   .setPositiveButton("COMENZAR A TRABAJAR",null).setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
+   val amount=parseAmount(cash.text.toString())
+   if(amount==null||amount<0){cash.error="Introduce una cantidad válida";return@setOnClickListener}
+   dialog.dismiss();startShiftWithLatestInventory(profile.id,profile.name,profile.phone,cash.text.toString())
+  }}
+  dialog.show()
+ }
  private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
  v.addView(button("YA SOY CLIENTE SENE · INICIAR SESIÓN",true){startActivity(Intent(this,AccountLoginActivity::class.java))})
  val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))};v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
- val n=input("Nombre del trabajador");val p=input("Número de celular del trabajador",true);val cash=input("¿Con cuánto inicia caja chica? $",true);v.addView(n);v.addView(p);v.addView(cash)
- v.addView(powerButton("⏻  ENCENDER Y COMENZAR TURNO"){if(n.text.isBlank()||p.text.isBlank()||cash.text.isBlank()){msg("Completa los datos");return@powerButton};startShiftWithLatestInventory(n.text.toString().trim(),p.text.toString().filter{it.isDigit()},cash.text.toString())})
+ v.addView(txt("INICIA TU TURNO CON TU PERFIL PERSONAL",16f,true))
+ v.addView(powerButton("⏻  INICIAR TURNO"){chooseWorker()})
+ v.addView(button("REGISTRAR NUEVO TRABAJADOR",false){registerWorker()})
  v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
  val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false};if(!inventoryReady){val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f);notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)}
  Protection.addBlindButton(this,v)
