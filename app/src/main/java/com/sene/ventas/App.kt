@@ -579,7 +579,7 @@ class InicioTurnoActivity:FragmentActivity(){
   internetLabel=txt("Hora de Internet: "+internet,15f)
   v.addView(internetLabel)
   v.addView(button("INICIAR TURNO",true){chooseWorker()})
-  v.addView(button("SOY PATRÓN",false){refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))})
+  v.addView(button("SOY PATRÓN",false){refreshAfterPatron=true;pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}})
   Protection.addBlindButton(this,v)
   v.addView(button("MI TURNO LABORAL",false){showWorkHistory()})
   deviceClockHandler.removeCallbacks(deviceClockTick)
@@ -1260,7 +1260,7 @@ class AgregarInventarioActivity:Activity(){
 
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
- override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{draw()}else draw()}}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){draw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{draw()}else draw()}}}
  private fun draw(){val v=page("Administrador - Patrón");val hoursInput=input("Horas que debe trabajar cada empleado (1 a 24)",true).apply{setText(configuredWorkHours(this@PatronActivity).toString())};v.addView(txt("CONFIGURACIÓN DE JORNADA",15f));v.addView(hoursInput);v.addView(button("GUARDAR HORAS DE JORNADA"){val hours=hoursInput.text.toString().toIntOrNull();if(hours==null||hours !in 1..24){hoursInput.error="Introduce entre 1 y 24 horas";return@button};getSharedPreferences(PATRON_PREFS,0).edit().putInt("work_hours",hours).apply();msg("Jornada configurada: "+hours+" horas. Se aplicará a los próximos turnos.")});v.addView(button(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA",false){togglePatronBiometric()});v.addView(button("Cambiar PIN de Soy Patrón",false){changePatronPin()});v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("CONSULTAR NÓMINA",false){startActivity(Intent(this,PayrollAdminActivity::class.java))});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
  private fun togglePatronBiometric(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
