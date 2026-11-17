@@ -53,6 +53,7 @@ private fun moneyCents(value:Double)=kotlin.math.round(value*100.0).toLong()
 
 class PayrollRequestActivity:FragmentActivity() {
     private var scanCode=""
+    private var codeField:EditText?=null
     private lateinit var root:LinearLayout
     override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);draw()}
     private fun draw(){
@@ -70,7 +71,7 @@ class PayrollRequestActivity:FragmentActivity() {
     }
     private fun consumptionForm(worker:String){
         val box=LinearLayout(this).apply{orientation=1;setPadding(20,8,20,8)}
-        val code=payInput("Código del producto");val qty=payInput("Cantidad",true)
+        val code=payInput("Código del producto");codeField=code;val qty=payInput("Cantidad",true)
         box.addView(code);box.addView(payButton("ESCANEAR CÓDIGO"){IntentIntegrator(this).setPrompt("Escanea el producto").setBeepEnabled(true).initiateScan()});box.addView(qty)
         AlertDialog.Builder(this).setTitle("SOLICITAR CONSUMO").setMessage("Se descontará de tu nómina en el próximo pago.")
             .setView(box).setPositiveButton("REVISAR",null).setNegativeButton("CANCELAR",null).create().also{dialog->
@@ -128,7 +129,7 @@ class PayrollRequestActivity:FragmentActivity() {
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){
         super.onActivityResult(requestCode,resultCode,data)
         val result=IntentIntegrator.parseActivityResult(requestCode,resultCode,data)
-        if(result?.contents!=null){scanCode=result.contents;msgPayroll("Código escaneado: $scanCode")}
+        if(result?.contents!=null){scanCode=result.contents;codeField?.setText(scanCode);msgPayroll("Código escaneado: $scanCode")}
     }
     private fun msgPayroll(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
 }
