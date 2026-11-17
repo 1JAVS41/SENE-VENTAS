@@ -139,16 +139,58 @@ class PayrollEmployeeActivity:FragmentActivity(){
 }
 
 class PayrollAdminActivity:FragmentActivity(){
+ private fun showWorkersScreen(root:LinearLayout){
+  val scroll=ScrollView(this).apply{
+   isFillViewport=true
+   clipToPadding=false
+   setPadding(0,0,0,(resources.displayMetrics.density*40).toInt())
+   addView(root)
+  }
+  window.decorView.setPadding(0,0,0,0)
+  setContentView(scroll)
+ }
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);draw()}
  private fun draw(){
-  val profiles=WorkerProfiles.all(this);val root=payPage(if(intent.getBooleanExtra("manage_workers",false))"MIS TRABAJADORES" else "CONSULTAR NÓMINA")
-  if(profiles.isEmpty()){root.addView(payText("Primero registra trabajadores desde INICIAR TURNO."));payShow(root);return}
+  val manage=intent.getBooleanExtra("manage_workers",false)
+  val profiles=WorkerProfiles.all(this)
+  val root=payPage(if(manage)"MIS TRABAJADORES" else "CONSULTAR NÓMINA")
+  if(profiles.isEmpty()){
+   root.addView(payText("Primero registra trabajadores desde INICIAR TURNO."))
+   if(manage)showWorkersScreen(root) else payShow(root)
+   return
+  }
+  if(manage){
+   root.addView(payText("Selecciona un empleado para configurar sus horas, días laborales, sueldo semanal y día de pago.",14f))
+   root.addView(payText("EMPLEADOS REGISTRADOS",17f,true))
+   profiles.forEach{p->
+    root.addView(payButton("👤  "+p.name){
+     intent.putExtra("employee_id",p.id)
+     drawEmployee(p.id)
+    })
+   }
+   root.addView(payButton("VOLVER A SOY PATRÓN"){finish()})
+   showWorkersScreen(root)
+   return
+  }
   val selectedId=intent.getStringExtra("employee_id")?.takeIf{id->profiles.any{it.id==id}}?:profiles.first().id
   val profile=profiles.first{it.id==selectedId};val old=EmployeePayroll.config(this,selectedId)
-  if(intent.getBooleanExtra("manage_workers",false))root.addView(payText("Selecciona cada perfil para configurar sus horas diarias, sueldo semanal, días laborales, descansos y día de pago. Cada configuración se guarda por trabajador y se utiliza en sus reportes y nómina.",14f))
   val spinner=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,profiles.map{it.name});setSelection(profiles.indexOf(profile))}
   root.addView(payText("SELECCIONA TRABAJADOR",16f,true));root.addView(spinner)
   root.addView(payButton("CARGAR PERFIL SELECCIONADO"){startActivity(Intent(this,PayrollAdminActivity::class.java).putExtra("employee_id",profiles[spinner.selectedItemPosition].id));finish()})
+  addEmployeeConfiguration(root,profile,old,selectedId,false)
+  payShow(root)
+ }
+ private fun drawEmployee(employeeId:String){
+  val profile=WorkerProfiles.all(this).firstOrNull{it.id==employeeId}?:run{draw();return}
+  val old=EmployeePayroll.config(this,employeeId)
+  val root=payPage("MIS TRABAJADORES")
+  root.addView(payButton("← LISTA DE EMPLEADOS"){draw()})
+  root.addView(payText("EMPLEADO SELECCIONADO",15f,true))
+  root.addView(payText("👤  "+profile.name,20f,true))
+  addEmployeeConfiguration(root,profile,old,employeeId,true)
+  showWorkersScreen(root)
+ }
+ private fun addEmployeeConfiguration(root:LinearLayout,profile:WorkerProfiles.Profile,old:EmployeePayroll.Config?,selectedId:String,manage:Boolean){
   val name=payInput("Nombre del empleado").apply{setText(profile.name);isEnabled=false}
   val hours=payInput("Horas diarias (1 a 24)",true).apply{setText((old?.dailyHours?:8).toString())}
   val salary=payInput("Sueldo semanal $",true).apply{old?.let{setText(String.format(Locale.US,"%.2f",it.weeklySalaryCents/100.0))}}
@@ -161,10 +203,10 @@ class PayrollAdminActivity:FragmentActivity(){
   root.addView(payText("SELECCIONA LOS DÍAS QUE TRABAJA",16f,true));checks.forEach{root.addView(it.second)}
   root.addView(payText("Los días no seleccionados se consideran descanso."));root.addView(payText("DÍA DE PAGO"));root.addView(pay)
   root.addView(payButton("GUARDAR CONFIGURACIÓN"){
-   val h=hours.text.toString().toIntOrNull();val s=salary.text.toString().replace(",",".").toDoubleOrNull();val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
+   val h=hours.text.toString().toIntOrNull();val s=salary.text.toString().replace(",","\u002e").toDoubleOrNull();val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
    if(h==null||h !in 1..24||s==null||s<=0||chosen.isEmpty()){Toast.makeText(this,"Revisa horas, sueldo y días laborables.",Toast.LENGTH_LONG).show();return@payButton}
    val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,Calendar.SUNDAY+pay.selectedItemPosition,chosen,profile.id,old?.createdAt?:System.currentTimeMillis())
-   if(EmployeePayroll.saveConfig(this,cfg)){Toast.makeText(this,"Nómina de "+profile.name+" guardada.",Toast.LENGTH_LONG).show();draw()}else Toast.makeText(this,"No se pudo guardar.",Toast.LENGTH_LONG).show()
+   if(EmployeePayroll.saveConfig(this,cfg)){Toast.makeText(this,"Nómina de "+profile.name+" guardada.",Toast.LENGTH_LONG).show();if(manage)drawEmployee(selectedId)else draw()}else Toast.makeText(this,"No se pudo guardar.",Toast.LENGTH_LONG).show()
   })
   val cfg=EmployeePayroll.config(this,selectedId)
   if(cfg!=null){
@@ -178,6 +220,5 @@ class PayrollAdminActivity:FragmentActivity(){
    EmployeePayroll.entries(this,selectedId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
    root.addView(payButton("CONFIRMAR PAGO Y CERRAR PERIODO"){AlertDialog.Builder(this).setTitle("CONFIRMAR PAGO").setMessage("¿Ya se pagó a "+profile.name+"? Se marcarán como liquidados los consumos y préstamos de este periodo.").setPositiveButton("SÍ, YA SE PAGÓ"){_,_->val period=EmployeePayroll.periodKey(System.currentTimeMillis(),cfg.payDay);if(EmployeePayroll.markSettled(this,period,selectedId))Toast.makeText(this,"Periodo liquidado.",Toast.LENGTH_LONG).show()}.setNegativeButton("CANCELAR",null).show()})
   }
-  payShow(root)
  }
 }
