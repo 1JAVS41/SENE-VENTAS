@@ -143,6 +143,174 @@ internal object SeneApprovedKnowledge {
                 "¡Muchas cosas! 🤖 Puedo mejorar mi manera de conversar, comprender tus preguntas, ayudarte a resolver problemas y orientarte mejor durante tu jornada.",
                 "Mi objetivo es evolucionar contigo: mejorar mis respuestas, aprender de las experiencias aprobadas, comprender mejor SENE VENTAS y facilitar cada vez más tus actividades."
             )
+        ),
+        Entry(13, "¿Cómo registro una venta?", 1,
+            listOf("como registro una venta"),
+            listOf(
+                "Para registrar una venta, entra al módulo Ventas, busca o escanea los productos, indica las cantidades y sigue el proceso de confirmación. Verifica los artículos y el total antes de finalizar."
+            )
+        ),
+        Entry(14, "¿Cómo puedo consultar mis ventas de hoy?", 1,
+            listOf("como puedo consultar mis ventas de hoy"),
+            listOf(
+                "Puedo ayudarte a revisar las ventas registradas durante el día y mostrarte el importe y los movimientos disponibles en los registros locales."
+            )
+        ),
+        Entry(15, "¿Cómo consulto las ventas de otro día?", 1,
+            listOf("como consulto las ventas de otro dia"),
+            listOf(
+                "Indícame la fecha que deseas consultar. Buscaré las operaciones locales correspondientes a ese día, si están disponibles."
+            )
+        ),
+        Entry(16, "¿Cómo sé cuál es mi producto más vendido?", 1,
+            listOf("como se cual es mi producto mas vendido"),
+            listOf(
+                "Podemos revisar las cantidades vendidas por producto durante el periodo disponible para identificar cuáles tienen mayor movimiento."
+            )
+        ),
+        Entry(17, "¿Cómo sé qué productos están por agotarse?", 1,
+            listOf("como se que productos estan por agotarse"),
+            listOf(
+                "Revisa las existencias actuales y compáralas con el mínimo que necesitas para trabajar. Los productos con pocas unidades deben revisarse primero."
+            )
+        ),
+        Entry(18, "¿Cómo sé qué productos necesito comprar?", 1,
+            listOf("como se que productos necesito comprar"),
+            listOf(
+                "Compara las existencias con el movimiento de ventas. Prioriza los productos de alta demanda y pocas unidades disponibles."
+            )
+        ),
+        Entry(19, "¿Cómo identifico productos que no se venden?", 1,
+            listOf("como identifico productos que no se venden"),
+            listOf(
+                "Revisa los productos que llevan tiempo sin registrar movimientos. Puedes considerar promociones o ajustar futuras compras."
+            )
+        ),
+        Entry(20, "¿Cómo calculo el valor de mi inventario?", 1,
+            listOf("como calculo el valor de mi inventario"),
+            listOf(
+                "Multiplica la cantidad existente de cada producto por su costo unitario y suma los resultados. El cálculo depende de que los costos estén correctamente registrados."
+            )
+        ),
+        Entry(21, "¿Cómo evito quedarme sin mercancía?", 1,
+            listOf("como evito quedarme sin mercancia"),
+            listOf(
+                "Establece existencias mínimas, revisa los productos de mayor movimiento y programa las compras antes de llegar al nivel crítico."
+            )
+        ),
+        Entry(22, "¿Qué hago si el inventario físico no coincide?", 1,
+            listOf("que hago si el inventario fisico no coincide"),
+            listOf(
+                "Cuenta nuevamente el producto, revisa las entradas, ventas y ajustes registrados. Identifica la diferencia antes de corregir cualquier cantidad."
+            )
+        ),
+        Entry(23, "¿Cuál es la diferencia entre ventas y ganancias?", 1,
+            listOf("cual es la diferencia entre ventas y ganancias"),
+            listOf(
+                "Las ventas son el dinero generado por las operaciones. La ganancia se obtiene después de restar los costos y gastos correspondientes."
+            )
+        ),
+        Entry(24, "¿Cómo calculo mi ganancia por producto?", 1,
+            listOf("como calculo mi ganancia por producto"),
+            listOf(
+                "Resta el costo de compra al precio de venta. Para conocer la ganancia real también debes considerar los gastos asociados."
+            )
+        ),
+        Entry(25, "¿Cómo sé cuánto dinero debería haber en caja?", 1,
+            listOf("como se cuanto dinero deberia haber en caja"),
+            listOf(
+                "Compara el saldo inicial con los ingresos y retiros registrados. El resultado debe coincidir con el efectivo contado, considerando otros medios de pago por separado."
+            )
+        ),
+        Entry(26, "¿Cómo puedo controlar mejor mis gastos?", 1,
+            listOf("como puedo controlar mejor mis gastos"),
+            listOf(
+                "Registra cada gasto con fecha, concepto e importe. Después clasifícalos y compara cuánto representan respecto a tus ventas."
+            )
+        ),
+        Entry(27, "¿Cómo puedo atender mejor a mis clientes?", 1,
+            listOf("como puedo atender mejor a mis clientes"),
+            listOf(
+                "Escucha lo que necesitan, ofrece opciones adecuadas, explica claramente los precios y trata cada consulta con respeto."
+            )
+        ),
+        Entry(28, "¿Cómo puedo conseguir clientes nuevos?", 1,
+            listOf("como puedo conseguir clientes nuevos"),
+            listOf(
+                "Aprovecha las recomendaciones, publica tus productos, mantén visible tu negocio y ofrece promociones que realmente aporten valor."
+            )
+        ),
+        Entry(29, "¿Cómo puedo lograr que mis clientes regresen?", 1,
+            listOf("como puedo lograr que mis clientes regresen"),
+            listOf(
+                "Ofrece buena atención, productos de calidad, precios claros y seguimiento respetuoso. La confianza ayuda a construir clientes frecuentes."
+            )
+        ),
+        Entry(30, "¿Qué hago si un cliente se queja?", 1,
+            listOf("que hago si un cliente se queja"),
+            listOf(
+                "Escucha sin interrumpir, identifica el problema, verifica la operación y ofrece una solución justa conforme a las políticas de tu negocio."
+            )
+        ),
+        Entry(31, "¿Cómo puedo vender más a un mismo cliente?", 1,
+            listOf("como puedo vender mas a un mismo cliente"),
+            listOf(
+                "Recomienda productos complementarios que realmente le sirvan. Evita presionar y explica los beneficios de cada opción."
+            )
+        ),
+        Entry(32, "¿Cómo debo poner precio a mis productos?", 1,
+            listOf("como debo poner precio a mis productos"),
+            listOf(
+                "Considera el costo de compra, gastos, margen deseado y precios del mercado. Comprueba que el precio permita cubrir tus costos."
+            )
+        ),
+        Entry(33, "¿Cómo calculo un descuento?", 1,
+            listOf("como calculo un descuento"),
+            listOf(
+                "Multiplica el precio original por el porcentaje de descuento y réstalo al precio original. Comprueba que el precio final siga siendo rentable."
+            )
+        ),
+        Entry(34, "¿Qué promociones puedo ofrecer?", 1,
+            listOf("que promociones puedo ofrecer"),
+            listOf(
+                "Puedes probar paquetes, descuentos por cantidad, productos complementarios o promociones temporales. Mide cuáles generan mejores resultados."
+            )
+        ),
+        Entry(35, "¿Cómo puedo aumentar mis ventas?", 1,
+            listOf("como puedo aumentar mis ventas"),
+            listOf(
+                "Identifica los productos más solicitados, mejora su disponibilidad, comunica sus beneficios y ofrece atención rápida. Revisa los resultados para ajustar tu estrategia."
+            )
+        ),
+        Entry(36, "¿Cómo sé si mi negocio está creciendo?", 1,
+            listOf("como se si mi negocio esta creciendo"),
+            listOf(
+                "Compara ventas, ganancias, clientes, gastos y movimiento de inventario entre periodos equivalentes. No te bases únicamente en el importe vendido."
+            )
+        ),
+        Entry(37, "¿Cómo organizo mejor mi negocio?", 1,
+            listOf("como organizo mejor mi negocio"),
+            listOf(
+                "Define tareas, horarios, responsables y procedimientos. Mantén ordenados los registros de ventas, caja, inventario y gastos."
+            )
+        ),
+        Entry(38, "¿Qué debo revisar al abrir mi negocio?", 1,
+            listOf("que debo revisar al abrir mi negocio"),
+            listOf(
+                "Comprueba el efectivo inicial, el estado del inventario, los productos prioritarios y que los equipos necesarios estén funcionando."
+            )
+        ),
+        Entry(39, "¿Qué debo revisar al cerrar el día?", 1,
+            listOf("que debo revisar al cerrar el dia"),
+            listOf(
+                "Revisa ventas, efectivo, otros medios de pago, retiros, gastos e inventario. Compara los registros con los resultados reales."
+            )
+        ),
+        Entry(40, "¿Qué indicadores debo revisar cada semana?", 1,
+            listOf("que indicadores debo revisar cada semana"),
+            listOf(
+                "Ventas totales, ganancia estimada, gastos, productos más vendidos, artículos agotados y diferencias de caja."
+            )
         )
     )
 
@@ -153,17 +321,23 @@ internal object SeneApprovedKnowledge {
 
     private fun seed(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (prefs.contains(KEY)) return
-        val array = JSONArray()
+        val array = try { JSONArray(prefs.getString(KEY, "[]")) } catch (_: Exception) { JSONArray() }
+        val existingIds = mutableSetOf<Int>()
+        for (i in 0 until array.length()) {
+            array.optJSONObject(i)?.let { existingIds.add(it.optInt("id")) }
+        }
+        var changed = false
         entries.forEach { entry ->
+            if (entry.id in existingIds) return@forEach
             val answers = JSONArray()
             entry.answers.forEach { answers.put(it) }
             val aliases = JSONArray()
             entry.aliases.forEach { aliases.put(it) }
             array.put(JSONObject().put("id", entry.id).put("question", entry.question)
                 .put("primary", entry.primary).put("aliases", aliases).put("answers", answers))
+            changed = true
         }
-        prefs.edit().putString(KEY, array.toString()).apply()
+        if (changed || !prefs.contains(KEY)) prefs.edit().putString(KEY, array.toString()).apply()
     }
 
     fun answer(context: Context, raw: String): String? {
