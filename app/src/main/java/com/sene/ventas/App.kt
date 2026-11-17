@@ -559,8 +559,6 @@ class InicioTurnoActivity:FragmentActivity(){
   dialog.show()
  }
  private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
- v.addView(button("YA SOY CLIENTE SENE · INICIAR SESIÓN",true){startActivity(Intent(this,AccountLoginActivity::class.java))})
- val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))};v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
  v.addView(txt("SELECCIONA TU PERFIL PARA INICIAR TURNO",16f))
  val profiles=WorkerProfiles.all(this)
  if(profiles.isEmpty())v.addView(txt("Aún no hay perfiles registrados. Agrega el primero para comenzar.",14f))
@@ -576,7 +574,14 @@ class InicioTurnoActivity:FragmentActivity(){
  v.addView(button("Soy Patrón",false){refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))})
  val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false};if(!inventoryReady){val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f);notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)}
  Protection.addBlindButton(this,v)
- v.addView(txt("MI TURNO LABORAL"));val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f));display(v)}
+ v.addView(button("MI TURNO LABORAL",false){showWorkHistory()})
+ display(v)}
+ private fun showWorkHistory(){
+  val moves=Store.moves(this);val lines=StringBuilder()
+  for(i in moves.length()-1 downTo 0){val item=moves.optJSONObject(i)?:continue;val line=item.optString("text");if(line.isNotBlank())lines.append(line).append("\\n\\n")}
+  val message=if(lines.isEmpty())"Todavía no hay movimientos registrados." else lines.toString().trim()
+  AlertDialog.Builder(this).setTitle("MI TURNO LABORAL").setMessage(message).setPositiveButton("CERRAR",null).show()
+ }
 }
 
 class MainActivity:FragmentActivity(){
