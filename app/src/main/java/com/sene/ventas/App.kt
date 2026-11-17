@@ -513,10 +513,10 @@ class InicioTurnoActivity:FragmentActivity(){
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorkerId,pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
  private fun chooseWorker(){
   val profiles=WorkerProfiles.all(this)
-  if(profiles.isEmpty()){registerWorker();return}
+  if(profiles.isEmpty()){pin{registerWorker()};return}
   val labels=profiles.map{it.name}.toTypedArray()
   AlertDialog.Builder(this).setTitle("SELECCIONA TU PERFIL").setItems(labels){_,which->authenticateWorker(profiles[which])}
-   .setPositiveButton("REGISTRAR NUEVO"){_,_->registerWorker()}
+   .setPositiveButton("REGISTRAR NUEVO"){_,_->pin{registerWorker()}}
    .setNegativeButton("CANCELAR",null).show()
  }
  private fun registerWorker(){
@@ -563,7 +563,7 @@ class InicioTurnoActivity:FragmentActivity(){
  val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))};v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
  v.addView(txt("INICIA TU TURNO CON TU PERFIL PERSONAL",16f,true))
  v.addView(powerButton("⏻  INICIAR TURNO"){chooseWorker()})
- v.addView(button("REGISTRAR NUEVO TRABAJADOR",false){registerWorker()})
+ v.addView(button("REGISTRAR NUEVO TRABAJADOR",false){pin{registerWorker()}})
  v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
  val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false};if(!inventoryReady){val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f);notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)}
  Protection.addBlindButton(this,v)
