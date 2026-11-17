@@ -515,13 +515,14 @@ class InicioTurnoActivity:FragmentActivity(){
   val profiles=WorkerProfiles.all(this)
   val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
   val scroll=ScrollView(this)
+  lateinit var dialog:AlertDialog
   profiles.forEach{profile->
    content.addView(button("👤  "+profile.name,false){dialog.dismiss();authenticateWorker(profile)})
   }
   content.addView(button("＋  AGREGAR PERFIL",true){dialog.dismiss();pin{registerWorker()}})
   if(profiles.isEmpty())content.addView(txt("Aún no hay perfiles registrados. Agrega el primero para comenzar.",14f),0)
   scroll.addView(content)
-  val dialog=AlertDialog.Builder(this).setTitle("INICIAR TURNO").setView(scroll)
+  dialog=AlertDialog.Builder(this).setTitle("INICIAR TURNO").setView(scroll)
    .setNegativeButton("CERRAR",null).create()
   // Los perfiles y AGREGAR PERFIL quedan juntos dentro del menú de inicio de turno.
   dialog.show()
