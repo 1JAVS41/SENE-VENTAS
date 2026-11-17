@@ -37,50 +37,10 @@ object Protection {
         Settings.Secure.getString(c.contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
 
     fun requireActivation(activity: Activity, onAuthorized: () -> Unit) {
-        if (isAuthorized(activity)) {
-            onAuthorized()
-            return
-        }
-        val field = EditText(activity).apply {
-            hint = "Clave maestra"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setSingleLine(true)
-            setPadding(activity.dp(18), activity.dp(14), activity.dp(18), activity.dp(14))
-        }
-        val dialog = AlertDialog.Builder(activity)
-            .setTitle("SENE-VENTAS · Autorización")
-            .setMessage("Introduce la clave maestra para autorizar este dispositivo.")
-            .setView(field)
-            .setCancelable(false)
-            .setPositiveButton("AUTORIZAR", null)
-            .setNeutralButton("VER DATOS DE PAGO", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                activity.startActivity(android.content.Intent(activity, PaymentInfoActivity::class.java))
-            }
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val entered = field.text?.toString().orEmpty()
-                if (verifyMasterKey(entered) && deviceId(activity).isNotBlank()) {
-                    dialog.dismiss()
-                    requestInitialReportNumber(activity) { number ->
-                        Store.setPhone(activity, number)
-                        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                            .putBoolean("authorized", true)
-                            .putString("device_id", deviceId(activity))
-                            .apply()
-                        onAuthorized()
-                    }
-                } else {
-                    field.text?.clear()
-                    field.error = "Clave incorrecta"
-                }
-            }
-        }
-        dialog.show()
+        // El acceso local a la APK es directo. La licencia SENE se valida por separado.
+        onAuthorized()
     }
 
-    
     private fun requestInitialReportNumber(activity: Activity, onSaved: (String) -> Unit) {
         val field = EditText(activity).apply {
             hint = "Ej. 52 + número de celular"
