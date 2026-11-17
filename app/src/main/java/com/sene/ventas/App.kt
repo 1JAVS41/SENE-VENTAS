@@ -306,8 +306,8 @@ private object InventoryArchive {
   return target
  }
  private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
-  val out=StringBuilder("INVENTARIO_SENE_V1\\nActualizado: ").append(stamp()).append("\\nCódigo | Producto | Precio | Existencia")
-  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
+  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia")
+  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
   stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
  }
  fun save(activity:Activity,products:JSONArray,employeeId:String?=null,workerName:String=""):Boolean {
@@ -316,7 +316,7 @@ private object InventoryArchive {
   return try{
    val tree=Uri.parse(saved);val resolver=activity.contentResolver
    val folder=if(!employeeId.isNullOrBlank())WorkerArchive.profileSection(activity,tree,employeeId,workerName,"INVENTARIOS") else {
-    val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+    val root=if(employeeId.isNotBlank())WorkerArchive.profileSection(activity,tree,employeeId,workerName,"REPORTES") else DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
     val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
     var found:Uri?=null
     resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
@@ -1611,8 +1611,8 @@ private fun saveReportToDownloads(activity:Activity,file:java.io.File):Uri? {
 }
 
 private const val REPORT_BACKUP_NOTE="\n\nGuarde este reporte en una carpeta segura. Será su respaldo de inventario hasta este momento."
-private fun saveTextBackupLocal(activity:Activity,prefix:String,body:String):java.io.File {
- val folder=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"SENE VENTAS/INVENTARIO SENE")
+private fun saveTextBackupLocal(activity:Activity,prefix:String,body:String,employeeId:String="",workerName:String=""):java.io.File {
+ val folder=if(employeeId.isNotBlank())WorkerArchive.localReportsFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"SENE VENTAS/INVENTARIO SENE")
  if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta privada de respaldo SENE VENTAS")
  val date=SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS",Locale.US).format(Date())
  val target=java.io.File(folder,"$prefix-$date.txt")
@@ -1620,7 +1620,7 @@ private fun saveTextBackupLocal(activity:Activity,prefix:String,body:String):jav
  if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el TXT de respaldo")
  return target
 }
-private fun saveTextBackup(activity:Activity,tree:Uri,prefix:String,body:String):Uri {
+private fun saveTextBackup(activity:Activity,tree:Uri,prefix:String,body:String,employeeId:String="",workerName:String=""):Uri {
  val resolver=activity.contentResolver
  val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
  val date=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
