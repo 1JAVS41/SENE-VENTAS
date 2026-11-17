@@ -664,7 +664,7 @@ class MainActivity:FragmentActivity(){
     val row=sales.optJSONObject(i)?:continue
     if(row.optString("ticketId")==correctionTicketId&&row.optString("type","SALE")=="SALE"&&row.optString("code")==value){
      var already=0
-     for(j in 0 until sales.length()){val prior=sales.optJSONObject(j)?:continue;if(prior.optString("ticketId")==correctionTicketId&&prior.optString("sourceCode")==value)already+=prior.optInt("qty",1)}
+     for(j in 0 until sales.length()){val prior=sales.optJSONObject(j)?:continue;if(prior.optString("ticketId")==correctionTicketId&&prior.optString("sourceCode")==value&&(prior.optString("type")=="SALE_DELETE"||prior.optString("type")=="SALE_REPLACE_OLD"))already+=prior.optInt("qty",1)}
      if(already<row.optInt("qty",1))available=true
     }
    }
@@ -1505,17 +1505,40 @@ object ReportFile {
   val data=root ?: run { val pref=c.getSharedPreferences("sene_ventas_local",0).getString("datos",null); try{if(pref==null)org.json.JSONObject() else org.json.JSONObject(pref)}catch(_:Exception){org.json.JSONObject()} }
   val shift=data.optJSONObject("shift") ?: org.json.JSONObject()
   data.put("sales",Store.sales(c)).put("moves",Store.moves(c))
-  val out=StringBuilder("SENE-VENTAS - REPORTE DE MOVIMIENTOS\n")
-  out.append("Actualizado: ").append(stamp()).append("\nTrabajador: ").append(shift.optString("worker","-")).append("\nNúmero del trabajador: ").append(shift.optString("phone","-")).append("\nInicio de turno: ").append(shift.optString("started","-")).append("\nFecha y hora de cierre: ").append(shift.optString("closed","Turno en curso")).append("\nÚltima actualización de stock: ").append(Store.stockUpdatedAtText(c)).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\n\nVENTAS\n")
+  val out=StringBuilder("SENE VENTAS  •  REPORTE DE MOVIMIENTOS\n")
+  out.append("━━━━━━━━━━━━━━━━━━━━━━━━\nETIQUETA: DATOS DEL TURNO\n")
+   .append("ACTUALIZADO: ").append(stamp()).append("\nTRABAJADOR: ").append(shift.optString("worker","-"))
+   .append("\nTELÉFONO: ").append(shift.optString("phone","-"))
+   .append("\nINICIO: ").append(shift.optString("started","-"))
+   .append("\nCIERRE: ").append(shift.optString("closed","Turno en curso"))
+   .append("\nCAJA INICIAL: ").append(Store.money(shift.optDouble("cash")))
+   .append("\nÚLTIMA ACTUALIZACIÓN DE STOCK: ").append(Store.stockUpdatedAtText(c))
+   .append("\n\nETIQUETA: VENTAS Y CORRECCIONES\n")
   val sales=data.optJSONArray("sales") ?: org.json.JSONArray();var total=0.0
-  for(i in 0 until sales.length()){val x=sales.optJSONObject(i)?:continue;if(x.optLong("ts")>=shift.optLong("startTs",0)){total+=x.optDouble("subtotal");out.append(x.optString("time")).append(" | ").append(x.optString("name")).append(" x").append(x.optInt("qty")).append(" | ").append(Store.money(x.optDouble("subtotal"))).append("\n")}}
+  for(i in 0 until sales.length()){
+   val x=sales.optJSONObject(i)?:continue
+   if(x.optLong("ts")>=shift.optLong("startTs",0)){
+    total+=x.optDouble("subtotal")
+    val kind=when(x.optString("type","SALE")){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE_OLD"->"PRODUCTO DEVUELTO";"SALE_REPLACE_NEW"->"PRODUCTO ENTREGADO";else->"VENTA"}
+    out.append("\n[ ").append(kind).append(" ] ").append(x.optString("time"))
+     .append("\nPRODUCTO: ").append(x.optString("name"))
+     .append(" | CANTIDAD: ").append(x.optInt("qty",1))
+     .append("\nIMPORTE: ").append(Store.money(x.optDouble("subtotal")))
+    if(x.optString("reason").isNotBlank())out.append("\nMOTIVO: ").append(x.optString("reason"))
+   }
+  }
   val moves=data.optJSONArray("moves") ?: org.json.JSONArray()
   var providerTotal=0.0
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optString("type")=="PROVIDER_PAYMENT"&&x.optLong("ts",0L)>=shift.optLong("startTs",0L))providerTotal+=x.optDouble("amount",0.0)}
-  out.append("TOTAL VENDIDO: ").append(Store.money(total)).append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal)).append("\nCAJA ACTUAL: ").append(Store.money(shift.optDouble("cash")+total-providerTotal)).append("\n\nMOVIMIENTOS DE INVENTARIO Y GASTOS\n")
-  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;out.append(x.optString("time")).append(" | ").append(x.optString("text")).append("\n")}
-  out.append("\nSTOCK ACTUAL\n");val products=data.optJSONArray("products") ?: org.json.JSONArray()
-  for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | Existencia: ").append(x.optInt("stock")).append("\n")}
+  out.append("\n\nETIQUETA: RESUMEN DE CAJA")
+   .append("\nVENTAS NETAS (INCLUYE DEVOLUCIONES): ").append(Store.money(total))
+   .append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal))
+   .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal))
+   .append("\n\nETIQUETA: GASTOS Y MOVIMIENTOS")
+  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
+  out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
+  val products=data.optJSONArray("products") ?: org.json.JSONArray()
+  for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock"))}
   val dir=c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir
   if(!dir.exists())dir.mkdirs()
   val file=java.io.File(dir,"SENE-VENTAS-REPORTE.txt")
