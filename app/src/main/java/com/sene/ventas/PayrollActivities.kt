@@ -141,10 +141,11 @@ class PayrollEmployeeActivity:FragmentActivity(){
 class PayrollAdminActivity:FragmentActivity(){
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);draw()}
  private fun draw(){
-  val profiles=WorkerProfiles.all(this);val root=payPage("CONSULTAR NÓMINA")
+  val profiles=WorkerProfiles.all(this);val root=payPage(if(intent.getBooleanExtra("manage_workers",false))"MIS TRABAJADORES" else "CONSULTAR NÓMINA")
   if(profiles.isEmpty()){root.addView(payText("Primero registra trabajadores desde INICIAR TURNO."));payShow(root);return}
   val selectedId=intent.getStringExtra("employee_id")?.takeIf{id->profiles.any{it.id==id}}?:profiles.first().id
   val profile=profiles.first{it.id==selectedId};val old=EmployeePayroll.config(this,selectedId)
+  if(intent.getBooleanExtra("manage_workers",false))root.addView(payText("Selecciona cada perfil para configurar sus horas diarias, sueldo semanal, días laborales, descansos y día de pago. Cada configuración se guarda por trabajador y se utiliza en sus reportes y nómina.",14f))
   val spinner=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,profiles.map{it.name});setSelection(profiles.indexOf(profile))}
   root.addView(payText("SELECCIONA TRABAJADOR",16f,true));root.addView(spinner)
   root.addView(payButton("CARGAR PERFIL SELECCIONADO"){startActivity(Intent(this,PayrollAdminActivity::class.java).putExtra("employee_id",profiles[spinner.selectedItemPosition].id));finish()})
