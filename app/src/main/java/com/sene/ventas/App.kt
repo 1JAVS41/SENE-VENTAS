@@ -906,10 +906,39 @@ class MainActivity:FragmentActivity(){
   }catch(e:Exception){msg("Venta guardada. No se pudo generar el QR en pantalla: "+(e.message?:"error"))}
  }
  private fun showWorkday(){val shift=Store.shift(this)?:run{msg("No hay una jornada activa");return};val start=shift.optLong("startTs",0L);val hours=shift.optInt("workHours",configuredWorkHours(this));val end=shift.optLong("expectedEndTs",start+hours*3600000L);val remaining=(end-System.currentTimeMillis()).coerceAtLeast(0L);val h=remaining/3600000L;val m=(remaining%3600000L)/60000L;val text="TRABAJADOR: "+shift.optString("worker","-")+ "\nHORA DE ENTRADA: "+shift.optString("started","-")+"\nJORNADA: "+hours+" horas\nHORA PROGRAMADA DE SALIDA: "+shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end)))+"\n"+if(remaining>0)"TIEMPO RESTANTE: "+String.format(Locale.US,"%02d h %02d min",h,m) else "JORNADA COMPLETADA. Ya puedes finalizar el turno.";AlertDialog.Builder(this).setTitle("MI JORNADA LABORAL").setMessage(text).setPositiveButton("ENTENDIDO",null).show()}
- private fun requestFinishWorkday(){val shift=Store.shift(this)?:return;val end=shift.optLong("expectedEndTs",shift.optLong("startTs",0L)+shift.optInt("workHours",configuredWorkHours(this))*3600000L);if(System.currentTimeMillis()<end){val left=end-System.currentTimeMillis();val hh=left/3600000L;val mm=(left%3600000L)/60000L;AlertDialog.Builder(this).setTitle("JORNADA NO COMPLETADA").setMessage("Aún no puedes finalizar el turno. Te faltan "+String.format(Locale.US,"%02d h %02d min",hh,mm)+".").setPositiveButton("ENTENDIDO",null).show();return};AlertDialog.Builder(this).setTitle("FINALIZAR TURNO").setMessage("Tu jornada está completa. Se preparará el reporte final para enviarlo al WhatsApp de Soy Patrón. ¿Deseas continuar?").setPositiveButton("ENVIAR REPORTE"){_,_->sendReport(true)}.setNegativeButton("CANCELAR",null).show()}
+ private fun requestFinishWorkday(){
+  val shift=Store.shift(this)?:return
+  val start=shift.optLong("startTs",0L)
+  val end=shift.optLong("expectedEndTs",start+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
+  val complete=System.currentTimeMillis()>=end
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  fun timeTag(title:String,value:String,accent:Int){
+   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(12),dp(15),dp(12));background=GradientDrawable().apply{setColor(0xFFF6F8FD.toInt());cornerRadius=dp(14).toFloat();setStroke(dp(1),0xFFDCE5F2.toInt())}}
+   card.addView(TextView(this).apply{text=title;textSize=12f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF71809A.toInt())})
+   card.addView(TextView(this).apply{text=value;textSize=19f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(accent);setPadding(0,dp(5),0,0)})
+   panel.addView(card,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(9)})
+  }
+  timeTag("COMENZASTE TU TURNO A",shift.optString("started","—"),0xFF24569A.toInt())
+  timeTag("DEBERÍAS SALIR A",shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end))),0xFF16804A.toInt())
+  val message=if(complete)"Tu jornada está completa. Se preparará el reporte final para enviarlo al WhatsApp de Soy Patrón. ¿Deseas continuar?" else {val left=end-System.currentTimeMillis();val hh=left/3600000L;val mm=(left%3600000L)/60000L;"Aún no puedes finalizar el turno. Te faltan "+String.format(Locale.US,"%02d h %02d min",hh,mm)+"."}
+  AlertDialog.Builder(this).setTitle("FINALIZAR TURNO").setView(panel).setMessage(message)
+   .setPositiveButton(if(complete)"ENVIAR REPORTE" else "ENTENDIDO"){_,_->if(complete)sendReport(true)}
+   .setNegativeButton(if(complete)"CANCELAR" else "CERRAR",null).show()
+ }
  private fun showMyTurnMenu(){
-  val options=arrayOf("SOLICITA","MI NÓMINA","MI JORNADA LABORAL")
-  AlertDialog.Builder(this).setTitle("MI TURNO").setItems(options){_,which->when(which){0->startActivity(Intent(this,PayrollRequestActivity::class.java));1->startActivity(Intent(this,PayrollEmployeeActivity::class.java));2->showWorkday()}}.setNegativeButton("CERRAR",null).show()
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
+  val dialog=AlertDialog.Builder(this).setTitle("MI TURNO").setView(ScrollView(this).apply{addView(panel)}).setNegativeButton("CERRAR",null).create()
+  fun option(title:String,description:String,action:()->Unit){
+   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(13),dp(15),dp(13));background=rounded(0xFFFFFFFF.toInt(),16,0xFFDCE5F2.toInt());isClickable=true;isFocusable=true;elevation=dp(1).toFloat()}
+   card.addView(TextView(this).apply{text=title;textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1C315B.toInt())})
+   card.addView(TextView(this).apply{text=description;textSize=12f;setTextColor(0xFF74809A.toInt());setPadding(0,dp(4),0,0)})
+   panel.addView(card,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(9)})
+   card.setOnClickListener{dialog.dismiss();action()}
+  }
+  option("SOLICITA","Registrar un consumo o solicitar un préstamo"){startActivity(Intent(this,PayrollRequestActivity::class.java))}
+  option("MI NÓMINA","Consultar sueldo, descuentos e historial"){startActivity(Intent(this,PayrollEmployeeActivity::class.java))}
+  option("MI JORNADA LABORAL","Consultar entrada, salida estimada y tiempo restante"){showWorkday()}
+  dialog.show()
  }
  private fun showToolsMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
@@ -1030,6 +1059,15 @@ class MainActivity:FragmentActivity(){
   v.addView(button("CORRECCIÓN DE VENTA",false){beginTicketCorrection()})
   Protection.addBlindButton(this,v)
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
+  Store.shift(this)?.let{shift->
+   val start=shift.optLong("startTs",0L);val end=shift.optLong("expectedEndTs",start+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
+   val info=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(12),dp(15),dp(12));background=rounded(0xFFF7F9FE.toInt(),15,0xFFDCE5F2.toInt())}
+   info.addView(TextView(this).apply{text="COMENZASTE TU TURNO A";textSize=11f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF71809A.toInt())})
+   info.addView(TextView(this).apply{text=shift.optString("started","—");textSize=17f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF24569A.toInt());setPadding(0,dp(3),0,dp(10))})
+   info.addView(TextView(this).apply{text="DEBERÍAS SALIR A";textSize=11f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF71809A.toInt())})
+   info.addView(TextView(this).apply{text=shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end)));textSize=17f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF16804A.toInt());setPadding(0,dp(3),0,0)})
+   v.addView(info)
+  }
   v.addView(powerButton("FINALIZAR TURNO"){requestFinishWorkday()})
   v.addView(button("MI TURNO",false){showMyTurnMenu()})
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
