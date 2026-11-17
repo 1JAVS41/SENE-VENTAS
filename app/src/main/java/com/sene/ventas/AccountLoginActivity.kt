@@ -62,7 +62,25 @@ class AccountLoginActivity : Activity() {
         })
         root.addView(action("VOLVER", false) { finish() })
         setContentView(ScrollView(this).apply { isFillViewport = true; addView(root) })
-        showTransferWarning()
+        checkCurrentSession()
+    }
+
+    private fun checkCurrentSession() {
+        Thread {
+            val status = try { ActivationApi.subscriptionStatus(this) } catch (_: Exception) { null }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (status?.optBoolean("active") == true) {
+                    AlertDialog.Builder(this).setTitle("SESIÓN ACTIVA")
+                        .setMessage("Este dispositivo ya está autorizado para " + status.optString("business_name", "tu negocio") + ". La suscripción está vigente.")
+                        .setPositiveButton("CONTINUAR") { _, _ -> finish() }.show()
+                } else {
+                    val linked = getSharedPreferences("sene_account_transfer", MODE_PRIVATE)
+                        .getBoolean("linked_successfully", false)
+                    if (!linked) showTransferWarning()
+                }
+            }
+        }.start()
     }
 
     private fun showTransferWarning() {
@@ -105,6 +123,8 @@ class AccountLoginActivity : Activity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 setBusy(false)
                 if (result.optBoolean("ok") && status?.optBoolean("active") == true) {
+                    getSharedPreferences("sene_account_transfer", MODE_PRIVATE).edit()
+                        .putBoolean("linked_successfully", true).apply()
                     AlertDialog.Builder(this).setTitle("INICIO DE SESIÓN CORRECTO")
                         .setMessage("Este dispositivo quedó vinculado a " + status.optString("business_name", "tu negocio") +
                             ". El dispositivo anterior perdió el acceso. Tu suscripción y fecha de vencimiento se conservaron.")
