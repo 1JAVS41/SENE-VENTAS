@@ -903,7 +903,8 @@ class MainActivity:FragmentActivity(){
   }
   val opening=shift.optDouble("cash",0.0)
   val providerExpenses=Store.providerExpenses(this,startTs)
-  val estimated=opening+shiftTotal-providerExpenses
+  val loanExpenses=Store.moves(this).let{moves->(0 until moves.length()).sumOf{i->val m=moves.optJSONObject(i);if(m?.optString("type")=="LOAN_DISBURSEMENT"&&m.optLong("ts",0L)>=startTs)m.optDouble("amount",0.0)else 0.0}}
+  val estimated=opening+shiftTotal-providerExpenses-loanExpenses
   val report=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   fun summaryLine(label:String,value:String,emphasis:Boolean=false){
    val line=TextView(this).apply{
@@ -1659,12 +1660,13 @@ object ReportFile {
    }
   }
   val moves=data.optJSONArray("moves") ?: org.json.JSONArray()
-  var providerTotal=0.0
-  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optString("type")=="PROVIDER_PAYMENT"&&x.optLong("ts",0L)>=shift.optLong("startTs",0L))providerTotal+=x.optDouble("amount",0.0)}
+  var providerTotal=0.0;var loanTotal=0.0
+  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L)){if(x.optString("type")=="PROVIDER_PAYMENT")providerTotal+=x.optDouble("amount",0.0);if(x.optString("type")=="LOAN_DISBURSEMENT")loanTotal+=x.optDouble("amount",0.0)}}
   out.append("\n\nETIQUETA: RESUMEN DE CAJA")
    .append("\nVENTAS NETAS (INCLUYE DEVOLUCIONES): ").append(Store.money(total))
    .append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal))
-   .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal))
+   .append("\nPRÉSTAMOS ENTREGADOS: ").append(Store.money(loanTotal))
+   .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal-loanTotal))
    .append("\n\nETIQUETA: GASTOS Y MOVIMIENTOS")
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
   out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
