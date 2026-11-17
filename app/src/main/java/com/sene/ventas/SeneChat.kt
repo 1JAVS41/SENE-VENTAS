@@ -410,7 +410,7 @@ private class SeneConversation {
 
         // Respuestas a aclaraciones pendientes: permiten contestar "50 y 80".
         if (pending == "profit" || (rememberedCost == null && Regex("^\\d+(?:[.,]\\d+)?\\s+y\\s+\\d+(?:[.,]\\d+)?$").matches(q))) {
-            val nums = Regex("\\d+(?:[.,]\\d+)?").findAll(q).mapNotNull { it.value.replace(",", ".").toDoubleOrNull() }
+            val nums = Regex("\\d+(?:[.,]\\d+)?").findAll(q).mapNotNull { it.value.replace(",", ".").toDoubleOrNull() }.toList()
             if (nums.size >= 2) {
                 rememberedCost = nums[0]; rememberedPrice = nums[1]; pending = ""
                 val gain = nums[1] - nums[0]
