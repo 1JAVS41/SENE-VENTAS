@@ -990,6 +990,14 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   completeReport(final,Uri.parse(saved))
  }
  private var pendingReportText:String?=null
+ private fun saveReportToPhone(){
+  val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
+   addCategory(Intent.CATEGORY_OPENABLE)
+   type="text/plain"
+   putExtra(Intent.EXTRA_TITLE,"SENE-VENTAS-REPORTE.txt")
+  }
+  try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(e:Exception){msg("No se pudo abrir el selector para guardar el reporte TXT")}
+ }
  private fun completeReport(final:Boolean,tree:Uri){
   val s=Store.shift(this)?:return
   try{
