@@ -36,7 +36,8 @@ object Store {
  @Synchronized private fun db(c:Context):HistoryDb {val h=history?:HistoryDb(c.applicationContext).also{history=it};h.migrate(c.applicationContext);return h}
  private fun root(c:Context):JSONObject { val raw=c.getSharedPreferences(PREF,0).getString(KEY,null); return try { if(raw==null) JSONObject() else JSONObject(raw) } catch(e:Exception){ JSONObject() } }
  private fun put(c:Context,r:JSONObject){ c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).apply(); try{ReportFile.update(c,r)}catch(_:Exception){} }
- fun products(c:Context)=root(c).optJSONArray("products")?:JSONArray()\n fun masterProducts(c:Context):JSONArray{val prefs=c.getSharedPreferences(PREF,0);val saved=prefs.getString("master_products",null);if(!saved.isNullOrBlank())return try{JSONArray(saved)}catch(_:Exception){JSONArray()};val current=products(c);if(shift(c)==null)prefs.edit().putString("master_products",current.toString()).apply();return current}
+ fun products(c:Context)=root(c).optJSONArray("products")?:JSONArray()
+ fun masterProducts(c:Context):JSONArray{val prefs=c.getSharedPreferences(PREF,0);val saved=prefs.getString("master_products",null);if(!saved.isNullOrBlank())return try{JSONArray(saved)}catch(_:Exception){JSONArray()};val current=products(c);if(shift(c)==null)prefs.edit().putString("master_products",current.toString()).apply();return current}
  fun sales(c:Context)=db(c).all("sales")
  fun moves(c:Context)=db(c).all("moves")
  fun shift(c:Context)=root(c).optJSONObject("shift")
