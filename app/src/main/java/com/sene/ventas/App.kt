@@ -458,7 +458,7 @@ class InicioTurnoActivity:FragmentActivity(){
   }.start()
  }
 
- override fun onDestroy(){internetClockHandler.removeCallbacks(internetClockTick);super.onDestroy()}
+ override fun onDestroy(){internetClockHandler.removeCallbacks(internetClockTick);deviceClockHandler.removeCallbacks(deviceClockTick);super.onDestroy()}
  private var pendingWorker=""
  private var pendingWorkerPhone=""
  private var pendingWorkerId=""
@@ -513,11 +513,18 @@ class InicioTurnoActivity:FragmentActivity(){
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();createShiftReport(pendingWorkerId,pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
  private fun chooseWorker(){
   val profiles=WorkerProfiles.all(this)
-  if(profiles.isEmpty()){pin{registerWorker()};return}
-  val labels=profiles.map{it.name}.toTypedArray()
-  AlertDialog.Builder(this).setTitle("SELECCIONA TU PERFIL").setItems(labels){_,which->authenticateWorker(profiles[which])}
-   .setPositiveButton("REGISTRAR NUEVO"){_,_->pin{registerWorker()}}
-   .setNegativeButton("CANCELAR",null).show()
+  val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val scroll=ScrollView(this)
+  profiles.forEach{profile->
+   content.addView(button("👤  "+profile.name,false){dialog.dismiss();authenticateWorker(profile)})
+  }
+  content.addView(button("＋  AGREGAR PERFIL",true){dialog.dismiss();pin{registerWorker()}})
+  if(profiles.isEmpty())content.addView(txt("Aún no hay perfiles registrados. Agrega el primero para comenzar.",14f),0)
+  scroll.addView(content)
+  val dialog=AlertDialog.Builder(this).setTitle("INICIAR TURNO").setView(scroll)
+   .setNegativeButton("CERRAR",null).create()
+  // Los perfiles y AGREGAR PERFIL quedan juntos dentro del menú de inicio de turno.
+  dialog.show()
  }
  private fun registerWorker(){
   val name=input("Nombre del trabajador")
@@ -558,23 +565,24 @@ class InicioTurnoActivity:FragmentActivity(){
   }}
   dialog.show()
  }
- private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
- v.addView(txt("SELECCIONA TU PERFIL PARA INICIAR TURNO",16f))
- val profiles=WorkerProfiles.all(this)
- if(profiles.isEmpty())v.addView(txt("Aún no hay perfiles registrados. Agrega el primero para comenzar.",14f))
- else{
-  val tags=android.widget.GridLayout(this).apply{columnCount=2;useDefaultMargins=true}
-  profiles.forEach{profile->
-   val tag=Button(this).apply{text=profile.name;textSize=14f;isAllCaps=false;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(-1);background=rounded(0xFF344F91.toInt(),22);minHeight=dp(52);setPadding(dp(12),dp(8),dp(12),dp(8));setOnClickListener{authenticateWorker(profile)}}
-   tags.addView(tag,android.widget.GridLayout.LayoutParams().apply{width=0;height=dp(54);columnSpec=android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED,1f);setMargins(dp(4),dp(4),dp(4),dp(4))})
-  }
-  v.addView(tags)
+ private lateinit var deviceLabel:TextView
+ private val deviceClockHandler=Handler(Looper.getMainLooper())
+ private val deviceClockTick=object:Runnable{override fun run(){if(::deviceLabel.isInitialized)deviceLabel.text="Hora del celular: "+stamp();deviceClockHandler.postDelayed(this,1000L)}}
+ private fun draw(){
+  val v=page("SENE")
+  if(v.childCount>3)(v.getChildAt(3) as? TextView)?.text="Todo en un solo lugar, todo bajo control."
+  deviceLabel=txt("Hora del celular: "+stamp())
+  v.addView(deviceLabel)
+  internetLabel=txt("Hora de Internet: "+internet,15f)
+  v.addView(internetLabel)
+  v.addView(button("INICIAR TURNO",true){chooseWorker()})
+  v.addView(button("SOY PATRÓN",false){refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))})
+  Protection.addBlindButton(this,v)
+  v.addView(button("MI TURNO LABORAL",false){showWorkHistory()})
+  deviceClockHandler.removeCallbacks(deviceClockTick)
+  deviceClockTick.run()
+  display(v)
  }
- v.addView(button("＋  AGREGAR PERFIL",false){pin{registerWorker()}})
- v.addView(button("Soy Patrón",false){refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))})
- Protection.addBlindButton(this,v)
- v.addView(button("MI TURNO LABORAL",false){showWorkHistory()})
- display(v)}
  private fun showWorkHistory(){
   val moves=Store.moves(this);val lines=StringBuilder()
   for(i in moves.length()-1 downTo 0){val item=moves.optJSONObject(i)?:continue;val line=item.optString("text");if(line.isNotBlank())lines.append(line).append("\n\n")}
