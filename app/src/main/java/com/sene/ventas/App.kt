@@ -1129,7 +1129,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     if(sale.optString("reason").isNotBlank())out.append("\nMOTIVO: ").append(sale.optString("reason"))
    }
   }
-  val expenses=Store.providerExpenses(this,shift.optLong("startTs",0L))
+  val expenses=Store.providerExpenses(this,shift.optLong("startTs",0L),shift.optString("employeeId").takeIf{it.isNotBlank()})
   out.append("\n\nETIQUETA: RESUMEN DE CAJA")
    .append("\nVENTAS NETAS: ").append(Store.money(total))
    .append("\nPAGOS A PROVEEDORES: ").append(Store.money(expenses))
