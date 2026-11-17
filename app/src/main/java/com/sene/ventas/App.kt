@@ -421,10 +421,23 @@ private object InventoryReader {
   return snapshots.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{snapshot->try{formatter.parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}})
    ?:throw java.io.IOException("No se encontró un inventario válido en INVENTARIO SENE")
  }
- fun latestMaster(activity:Activity,tree:Uri):InventorySnapshot {
-  val snapshots=listSnapshots(activity,tree).filter{!it.folder.contains("TRABAJADORES",true)}
-  return snapshots.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
-   ?:throw java.io.IOException("No se encontró un inventario maestro válido en INVENTARIO SENE")
+ fun latestMaster(activity:Activity,tree:Uri?):InventorySnapshot? {
+  val candidates=mutableListOf<InventorySnapshot>()
+  val local=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
+  local.listFiles()?.filter{it.isFile&&it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}?.forEach{file->
+   try{
+    val content=file.readText(Charsets.UTF_8);val products=JSONArray()
+    content.lineSequence().map{it.trim()}.filter{it.isNotBlank()}.forEach{line->
+     if(line.startsWith("Actualizado:",true)||line.startsWith("Código",true)||line.equals("INVENTARIO_SENE_V1",true))return@forEach
+     val parts=line.split("|").map{it.trim()};if(parts.size<4)return@forEach
+     val price=parseAmount(parts[2]);val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
+     if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock))
+    }
+    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";candidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
+   }catch(_:Exception){}
+  }
+  if(tree!=null)try{candidates.addAll(listSnapshots(activity,tree).filter{!it.folder.contains("TRABAJADORES",true)&&it.file.matches(Regex("(?i)^inventario-\\d+\\.txt$"))})}catch(_:Exception){}
+  return candidates.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
  }
  fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
   val key=WorkerArchive.profileKey(employeeId,workerName)
@@ -522,19 +535,20 @@ class InicioTurnoActivity:FragmentActivity(){
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
    val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
-   val workerSnapshot=InventoryReader.latestForWorker(this,savedTree,workerId,profileName)
-   val masterSnapshot=if(workerSnapshot==null&&savedTree!=null)try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}else null
-   val snapshot=workerSnapshot?:masterSnapshot
+   ArchiveRetention.cleanupIfDue(this,savedTree)
+   // Todos los perfiles comienzan siempre desde el inventario maestro más reciente.
+   // Las copias e historiales individuales permanecen dentro de su carpeta de perfil.
+   val snapshot=try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}
    WorkerArchive.ensureProfileFolders(this,workerId,profileName)
-   val latest=snapshot?.folder?: "INVENTARIO SENE / TRABAJADORES / $profileKey / INVENTARIOS"
+   val latest=snapshot?.folder?: "INVENTARIO SENE"
    val prefs=getSharedPreferences("sene_ventas_local",0)
-   val newest=snapshot?.file?:prefs.getString("inventory_source_file","Inventario local")!!
-   val updated=snapshot?.updated?:prefs.getString("inventory_source_updated","Cargado desde TXT")!!
+   val newest=snapshot?.file?:prefs.getString("inventory_source_file","Inventario maestro local")!!
+   val updated=snapshot?.updated?:prefs.getString("inventory_source_updated","Cargado desde inventario maestro local")!!
    val products=snapshot?.products?:localProducts
-   if(products.length()==0)throw java.io.IOException("El inventario cargado no contiene productos")
-   Store.saveProducts(this,products,workerSnapshot==null)
-   // Fijar una copia inicial independiente para este perfil antes de abrir el turno.
-   InventoryArchive.save(this,products,workerId,worker)
+   if(products.length()==0)throw java.io.IOException("No se encontró un inventario maestro válido")
+   Store.saveProducts(this,products,true)
+   // Se crea una copia inicial para el perfil, sin convertirla en la fuente maestra.
+   InventoryArchive.save(this,products,workerId,profileName)
    val now=System.currentTimeMillis()
    val employeeConfig=EmployeePayroll.config(this,workerId)
    val hours=employeeConfig?.dailyHours?:8
@@ -1216,8 +1230,11 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val s=Store.shift(this)?:return
   try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
-   // Respaldo numerado del inventario: siempre se escribe localmente antes de preparar WhatsApp.
-   InventoryArchive.save(this,Store.products(this),s.optString("employeeId").takeIf{it.isNotBlank()},s.optString("worker"))
+   // Publicar el stock compartido como nuevo inventario maestro y conservar la copia individual.
+   val currentProducts=Store.products(this)
+   Store.publishMasterProducts(this,currentProducts)
+   InventoryArchive.save(this,currentProducts)
+   InventoryArchive.save(this,currentProducts,s.optString("employeeId").takeIf{it.isNotBlank()},s.optString("worker"))
    val file=ReportFile.update(this)
    val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
