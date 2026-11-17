@@ -569,8 +569,8 @@ class MainActivity:FragmentActivity(){
    val lp=LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(6);panel.addView(card,lp)
   }
   legend("COMPATIBLE","Térmicas ESC/POS Bluetooth clásico SPP; formatos de 58 mm y 80 mm.",0xFF168B45.toInt())
-  legend("SEGÚN MODELO","BLE o protocolos propietarios: solo funcionarán si el fabricante permite enviar comandos ESC/POS compatibles.",0xFFB7791F.toInt())
-  legend("NO GARANTIZADA","Impresoras que requieren aplicaciones, controladores o protocolos cerrados.",0xFFB3261E.toInt())
+  legend("COMPATIBLE POR FORMATO","Papel térmico de 58 mm y 80 mm en equipos que acepten comandos ESC/POS.",0xFF168B45.toInt())
+  legend("NO GARANTIZADA","Bluetooth BLE y protocolos propietarios no se conectan directamente en esta versión; requieren compatibilidad específica del fabricante.",0xFFB3261E.toInt())
   panel.addView(TextView(this).apply{text="Primero vincula la impresora desde los ajustes Bluetooth de Android. Después vuelve aquí y selecciona el dispositivo vinculado.";textSize=12f;setTextColor(0xFF65718A.toInt());setPadding(0,dp(8),0,dp(8))})
   val status=TextView(this).apply{text="Impresora: "+(getSharedPreferences("sene_ventas_local",0).getString("printer_name",null)?: "Sin configurar");textSize=13f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF263D70.toInt());setPadding(dp(12),dp(10),dp(12),dp(10));background=rounded(0xFFE9EFFB.toInt(),12)}
   panel.addView(status)
