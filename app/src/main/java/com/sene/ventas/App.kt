@@ -228,8 +228,10 @@ private fun Activity.pin(ok:()->Unit){
  val e=input("PIN del patrón",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
  val dialog=AlertDialog.Builder(this).setTitle("Soy Patrón").setMessage(if(biometricEnabled)"Puedes entrar con tu huella o con tu PIN." else "Introduce tu PIN para continuar.").setView(e)
   .setPositiveButton("ENTRAR",null).setNegativeButton("CANCELAR",null)
-  .setNeutralButton(if(biometricEnabled)"USAR HUELLA" else "CERRAR",null).create()
+  .setNeutralButton(if(biometricEnabled)"USAR HUELLA" else "CERRAR",null).setCancelable(false).create()
  dialog.setOnShowListener{
+  dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener{dialog.dismiss();finish()}
+  dialog.setOnCancelListener{finish()}
   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
    if(e.text.toString()==currentPatronPin(this)){dialog.dismiss();if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ok()}else ok()}else{e.text?.clear();e.error="PIN incorrecto"}
   }
@@ -240,7 +242,7 @@ private fun Activity.pin(ok:()->Unit){
    val manager=BiometricManager.from(host)
    if(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)!=BiometricManager.BIOMETRIC_SUCCESS){msg("La huella no está disponible. Puedes entrar con tu PIN.");return@setOnClickListener}
    val prompt=BiometricPrompt(host,ContextCompat.getMainExecutor(host),object:BiometricPrompt.AuthenticationCallback(){
-    override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){dialog.dismiss();ok()}
+    override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){dialog.dismiss();if(currentPatronPin(host)==DEFAULT_PIN)forceDefaultPinChange{ok()}else ok()}
     override fun onAuthenticationError(errorCode:Int,errString:CharSequence){msg("No se pudo autenticar. Puedes usar tu PIN.")}
     override fun onAuthenticationFailed(){msg("Huella no reconocida. Intenta de nuevo o usa tu PIN.")}
    })
@@ -1258,7 +1260,7 @@ class AgregarInventarioActivity:Activity(){
 
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
- override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){pin{draw()}}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{draw()}else draw()}}}
  private fun draw(){val v=page("Administrador - Patrón");val hoursInput=input("Horas que debe trabajar cada empleado (1 a 24)",true).apply{setText(configuredWorkHours(this@PatronActivity).toString())};v.addView(txt("CONFIGURACIÓN DE JORNADA",15f));v.addView(hoursInput);v.addView(button("GUARDAR HORAS DE JORNADA"){val hours=hoursInput.text.toString().toIntOrNull();if(hours==null||hours !in 1..24){hoursInput.error="Introduce entre 1 y 24 horas";return@button};getSharedPreferences(PATRON_PREFS,0).edit().putInt("work_hours",hours).apply();msg("Jornada configurada: "+hours+" horas. Se aplicará a los próximos turnos.")});v.addView(button(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA",false){togglePatronBiometric()});v.addView(button("Cambiar PIN de Soy Patrón",false){changePatronPin()});v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("CONSULTAR NÓMINA",false){startActivity(Intent(this,PayrollAdminActivity::class.java))});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
  private fun togglePatronBiometric(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
