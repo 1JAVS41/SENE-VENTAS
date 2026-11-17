@@ -45,7 +45,6 @@ object EmployeePayroll {
             val rest=x.optInt("restDay",Calendar.SUNDAY);val count=x.optInt("workDays",6)
             val days=listOf(Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY,Calendar.SUNDAY).filter{it!=rest}.take(count).toSet()
             val cfg=Config(x.optString("employee"),x.optInt("dailyHours",8),x.optLong("weeklySalaryCents"),days.size,rest,x.optInt("payDay",Calendar.SATURDAY),days,profile?.id.orEmpty(),System.currentTimeMillis())
-            if(profile!=null)saveConfig(c,cfg)
             listOf(cfg)
         }catch(_:Exception){emptyList()}
     }
@@ -69,7 +68,9 @@ object EmployeePayroll {
         if(id.isBlank()||cfg.employee.isBlank()||cfg.dailyHours !in 1..24||cfg.weeklySalaryCents<=0||days.isEmpty()||
             days.any{it !in Calendar.SUNDAY..Calendar.SATURDAY}||cfg.payDay !in Calendar.SUNDAY..Calendar.SATURDAY)return false
         val saved=cfg.copy(employeeId=id,workDays=days.size,restDay=(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in days}?:Calendar.SUNDAY)
-        val all=configs(c).filterNot{it.employeeId==id}+saved
+        val raw=prefs(c).getString(CONFIGS,null)
+        val existing=if(raw==null) emptyList() else try{val a0=JSONArray(raw);buildList{for(i in 0 until a0.length())decodeConfig(a0.optJSONObject(i)?:continue)?.let{add(it)}}}catch(_:Exception){emptyList()}
+        val all=existing.filterNot{it.employeeId==id}+saved
         val a=JSONArray()
         all.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("employee",x.employee).put("dailyHours",x.dailyHours)
             .put("weeklySalaryCents",x.weeklySalaryCents).put("workDays",x.workDays).put("restDay",x.restDay)
