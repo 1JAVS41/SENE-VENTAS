@@ -22,7 +22,8 @@ object EmployeePayroll {
         val weeklySalaryCents: Long,
         val workDays: Int,
         val restDay: Int,
-        val payDay: Int
+        val payDay: Int,
+        val workDaysOfWeek: Set<Int> = emptySet()
     )
 
     data class Capacity(
@@ -51,29 +52,41 @@ object EmployeePayroll {
         val raw = prefs(context).getString(CONFIG, null) ?: return null
         return try {
             val x = JSONObject(raw)
+            val legacyRest = x.optInt("restDay", Calendar.SUNDAY).coerceIn(Calendar.SUNDAY, Calendar.SATURDAY)
+            val legacyCount = x.optInt("workDays", 6).coerceIn(1, 7)
+            val savedDays = x.optJSONArray("workDaysOfWeek")
+            val selectedDays = if (savedDays != null) {
+                buildSet { for (i in 0 until savedDays.length()) savedDays.optInt(i).takeIf { it in Calendar.SUNDAY..Calendar.SATURDAY }?.let { add(it) } }
+            } else {
+                val ordered = listOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY, Calendar.SUNDAY)
+                ordered.filter { it != legacyRest }.take(legacyCount).toSet()
+            }
             Config(
                 employee = x.optString("employee").trim(),
                 dailyHours = x.optInt("dailyHours", 8).coerceIn(1, 24),
                 weeklySalaryCents = x.optLong("weeklySalaryCents", 0L).coerceAtLeast(0L),
-                workDays = x.optInt("workDays", 6).coerceIn(1, 7),
-                restDay = x.optInt("restDay", Calendar.SUNDAY).coerceIn(Calendar.SUNDAY, Calendar.SATURDAY),
-                payDay = x.optInt("payDay", Calendar.SATURDAY).coerceIn(Calendar.SUNDAY, Calendar.SATURDAY)
-            ).takeIf { it.employee.isNotBlank() && it.weeklySalaryCents > 0L }
+                workDays = selectedDays.size.coerceIn(1, 7),
+                restDay = (Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull { it !in selectedDays } ?: legacyRest,
+                payDay = x.optInt("payDay", Calendar.SATURDAY).coerceIn(Calendar.SUNDAY, Calendar.SATURDAY),
+                workDaysOfWeek = selectedDays
+            ).takeIf { it.employee.isNotBlank() && it.weeklySalaryCents > 0L && selectedDays.isNotEmpty() }
         } catch (_: Exception) { null }
     }
 
     fun saveConfig(context: Context, config: Config): Boolean {
+        val selectedDays = config.workDaysOfWeek
         if (config.employee.isBlank() || config.dailyHours !in 1..24 ||
-            config.weeklySalaryCents <= 0L || config.workDays !in 1..7 ||
-            config.restDay !in Calendar.SUNDAY..Calendar.SATURDAY ||
+            config.weeklySalaryCents <= 0L || selectedDays.isEmpty() || selectedDays.any { it !in Calendar.SUNDAY..Calendar.SATURDAY } ||
             config.payDay !in Calendar.SUNDAY..Calendar.SATURDAY) return false
+        val restDay = (Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull { it !in selectedDays } ?: Calendar.SUNDAY
         val json = JSONObject()
             .put("employee", config.employee.trim())
             .put("dailyHours", config.dailyHours)
             .put("weeklySalaryCents", config.weeklySalaryCents)
-            .put("workDays", config.workDays)
-            .put("restDay", config.restDay)
+            .put("workDays", selectedDays.size)
+            .put("restDay", restDay)
             .put("payDay", config.payDay)
+            .put("workDaysOfWeek", JSONArray().apply { selectedDays.sorted().forEach { put(it) } })
         return prefs(context).edit().putString(CONFIG, json.toString()).commit()
     }
 
