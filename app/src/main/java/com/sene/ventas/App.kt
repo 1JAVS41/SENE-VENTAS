@@ -1099,7 +1099,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   var total=0.0
   for(i in 0 until all.length()){
    val sale=all.optJSONObject(i)?:continue
-   if(sale.optLong("ts")>=shift.optLong("startTs",0L) && (sale.optString("employeeId")==shift.optString("employeeId") || (sale.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank()))){
+   if(sale.optLong("ts")>=shift.optLong("startTs",0L) && (sale.optString("employeeId")==shift.optString("employeeId") || sale.optString("employeeId").isBlank())){
     val amount=sale.optDouble("subtotal");total+=amount
     val kind=sale.optString("type","SALE")
     val label=when(kind){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE_OLD"->"PRODUCTO DEVUELTO";"SALE_REPLACE_NEW"->"PRODUCTO ENTREGADO";else->"VENTA"}
@@ -1691,7 +1691,7 @@ object ReportFile {
   val sales=data.optJSONArray("sales") ?: org.json.JSONArray();var total=0.0
   for(i in 0 until sales.length()){
    val x=sales.optJSONObject(i)?:continue
-   if(x.optLong("ts")>=shift.optLong("startTs",0) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank()))){
+   if(x.optLong("ts")>=shift.optLong("startTs",0) && (x.optString("employeeId")==shift.optString("employeeId") || x.optString("employeeId").isBlank())){
     total+=x.optDouble("subtotal")
     val kind=when(x.optString("type","SALE")){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE_OLD"->"PRODUCTO DEVUELTO";"SALE_REPLACE_NEW"->"PRODUCTO ENTREGADO";else->"VENTA"}
     out.append("\n[ ").append(kind).append(" ] ").append(x.optString("time"))
