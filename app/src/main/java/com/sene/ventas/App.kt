@@ -520,6 +520,45 @@ class MainActivity:FragmentActivity(){
  private var selectedPrinterAddress:String?=null
  private var printerSocket:BluetoothSocket?=null
  private val printerSppUuid=UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+ private fun printReceiptIfConfigured(ticketId:String,total:Double,items:List<JSONObject>){
+  val prefs=getSharedPreferences("sene_ventas_local",0)
+  val address=prefs.getString("printer_address",null)?:return
+  if(Build.VERSION.SDK_INT>=31&&checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED)return
+  Thread{
+   var socket=printerSocket
+   try{
+    if(socket==null||!socket.isConnected){
+     val adapter=BluetoothAdapter.getDefaultAdapter()?:return@Thread
+     socket=adapter.getRemoteDevice(address).createRfcommSocketToServiceRecord(printerSppUuid)
+     adapter.cancelDiscovery();socket.connect();printerSocket=socket
+    }
+    val out=java.io.ByteArrayOutputStream()
+    out.write(byteArrayOf(0x1B,0x40))
+    out.write("SENE VENTAS\nCOMPROBANTE DE VENTA\n".toByteArray(Charsets.UTF_8))
+    out.write(("FECHA: "+stamp()+"\n").toByteArray(Charsets.UTF_8))
+    for(item in items){
+     val name=item.optString("name").take(26)
+     val qty=item.optInt("qty",1)
+     val amount=Store.money(item.optDouble("subtotal"))
+     out.write(("$name x$qty  $amount\n").toByteArray(Charsets.UTF_8))
+    }
+    out.write(("\nTOTAL: "+Store.money(total)+"\n").toByteArray(Charsets.UTF_8))
+    out.write("ESCANEA PARA CORREGIR ESTA VENTA\n".toByteArray(Charsets.UTF_8))
+    val qr=ticketId.toByteArray(Charsets.UTF_8)
+    val qrLen=qr.size+3
+    out.write(byteArrayOf(0x1D,0x28,0x6B,0x04,0x00,0x31,0x41,0x32,0x00))
+    out.write(byteArrayOf(0x1D,0x28,0x6B,0x03,0x00,0x31,0x43,0x06))
+    out.write(byteArrayOf(0x1D,0x28,0x6B,0x03,0x00,0x31,0x45,0x31))
+    out.write(byteArrayOf(0x1D,0x28,0x6B,(qrLen and 0xFF).toByte(),((qrLen shr 8) and 0xFF).toByte(),0x31,0x50,0x30))
+    out.write(qr)
+    out.write(byteArrayOf(0x1D,0x28,0x6B,0x03,0x00,0x31,0x51,0x30))
+    out.write("\n\n\n".toByteArray(Charsets.UTF_8))
+    out.write(byteArrayOf(0x1D,0x56,0x00))
+    socket.outputStream.write(out.toByteArray());socket.outputStream.flush()
+    runOnUiThread{msg("Ticket enviado a la impresora Bluetooth")}
+   }catch(e:Exception){try{socket?.close()}catch(_:Exception){};printerSocket=null;runOnUiThread{msg("Venta guardada. No se pudo imprimir; revisa la conexión de la impresora.")}}
+  }.start()
+ }
  private fun showPrinterSetup(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
   panel.addView(TextView(this).apply{text="IMPRESORAS BLUETOOTH COMPATIBLES";textSize=16f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1D315B.toInt());setPadding(0,dp(4),0,dp(8))})
