@@ -5,6 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import java.util.UUID
 
 /** Perfiles locales de trabajadores. El PIN nunca se conserva en texto claro. */
@@ -32,8 +34,10 @@ object WorkerProfiles {
         return prefs(c).edit().putString(KEY,a.toString()).commit()
     }
     private fun digest(salt:String,pin:String):String{
-        val bytes=MessageDigest.getInstance("SHA-256").digest((salt+":"+pin).toByteArray(Charsets.UTF_8))
-        return bytes.joinToString(""){"%02x".format(it)}
+        val saltBytes=ByteArray(salt.length/2){i->salt.substring(i*2,i*2+2).toInt(16).toByte()}
+        val spec=PBEKeySpec(pin.toCharArray(),saltBytes,120000,256)
+        return try{SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded.joinToString(""){"%02x".format(it)}}
+        finally{spec.clearPassword()}
     }
     @Synchronized fun create(c:Context,name:String,phone:String,pin:String):Profile?{
         val clean=name.trim()
