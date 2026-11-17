@@ -286,12 +286,9 @@ private object InventoryArchive {
   val local=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
   inspectNames(local.list()?.asSequence()?:emptySequence())
   if(tree!=null)try{
-   val resolver=activity.contentResolver
-   val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-   val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
-   resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
-    val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-    while(cur.moveToNext())if(col>=0){val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(cur.getString(col)?: "")?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
+   InventoryReader.listSnapshots(activity,tree).forEach{snapshot->
+    val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(snapshot.file)?.groupValues?.get(1)?.toLongOrNull()?:0L
+    if(n>highest)highest=n
    }
   }catch(_:Exception){}
   return highest+1L
@@ -299,7 +296,8 @@ private object InventoryArchive {
  fun saveLocal(activity:Activity,products:JSONArray):java.io.File {
   val folder=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
   if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear INVENTARIO-SENE en el teléfono")
-  val number=nextNumber(activity)
+  val savedTree=activity.getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.let{Uri.parse(it)}
+  val number=nextNumber(activity,savedTree)
   val target=java.io.File(folder,"inventario-$number.txt")
   writeInventory(target.outputStream(),products)
   if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el inventario local")
