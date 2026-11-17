@@ -9,6 +9,61 @@ import android.view.Gravity
 import android.widget.*
 
 class AccountLoginActivity : Activity() {
+    companion object {
+        fun ensureReportWhatsApp(activity: Activity, onComplete: () -> Unit) {
+            val prefs = activity.getSharedPreferences("sene_report_whatsapp", Activity.MODE_PRIVATE)
+            if (prefs.getBoolean("registered", false)) {
+                onComplete()
+                return
+            }
+            val phone = EditText(activity).apply {
+                hint = "Número de WhatsApp con lada y código de país"
+                textSize = 16f
+                inputType = android.text.InputType.TYPE_CLASS_PHONE
+                setSingleLine(true)
+                setPadding((15 * resources.displayMetrics.density).toInt(), (13 * resources.displayMetrics.density).toInt(), (15 * resources.displayMetrics.density).toInt(), (13 * resources.displayMetrics.density).toInt())
+            }
+            val content = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding((20 * resources.displayMetrics.density).toInt(), (8 * resources.displayMetrics.density).toInt(), (20 * resources.displayMetrics.density).toInt(), (4 * resources.displayMetrics.density).toInt())
+                addView(TextView(activity).apply {
+                    text = "Registra el número de WhatsApp donde recibirás los reportes de tus trabajadores."
+                    textSize = 15f
+                    setTextColor(0xFF263653.toInt())
+                })
+                addView(TextView(activity).apply {
+                    text = "Recomendación: no utilices tu WhatsApp personal. Es preferible usar un número exclusivo para el negocio."
+                    textSize = 13f
+                    setTextColor(0xFF66708A.toInt())
+                    setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt())
+                })
+                addView(phone)
+            }
+            val dialog = AlertDialog.Builder(activity)
+                .setTitle("WHATSAPP PARA REPORTES")
+                .setView(content)
+                .setCancelable(false)
+                .setPositiveButton("GUARDAR Y CONTINUAR", null)
+                .create()
+            dialog.setOnShowListener {
+                dialog.setCanceledOnTouchOutside(false)
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val digits = phone.text.toString().filter { it.isDigit() }
+                    if (digits.length !in 10..15) {
+                        phone.error = "Introduce un número válido con lada y código de país"
+                        return@setOnClickListener
+                    }
+                    Store.setPhone(activity, digits)
+                    prefs.edit().putBoolean("registered", true).apply()
+                    dialog.dismiss()
+                    onComplete()
+                }
+            }
+            dialog.show()
+        }
+    }
+
+
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
     private fun field(hint: String, code: Boolean = false) = EditText(this).apply {
         this.hint = hint; textSize = 16f; setSingleLine(true)
