@@ -36,13 +36,13 @@ object Store {
  @Synchronized private fun db(c:Context):HistoryDb {val h=history?:HistoryDb(c.applicationContext).also{history=it};h.migrate(c.applicationContext);return h}
  private fun root(c:Context):JSONObject { val raw=c.getSharedPreferences(PREF,0).getString(KEY,null); return try { if(raw==null) JSONObject() else JSONObject(raw) } catch(e:Exception){ JSONObject() } }
  private fun put(c:Context,r:JSONObject){ c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).apply(); try{ReportFile.update(c,r)}catch(_:Exception){} }
- fun products(c:Context)=root(c).optJSONArray("products")?:JSONArray()
+ fun products(c:Context)=root(c).optJSONArray("products")?:JSONArray()\n fun masterProducts(c:Context):JSONArray{val prefs=c.getSharedPreferences(PREF,0);val saved=prefs.getString("master_products",null);if(!saved.isNullOrBlank())return try{JSONArray(saved)}catch(_:Exception){JSONArray()};val current=products(c);if(shift(c)==null)prefs.edit().putString("master_products",current.toString()).apply();return current}
  fun sales(c:Context)=db(c).all("sales")
  fun moves(c:Context)=db(c).all("moves")
  fun shift(c:Context)=root(c).optJSONObject("shift")
  fun phone(c:Context)=root(c).optString("phone","523311337592")
  fun setPhone(c:Context,p:String){ val r=root(c);r.put("phone",p);put(c,r) }
- fun saveProducts(c:Context,a:JSONArray){val r=root(c);r.put("products",a).put("stockUpdatedAt",System.currentTimeMillis());put(c,r)}
+ fun saveProducts(c:Context,a:JSONArray,saveAsMaster:Boolean=true){val r=root(c);r.put("products",a).put("stockUpdatedAt",System.currentTimeMillis());if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply();put(c,r)}
  fun stockUpdatedAtText(c:Context):String{val ts=root(c).optLong("stockUpdatedAt",0L);return if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Sin registro previo de actualización"}
  fun saveSales(c:Context,a:JSONArray){db(c).replace("sales",a);try{ReportFile.update(c)}catch(_:Exception){}}
  fun saveShift(c:Context,s:JSONObject?){val r=root(c);if(s==null)r.remove("shift")else r.put("shift",s);put(c,r)}
