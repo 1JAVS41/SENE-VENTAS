@@ -131,7 +131,8 @@ class PayrollEmployeeActivity:FragmentActivity(){
   root.addView(payText("Faltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
   root.addView(payText("TOTAL A RECIBIR\n"+EmployeePayroll.money(net),24f,true))
   root.addView(payText("HISTORIAL DEL PERIODO",17f,true))
-  entries.sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)))}
+  root.addView(payText("HISTORIAL COMPLETO",17f,true))
+  EmployeePayroll.entries(this,employeeId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
   payShow(root)
  }
  private fun dayName(d:Int)=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado").getOrElse(d){"-"}
@@ -172,7 +173,8 @@ class PayrollAdminActivity:FragmentActivity(){
    root.addView(payText("RESUMEN DEL PERIODO · "+profile.name,17f,true))
    root.addView(payText("Sueldo semanal: "+EmployeePayroll.money(cfg.weeklySalaryCents)+"\nFaltas: $abs · Descuento: "+EmployeePayroll.money(absenceDeduction)+"\nConsumos: "+EmployeePayroll.money(cons)+"\nPréstamos: "+EmployeePayroll.money(loans)+"\nTotal descuentos: "+EmployeePayroll.money(absenceDeduction+cons+loans)+"\nNeto estimado: "+EmployeePayroll.money(net),17f,true))
    root.addView(payText("LÍMITE DEL 50%\nComprometido: "+EmployeePayroll.money(cap.committedCents)+"\nDisponible: "+EmployeePayroll.money(cap.availableCents)))
-   root.addView(payButton("VER HISTORIAL COMPLETO"){rows.sortedByDescending{it.timestamp}.forEach{Toast.makeText(this,it.description+" · "+EmployeePayroll.money(it.amountCents),Toast.LENGTH_LONG).show()}})
+   root.addView(payText("HISTORIAL COMPLETO",17f,true))
+   EmployeePayroll.entries(this,selectedId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
    root.addView(payButton("CONFIRMAR PAGO Y CERRAR PERIODO"){AlertDialog.Builder(this).setTitle("CONFIRMAR PAGO").setMessage("¿Ya se pagó a "+profile.name+"? Se marcarán como liquidados los consumos y préstamos de este periodo.").setPositiveButton("SÍ, YA SE PAGÓ"){_,_->val period=EmployeePayroll.periodKey(System.currentTimeMillis(),cfg.payDay);if(EmployeePayroll.markSettled(this,period,selectedId))Toast.makeText(this,"Periodo liquidado.",Toast.LENGTH_LONG).show()}.setNegativeButton("CANCELAR",null).show()})
   }
   payShow(root)
