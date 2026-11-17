@@ -1688,3 +1688,56 @@ object ReportFile {
   return file
  }
 }
+
+// Pantalla inicial de instalación: solo ofrece los dos recorridos de acceso.
+class WelcomeActivity:Activity(){
+ private fun dp(n:Int)=(n*resources.displayMetrics.density).toInt()
+ private fun action(label:String,primary:Boolean,click:()->Unit)=Button(this).apply{
+  text=label;isAllCaps=false;textSize=16f;typeface=Typeface.create("sans-serif",Typeface.BOLD)
+  minHeight=dp(62);setPadding(dp(18),dp(14),dp(18),dp(14))
+  setTextColor(if(primary)-1 else 0xFF24447C.toInt())
+  background=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+   if(primary)intArrayOf(0xFF315BA5.toInt(),0xFF173C7B.toInt()) else intArrayOf(-1,-1)
+  ).apply{cornerRadius=dp(15).toFloat();if(!primary)setStroke(dp(1),0xFFD5DEEF.toInt())}
+  layoutParams=LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(9);bottomMargin=dp(9)}
+  setOnClickListener{click()}
+ }
+ private var checking=false
+ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);showWelcome()}
+ override fun onResume(){super.onResume();if(!isFinishing)checkExistingSession()}
+ private fun checkExistingSession(){
+  if(checking)return
+  checking=true
+  Thread{
+   val active=try{ActivationApi.subscriptionStatus(this).optBoolean("active",false)}catch(_:Exception){false}
+   runOnUiThread{
+    checking=false
+    if(isFinishing||isDestroyed)return@runOnUiThread
+    if(active){
+     startActivity(Intent(this,InicioTurnoActivity::class.java))
+     finish()
+    }
+   }
+  }.start()
+ }
+ private fun showWelcome(){
+  val root=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
+   setPadding(dp(22),dp(28),dp(22),dp(30));setBackgroundColor(0xFFF3F6FC.toInt())
+  }
+  val card=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER_HORIZONTAL
+   setPadding(dp(20),dp(26),dp(20),dp(26))
+   background=GradientDrawable().apply{setColor(-1);cornerRadius=dp(22).toFloat();setStroke(dp(1),0xFFE0E6F1.toInt())}
+   elevation=dp(3).toFloat()
+  }
+  val logo=ImageView(this).apply{setImageResource(R.drawable.logo_sene_pv);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER}
+  card.addView(logo,LinearLayout.LayoutParams(dp(118),dp(118)).apply{bottomMargin=dp(14)})
+  card.addView(TextView(this).apply{text="SENE / VENTAS";textSize=25f;gravity=Gravity.CENTER;typeface=Typeface.create("sans-serif-black",Typeface.BOLD);setTextColor(0xFF173C7B.toInt())})
+  card.addView(TextView(this).apply{text="GESTIÓN INTELIGENTE";textSize=11f;letterSpacing=.16f;gravity=Gravity.CENTER;setTextColor(0xFF71809B.toInt());setPadding(0,dp(5),0,dp(24))})
+  card.addView(action("YA SOY CLIENTE SENE · INICIAR SESIÓN",true){startActivity(Intent(this,AccountLoginActivity::class.java))})
+  card.addView(action("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))})
+  root.addView(card,LinearLayout.LayoutParams(-1,-2))
+  setContentView(root)
+ }
+}
