@@ -525,13 +525,14 @@ class MainActivity:FragmentActivity(){
   val address=prefs.getString("printer_address",null)?:return
   if(Build.VERSION.SDK_INT>=31&&checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED)return
   Thread{
-   var socket=printerSocket
+   var socket:BluetoothSocket?=printerSocket
    try{
     if(socket==null||!socket.isConnected){
      val adapter=BluetoothAdapter.getDefaultAdapter()?:return@Thread
-     socket=adapter.getRemoteDevice(address).createRfcommSocketToServiceRecord(printerSppUuid)
-     adapter.cancelDiscovery();socket.connect();printerSocket=socket
+     val connected=adapter.getRemoteDevice(address).createRfcommSocketToServiceRecord(printerSppUuid)
+     adapter.cancelDiscovery();connected.connect();socket=connected;printerSocket=connected
     }
+    val activeSocket=socket?:return@Thread
     val out=java.io.ByteArrayOutputStream()
     out.write(byteArrayOf(0x1B,0x40))
     out.write("SENE VENTAS\nCOMPROBANTE DE VENTA\n".toByteArray(Charsets.UTF_8))
@@ -554,7 +555,7 @@ class MainActivity:FragmentActivity(){
     out.write(byteArrayOf(0x1D,0x28,0x6B,0x03,0x00,0x31,0x51,0x30))
     out.write("\n\n\n".toByteArray(Charsets.UTF_8))
     out.write(byteArrayOf(0x1D,0x56,0x00))
-    socket.outputStream.write(out.toByteArray());socket.outputStream.flush()
+    activeSocket.outputStream.write(out.toByteArray());activeSocket.outputStream.flush()
     runOnUiThread{msg("Ticket enviado a la impresora Bluetooth")}
    }catch(e:Exception){try{socket?.close()}catch(_:Exception){};printerSocket=null;runOnUiThread{msg("Venta guardada. No se pudo imprimir; revisa la conexión de la impresora.")}}
   }.start()
@@ -607,9 +608,9 @@ class MainActivity:FragmentActivity(){
    var socket:BluetoothSocket?=null
    try{
     val adapter=BluetoothAdapter.getDefaultAdapter();adapter?.cancelDiscovery()
-    socket=device.createRfcommSocketToServiceRecord(printerSppUuid)
-    socket.connect()
-    printerSocket?.close();printerSocket=socket
+    val connected=device.createRfcommSocketToServiceRecord(printerSppUuid)
+    connected.connect()
+    printerSocket?.close();printerSocket=connected
     val name=try{device.name?:device.address}catch(_:Exception){device.address}
     getSharedPreferences("sene_ventas_local",0).edit().putString("printer_address",device.address).putString("printer_name",name).apply()
     runOnUiThread{status.text="IMPRESORA CONECTADA: "+name;msg("Impresora conectada. Ya puedes imprimir el ticket de prueba.")}
@@ -620,14 +621,14 @@ class MainActivity:FragmentActivity(){
   }.start()
  }
  private fun printPrinterTest(){
-  val socket=printerSocket
-  if(socket==null||!socket.isConnected){msg("Primero selecciona y conecta una impresora compatible");return}
+  val activeSocket=printerSocket
+  if(activeSocket==null||!activeSocket.isConnected){msg("Primero selecciona y conecta una impresora compatible");return}
   Thread{
    try{
     val bytes=byteArrayOf(0x1B,0x40)+
      "SENE VENTAS\\nPRUEBA DE IMPRESION\\nBluetooth SPP / ESC-POS\\n\\nConexion correcta\\n\\n\\n".toByteArray(Charsets.UTF_8)+
      byteArrayOf(0x1D,0x56,0x00)
-    socket.outputStream.write(bytes);socket.outputStream.flush()
+    activeSocket.outputStream.write(bytes);activeSocket.outputStream.flush()
     runOnUiThread{msg("Ticket de prueba enviado a la impresora")}
    }catch(e:Exception){runOnUiThread{msg("Falló la impresión. Comprueba papel, conexión y compatibilidad ESC/POS.")}}
   }.start()
