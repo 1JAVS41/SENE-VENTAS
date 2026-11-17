@@ -497,8 +497,10 @@ class InicioTurnoActivity:FragmentActivity(){
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
   // Cada perfil recupera su propio inventario más reciente; si aún no tiene uno,
   // el primer turno parte del inventario general existente.
-  WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.let{WorkerArchive.ensureProfileFolders(this,it.id,it.name)}
-  if(localProducts.length()>0 || !saved.isNullOrBlank()){
+  val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}
+  profile?.let{WorkerArchive.ensureProfileFolders(this,it.id,it.name)}
+  val hasLocalProfileInventory=profile?.let{WorkerArchive.localInventoryFolder(this,it.id,it.name).listFiles()?.any{f->f.isFile&&f.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}==true}==true
+  if(localProducts.length()>0 || !saved.isNullOrBlank() || hasLocalProfileInventory){
    createShiftReport(workerId,worker,phone,cash,saved?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)})
    return
   }
