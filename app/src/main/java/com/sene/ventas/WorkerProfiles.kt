@@ -46,7 +46,7 @@ object WorkerProfiles {
         if(existing.any{it.name.equals(clean,true)})return null
         val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}.joinToString(""){"%02x".format(it)}
         val profile=Profile(UUID.randomUUID().toString(),clean,phone.filter{it.isDigit()},salt,digest(salt,pin))
-        return if(save(c,existing+profile))profile else null
+        return if(save(c,existing+profile)){try{WorkerArchive.ensureProfileFolders(c,profile.id,profile.name)}catch(_:Exception){};profile}else null
     }
     fun verify(profile:Profile,pin:String):Boolean=pin.length==4&&pin.all{it.isDigit()}&&digest(profile.salt,pin)==profile.pinHash
 }
