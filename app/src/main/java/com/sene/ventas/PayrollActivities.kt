@@ -147,7 +147,10 @@ class PayrollEmployeeActivity:FragmentActivity(){
         val gross=cfg.weeklySalaryCents
         val deductions=consumption+loans
         root.addView(payText("Sueldo semanal\n"+EmployeePayroll.money(gross),23f,true))
-        root.addView(payText("Días laborables: "+cfg.workDays+" de 7\nDía de descanso: "+dayName(cfg.restDay)+"\nDía de pago: "+dayName(cfg.payDay)))
+        val dayLabels=listOf("Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
+        val working=cfg.workDaysOfWeek.sortedBy{if(it==Calendar.SUNDAY)0 else it}.joinToString(", "){dayName(it)}
+        val resting=(Calendar.SUNDAY..Calendar.SATURDAY).filter{it !in cfg.workDaysOfWeek}.joinToString(", "){dayName(it)}
+        root.addView(payText("DÍAS LABORABLES: "+working+"\nDESCANSOS: "+(resting.ifBlank{"Ninguno"})+"\nDía de pago: "+dayName(cfg.payDay)))
         root.addView(payText("Faltas registradas: 0\nDescuento por faltas: $0.00\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
         root.addView(payText("TOTAL A RECIBIR\n"+EmployeePayroll.money((gross-deductions).coerceAtLeast(0L)),24f,true))
         root.addView(payText("Historial del periodo",17f,true))
@@ -165,15 +168,22 @@ class PayrollAdminActivity:FragmentActivity(){
         val name=payInput("Nombre del empleado").apply{setText(old?.employee.orEmpty())}
         val hours=payInput("Horas diarias (1 a 24)",true).apply{setText((old?.dailyHours?:8).toString())}
         val salary=payInput("Sueldo semanal $",true).apply{if(old!=null)setText(String.format(Locale.US,"%.2f",old.weeklySalaryCents/100.0))}
-        val days=payInput("Días laborables por semana (1 a 7)",true).apply{setText((old?.workDays?:6).toString())}
-        val rest=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,listOf("Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"));setSelection((old?.restDay?:Calendar.SUNDAY)-Calendar.SUNDAY)}
-        val pay=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,listOf("Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"));setSelection((old?.payDay?:Calendar.SATURDAY)-Calendar.SUNDAY)}
-        root.addView(payText("CONFIGURACIÓN DEL EMPLEADO",17f,true));root.addView(name);root.addView(hours);root.addView(salary);root.addView(days)
-        root.addView(payText("Día de descanso"));root.addView(rest);root.addView(payText("Día de pago"));root.addView(pay)
+        val dayValues=listOf(Calendar.SUNDAY,Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY)
+        val dayLabels=listOf("Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
+        val selectedDays=old?.workDaysOfWeek?.takeIf{it.isNotEmpty()}?:setOf(Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY)
+        val dayChecks=dayValues.mapIndexed{index,day->day to CheckBox(this).apply{text=dayLabels[index];textSize=15f;setTextColor(0xFF172B50.toInt());isChecked=day in selectedDays}}
+        val pay=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,dayLabels);setSelection((old?.payDay?:Calendar.SATURDAY)-Calendar.SUNDAY)}
+        root.addView(payText("CONFIGURACIÓN DEL EMPLEADO",17f,true));root.addView(name);root.addView(hours);root.addView(salary)
+        root.addView(payText("SELECCIONA LOS DÍAS QUE TRABAJA",16f,true))
+        dayChecks.forEach{root.addView(it.second)}
+        root.addView(payText("Los días que no selecciones se considerarán DESCANSO automáticamente.",13f))
+        root.addView(payText("Día de pago"));root.addView(pay)
         root.addView(payButton("GUARDAR CONFIGURACIÓN"){
-            val h=hours.text.toString().toIntOrNull();val s=salary.text.toString().replace(",","." ).toDoubleOrNull();val d=days.text.toString().toIntOrNull()
-            if(name.text.isBlank()||h==null||h !in 1..24||s==null||s<=0||d==null||d !in 1..7){Toast.makeText(this,"Revisa los datos. Horas 1–24, días 1–7 y sueldo válido.",Toast.LENGTH_LONG).show();return@payButton}
-            val cfg=EmployeePayroll.Config(name.text.toString(),h,moneyCents(s),d,Calendar.SUNDAY+rest.selectedItemPosition,Calendar.SUNDAY+pay.selectedItemPosition)
+            val h=hours.text.toString().toIntOrNull();val s=salary.text.toString().replace(",","." ).toDoubleOrNull()
+            val selected=dayChecks.filter{it.second.isChecked}.map{it.first}.toSet()
+            if(name.text.isBlank()||h==null||h !in 1..24||s==null||s<=0||selected.isEmpty()){Toast.makeText(this,"Completa el nombre, horas, sueldo y selecciona al menos un día laborable.",Toast.LENGTH_LONG).show();return@payButton}
+            val restDay=(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in selected}?:Calendar.SUNDAY
+            val cfg=EmployeePayroll.Config(name.text.toString(),h,moneyCents(s),selected.size,restDay,Calendar.SUNDAY+pay.selectedItemPosition,selected)
             if(EmployeePayroll.saveConfig(this,cfg)){Toast.makeText(this,"Configuración guardada",Toast.LENGTH_LONG).show()}else Toast.makeText(this,"No se pudo guardar",Toast.LENGTH_LONG).show()
         })
         val cfg=EmployeePayroll.config(this)
