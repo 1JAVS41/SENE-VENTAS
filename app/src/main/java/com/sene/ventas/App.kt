@@ -316,7 +316,7 @@ private object InventoryArchive {
   return try{
    val tree=Uri.parse(saved);val resolver=activity.contentResolver
    val folder=if(!employeeId.isNullOrBlank())WorkerArchive.profileSection(activity,tree,employeeId,workerName,"INVENTARIOS") else {
-    val root=if(employeeId.isNotBlank())WorkerArchive.profileSection(activity,tree,employeeId,workerName,"REPORTES") else DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+    val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
     val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
     var found:Uri?=null
     resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
