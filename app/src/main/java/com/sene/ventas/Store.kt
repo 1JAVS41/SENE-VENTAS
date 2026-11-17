@@ -47,8 +47,8 @@ object Store {
  fun saveSales(c:Context,a:JSONArray){db(c).replace("sales",a);try{ReportFile.update(c)}catch(_:Exception){}}
  fun saveShift(c:Context,s:JSONObject?){val r=root(c);if(s==null)r.remove("shift")else r.put("shift",s);put(c,r)}
  fun addSale(c:Context,x:JSONObject){addSales(c,listOf(x))}
- fun addSales(c:Context,items:List<JSONObject>){if(items.isEmpty())return;db(c).appendMany("sales",items);try{ReportFile.update(c)}catch(_:Exception){}}
- fun addMove(c:Context,x:JSONObject){db(c).append("moves",x);try{ReportFile.update(c)}catch(_:Exception){}}
+ fun addSales(c:Context,items:List<JSONObject>){if(items.isEmpty())return;val employeeId=shift(c)?.optString("employeeId").orEmpty();items.forEach{if(it.optString("employeeId").isBlank()&&employeeId.isNotBlank())it.put("employeeId",employeeId)};db(c).appendMany("sales",items);try{ReportFile.update(c)}catch(_:Exception){}}
+ fun addMove(c:Context,x:JSONObject){val employeeId=shift(c)?.optString("employeeId").orEmpty();if(x.optString("employeeId").isBlank()&&employeeId.isNotBlank())x.put("employeeId",employeeId);db(c).append("moves",x);try{ReportFile.update(c)}catch(_:Exception){}}
  fun providerExpenses(c:Context,since:Long=0L):Double{val all=moves(c);var total=0.0;for(i in 0 until all.length()){val x=all.optJSONObject(i)?:continue;if(x.optString("type")=="PROVIDER_PAYMENT"&&x.optLong("ts",0L)>=since)total+=x.optDouble("amount",0.0)};return total}
  fun cashBalance(c:Context):Double{val s=shift(c)?:return 0.0;val start=s.optLong("startTs",0L);val all=sales(c);var sold=0.0;for(i in 0 until all.length()){val x=all.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=start)sold+=x.optDouble("subtotal",0.0)};var loanDisbursements=0.0;val movements=moves(c);for(i in 0 until movements.length()){val x=movements.optJSONObject(i)?:continue;if(x.optString("type")=="LOAN_DISBURSEMENT"&&x.optLong("ts",0L)>=start)loanDisbursements+=x.optDouble("amount",0.0)};return s.optDouble("cash",0.0)+sold-providerExpenses(c,start)-loanDisbursements}
  fun money(v:Double)="$"+String.format(java.util.Locale.US,"%.2f",v)
