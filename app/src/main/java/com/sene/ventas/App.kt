@@ -1066,10 +1066,10 @@ class MainActivity:FragmentActivity(){
   code=input("Código de barras");v.addView(code)
   v.addView(button("AGREGAR AL TICKET",false){addCode(code.text.toString());code.setText("")})
   ticketView=txt("Ticket vacío",18f);v.addView(ticketView)
-  paid=input("¿Cuánto te pagan?",true);v.addView(paid)
+  paid=input("¿Con cuánto te pagan?",true);v.addView(paid)
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
-  sell=button("COBRAR",false){if(parseAmount(paid.text.toString())==null){paid.requestFocus();paid.background=rounded(0xFFFFF1F0.toInt(),14,0xFFE53935.toInt());paid.error="Introduce cuánto te pagan";msg("Introduce cuánto te pagan para continuar");return@button};sellTicket()};v.addView(sell)
+  sell=button("COBRAR",false){if(parseAmount(paid.text.toString())==null){paid.requestFocus();paid.background=rounded(0xFFFFF1F0.toInt(),14,0xFFE53935.toInt());paid.error="Introduce con cuánto te pagan";msg("Introduce con cuánto te pagan para continuar");return@button};sellTicket()};v.addView(sell)
   v.addView(button("CORRECCIÓN DE VENTA",false){beginTicketCorrection()})
   Protection.addBlindButton(this,v)
   countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
@@ -1891,8 +1891,12 @@ class WelcomeActivity:Activity(){
     checking=false
     if(isFinishing||isDestroyed)return@runOnUiThread
     if(active){
-     startActivity(Intent(this,InicioTurnoActivity::class.java))
-     finish()
+     AccountLoginActivity.ensureReportWhatsApp(this) {
+      if (!isFinishing && !isDestroyed) {
+       startActivity(Intent(this,InicioTurnoActivity::class.java))
+       finish()
+      }
+     }
     }
    }
   }.start()
