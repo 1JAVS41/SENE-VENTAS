@@ -103,7 +103,7 @@ class PayrollEmployeeActivity:FragmentActivity(){
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);val active=Store.shift(this)?.optString("employeeId").orEmpty();employeeId=intent.getStringExtra("employee_id")?.takeIf{it.isNotBlank()}?:active
   if(employeeId.isBlank()){chooseEmployee();return}
   val profile=WorkerProfiles.all(this).firstOrNull{it.id==employeeId};if(profile==null){finish();return}
-  if(active!=employeeId)authenticate(profile) else draw()
+  authenticate(profile)
  }
  private fun chooseEmployee(){
   val profiles=WorkerProfiles.all(this);if(profiles.isEmpty()){Toast.makeText(this,"No hay trabajadores registrados.",Toast.LENGTH_LONG).show();finish();return}
