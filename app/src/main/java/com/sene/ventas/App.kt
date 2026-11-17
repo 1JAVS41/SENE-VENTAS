@@ -196,6 +196,32 @@ private fun Activity.display(v:LinearLayout){
  sc.viewTreeObserver.addOnGlobalLayoutListener{sc.post{revealFocused()}}
 }
 private fun Activity.msg(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
+private fun Activity.forceDefaultPinChange(onSaved:()->Unit){
+ val next=input("Crea tu nuevo PIN privado",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+ val confirm=input("Confirma tu nuevo PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+ val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(next);addView(confirm)}
+ val dialog=AlertDialog.Builder(this)
+  .setTitle("🚨🚨 ALERTA CRÍTICA DE SEGURIDAD 🚨🚨")
+  .setMessage("ATENCIÓN: ESTÁS UTILIZANDO EL PIN DE FÁBRICA 2910. CUALQUIER PERSONA QUE LO CONOZCA PODRÍA ENTRAR A SOY PATRÓN Y ACCEDER A LA ADMINISTRACIÓN DEL NEGOCIO. DEBES REEMPLAZARLO AHORA POR UN PIN NUEVO, PRIVADO Y QUE SOLO TÚ, COMO DUEÑO, DEBES CONOCER. NO LO COMPARTAS NI LO ANOTES A LA VISTA.\n\nPor seguridad, no podrás continuar hasta crear y confirmar tu nuevo PIN.")
+  .setView(box).setCancelable(false).setPositiveButton("CAMBIAR PIN AHORA",null).create()
+ dialog.setOnShowListener{
+  dialog.setCanceledOnTouchOutside(false)
+  dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+   val a=next.text.toString();val b=confirm.text.toString()
+   if(a.length<4||a.length>12||a.any{!it.isDigit()}){next.error="Usa de 4 a 12 dígitos";return@setOnClickListener}
+   if(a==DEFAULT_PIN){next.error="No puedes conservar el PIN predeterminado 2910";return@setOnClickListener}
+   if(a!=b){confirm.error="Los PIN no coinciden";return@setOnClickListener}
+   val saved=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).edit()
+    .putString("pin",a).putBoolean("default_pin_warning_shown",true).commit()
+   if(!saved){msg("No se pudo guardar el nuevo PIN. Inténtalo nuevamente.");return@setOnClickListener}
+   dialog.dismiss()
+   AlertDialog.Builder(this).setTitle("PIN actualizado")
+    .setMessage("Tu PIN nuevo quedó guardado en este dispositivo. Solo tú debes conocerlo. El aviso del PIN predeterminado no volverá a aparecer.")
+    .setPositiveButton("CONTINUAR"){_,_->onSaved()}.setCancelable(false).show()
+  }
+ }
+ dialog.show()
+}
 private fun Activity.pin(ok:()->Unit){
  val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
  val biometricEnabled=prefs.getBoolean("biometric_enabled",false)
@@ -205,7 +231,7 @@ private fun Activity.pin(ok:()->Unit){
   .setNeutralButton(if(biometricEnabled)"USAR HUELLA" else "CERRAR",null).create()
  dialog.setOnShowListener{
   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
-   if(e.text.toString()==currentPatronPin(this)){dialog.dismiss();ok()}else{e.text?.clear();e.error="PIN incorrecto"}
+   if(e.text.toString()==currentPatronPin(this)){dialog.dismiss();if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ok()}else ok()}else{e.text?.clear();e.error="PIN incorrecto"}
   }
   dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener{
    if(!biometricEnabled){dialog.dismiss();return@setOnClickListener}
