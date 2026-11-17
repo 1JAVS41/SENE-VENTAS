@@ -561,13 +561,22 @@ class InicioTurnoActivity:FragmentActivity(){
  private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
  v.addView(button("YA SOY CLIENTE SENE · INICIAR SESIÓN",true){startActivity(Intent(this,AccountLoginActivity::class.java))})
  val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))};v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
- v.addView(txt("INICIA TU TURNO CON TU PERFIL PERSONAL",16f))
- v.addView(powerButton("⏻  INICIAR TURNO"){chooseWorker()})
- v.addView(button("REGISTRAR NUEVO TRABAJADOR",false){pin{registerWorker()}})
- v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
+ v.addView(txt("SELECCIONA TU PERFIL PARA INICIAR TURNO",16f))
+ val profiles=WorkerProfiles.all(this)
+ if(profiles.isEmpty())v.addView(txt("Aún no hay perfiles registrados. Agrega el primero para comenzar.",14f))
+ else{
+  val tags=android.widget.GridLayout(this).apply{columnCount=2;useDefaultMargins=true}
+  profiles.forEach{profile->
+   val tag=Button(this).apply{text=profile.name;textSize=14f;isAllCaps=false;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(-1);background=rounded(0xFF344F91.toInt(),22);minHeight=dp(52);setPadding(dp(12),dp(8),dp(12),dp(8));setOnClickListener{authenticateWorker(profile)}}
+   tags.addView(tag,android.widget.GridLayout.LayoutParams().apply{width=0;height=dp(54);columnSpec=android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED,1f);setMargins(dp(4),dp(4),dp(4),dp(4))})
+  }
+  v.addView(tags)
+ }
+ v.addView(button("＋  AGREGAR PERFIL",false){pin{registerWorker()}})
+ v.addView(button("Soy Patrón",false){refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))})
  val inventoryReady=Store.products(this).length()>0 || try{val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null);if(saved.isNullOrBlank())false else {InventoryReader.latest(this,Uri.parse(saved));true}}catch(_:Exception){false};if(!inventoryReady){val notice=txt("Aún no hay un inventario válido en INVENTARIO SENE. Entra a Soy Patrón para crear o cargar el primero.",14f);notice.setTextColor(0xFFB3261E.toInt());v.addView(notice)}
  Protection.addBlindButton(this,v)
- v.addView(txt("Historial de Turnos"));val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f));display(v)}
+ v.addView(txt("MI TURNO LABORAL"));val m=Store.moves(this);for(i in m.length()-1 downTo maxOf(0,m.length()-15))v.addView(txt(m.optJSONObject(i)?.optString("text")?:"",14f));display(v)}
 }
 
 class MainActivity:FragmentActivity(){
