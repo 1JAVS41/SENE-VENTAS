@@ -561,7 +561,7 @@ class InicioTurnoActivity:FragmentActivity(){
  private fun draw(){val v=page("Inicio de Turno");v.addView(txt("Celular: "+stamp()));internetLabel=txt("Internet: "+internet,15f);v.addView(internetLabel);v.addView(button("VERIFICAR HORA DE INTERNET",false){consultInternetTime()})
  v.addView(button("YA SOY CLIENTE SENE · INICIAR SESIÓN",true){startActivity(Intent(this,AccountLoginActivity::class.java))})
  val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))};v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
- v.addView(txt("INICIA TU TURNO CON TU PERFIL PERSONAL",16f,true))
+ v.addView(txt("INICIA TU TURNO CON TU PERFIL PERSONAL",16f))
  v.addView(powerButton("⏻  INICIAR TURNO"){chooseWorker()})
  v.addView(button("REGISTRAR NUEVO TRABAJADOR",false){pin{registerWorker()}})
  v.addView(button("Soy Patrón (PIN)",false){pin{refreshAfterPatron=true;startActivity(Intent(this,PatronActivity::class.java))}})
