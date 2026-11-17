@@ -1,5 +1,9 @@
 package com.sene.ventas
 import android.app.*
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothSocket
+import android.provider.Settings
 import android.content.*
 import android.graphics.Typeface
 import android.graphics.Rect
@@ -511,6 +515,89 @@ class MainActivity:FragmentActivity(){
   }.start()
  }
  private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
+ private var selectedPrinterAddress:String?=null
+ private var printerSocket:BluetoothSocket?=null
+ private val printerSppUuid=UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+ private fun showPrinterSetup(){
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
+  panel.addView(TextView(this).apply{text="IMPRESORAS BLUETOOTH COMPATIBLES";textSize=16f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1D315B.toInt());setPadding(0,dp(4),0,dp(8))})
+  fun legend(label:String,detail:String,color:Int){
+   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(10),dp(12),dp(10));background=rounded(0xFFFFFFFF.toInt(),12,0xFFDCE3F0.toInt())}
+   card.addView(TextView(this).apply{text=label;textSize=13f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(color)})
+   card.addView(TextView(this).apply{text=detail;textSize=12f;setTextColor(0xFF66738E.toInt());setPadding(0,dp(3),0,0)})
+   val lp=LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(6);panel.addView(card,lp)
+  }
+  legend("COMPATIBLE","Térmicas ESC/POS Bluetooth clásico SPP; formatos de 58 mm y 80 mm.",0xFF168B45.toInt())
+  legend("SEGÚN MODELO","BLE o protocolos propietarios: solo funcionarán si el fabricante permite enviar comandos ESC/POS compatibles.",0xFFB7791F.toInt())
+  legend("NO GARANTIZADA","Impresoras que requieren aplicaciones, controladores o protocolos cerrados.",0xFFB3261E.toInt())
+  panel.addView(TextView(this).apply{text="Primero vincula la impresora desde los ajustes Bluetooth de Android. Después vuelve aquí y selecciona el dispositivo vinculado.";textSize=12f;setTextColor(0xFF65718A.toInt());setPadding(0,dp(8),0,dp(8))})
+  val status=TextView(this).apply{text="Impresora: "+(getSharedPreferences("sene_ventas_local",0).getString("printer_name",null)?: "Sin configurar");textSize=13f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF263D70.toInt());setPadding(dp(12),dp(10),dp(12),dp(10));background=rounded(0xFFE9EFFB.toInt(),12)}
+  panel.addView(status)
+  val dialog=AlertDialog.Builder(this).setTitle("CONECTE SU IMPRESORA").setView(ScrollView(this).apply{addView(panel)}).setNegativeButton("CERRAR",null).create()
+  panel.addView(button("ABRIR AJUSTES BLUETOOTH",false){try{startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))}catch(_:Exception){msg("No se pudieron abrir los ajustes Bluetooth")}})
+  panel.addView(button("BUSCAR IMPRESORAS VINCULADAS"){loadPairedPrinters(panel,status)})
+  panel.addView(button("IMPRIMIR TICKET DE PRUEBA",false){printPrinterTest()})
+  panel.addView(button("DESVINCULAR DE SENE",false){
+   printerSocket?.close();printerSocket=null
+   getSharedPreferences("sene_ventas_local",0).edit().remove("printer_address").remove("printer_name").apply()
+   status.text="Impresora: Sin configurar";msg("Impresora quitada de SENE")
+  })
+  dialog.show()
+ }
+ private fun loadPairedPrinters(panel:LinearLayout,status:TextView){
+  if(Build.VERSION.SDK_INT>=31&&checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED){
+   requestPermissions(arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT),8201);return
+  }
+  val adapter=BluetoothAdapter.getDefaultAdapter()
+  if(adapter==null){msg("Este dispositivo no admite Bluetooth");return}
+  if(!adapter.isEnabled){try{startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))}catch(_:Exception){};msg("Activa Bluetooth y vuelve a buscar");return}
+  try{
+   val devices=adapter.bondedDevices?.toList()?.sortedBy{it.name?:it.address}?:emptyList()
+   if(devices.isEmpty()){msg("No hay impresoras vinculadas. Vincula primero la impresora en los ajustes Bluetooth de Android.");return}
+   val names=devices.map{(it.name?: "Dispositivo sin nombre")+"\\n"+it.address}.toTypedArray()
+   AlertDialog.Builder(this).setTitle("DISPOSITIVOS VINCULADOS").setItems(names){_,which->
+    val device=devices[which]
+    connectPrinter(device,status)
+   }.setNegativeButton("Cancelar",null).show()
+  }catch(e:SecurityException){msg("Android no concedió permiso para consultar dispositivos Bluetooth")}
+ }
+ private fun connectPrinter(device:BluetoothDevice,status:TextView){
+  Thread{
+   var socket:BluetoothSocket?=null
+   try{
+    val adapter=BluetoothAdapter.getDefaultAdapter();adapter?.cancelDiscovery()
+    socket=device.createRfcommSocketToServiceRecord(printerSppUuid)
+    socket.connect()
+    printerSocket?.close();printerSocket=socket
+    val name=try{device.name?:device.address}catch(_:Exception){device.address}
+    getSharedPreferences("sene_ventas_local",0).edit().putString("printer_address",device.address).putString("printer_name",name).apply()
+    runOnUiThread{status.text="IMPRESORA CONECTADA: "+name;msg("Impresora conectada. Ya puedes imprimir el ticket de prueba.")}
+   }catch(e:Exception){
+    try{socket?.close()}catch(_:Exception){}
+    runOnUiThread{msg("No se pudo conectar. Verifica que sea Bluetooth SPP/ESC-POS y que no esté conectada a otro equipo.")}
+   }
+  }.start()
+ }
+ private fun printPrinterTest(){
+  val socket=printerSocket
+  if(socket==null||!socket.isConnected){msg("Primero selecciona y conecta una impresora compatible");return}
+  Thread{
+   try{
+    val bytes=byteArrayOf(0x1B,0x40)+
+     "SENE VENTAS\\nPRUEBA DE IMPRESION\\nBluetooth SPP / ESC-POS\\n\\nConexion correcta\\n\\n\\n".toByteArray(Charsets.UTF_8)+
+     byteArrayOf(0x1D,0x56,0x00)
+    socket.outputStream.write(bytes);socket.outputStream.flush()
+    runOnUiThread{msg("Ticket de prueba enviado a la impresora")}
+   }catch(e:Exception){runOnUiThread{msg("Falló la impresión. Comprueba papel, conexión y compatibilidad ESC/POS.")}}
+  }.start()
+ }
+ private fun onPrinterPermissionGranted(){
+  if(Build.VERSION.SDK_INT<31||checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED)showPrinterSetup()
+ }
+ override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){
+  super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+  if(requestCode==8201){if(grantResults.isNotEmpty()&&grantResults[0]==PackageManager.PERMISSION_GRANTED)showPrinterSetup()else msg("Se necesita permiso Bluetooth para mostrar impresoras vinculadas")}
+ }
  private fun showToolsMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
   val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
