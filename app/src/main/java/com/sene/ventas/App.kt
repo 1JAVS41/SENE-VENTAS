@@ -811,7 +811,7 @@ class MainActivity:FragmentActivity(){
   val now=System.currentTimeMillis();val time=stamp();val worker=(Store.shift(this)?:JSONObject()).optString("worker")
   val movements=ArrayList<JSONObject>()
   if(newProduct==null){
-   movements.add(JSONObject().put("ts",now).put("time",time).put("ticketId",correctionTicketId).put("type","SALE_DELETE").put("sourceCode",correctionOriginalCode).put("code",correctionOriginalCode).put("name","DEVOLUCIÓN · "+sold.optString("name")).put("qty",1).put("price",oldPrice).put("subtotal",-oldPrice).put("reason",reason).put("worker",worker))
+   movements.add(JSONObject().put("ts",now).put("time",time).put("ticketId",correctionTicketId).put("type","SALE_DELETE").put("sourceCode",correctionOriginalCode).put("code",correctionOriginalCode).put("name","DEVOLUCIÓN · "+sold.optString("name")).put("qty",1).put("price",oldPrice).put("subtotal",-oldPrice).put("reason",reason).put("worker",worker).put("employeeId",Store.shift(this)?.optString("employeeId")))
   }else{
    newProduct!!.put("stock",newProduct!!.optInt("stock")-1);val newPrice=newProduct!!.optDouble("price")
    movements.add(JSONObject().put("ts",now).put("time",time).put("ticketId",correctionTicketId).put("type","SALE_REPLACE_OLD").put("sourceCode",correctionOriginalCode).put("code",correctionOriginalCode).put("name","DEVOLUCIÓN · "+sold.optString("name")).put("qty",1).put("price",oldPrice).put("subtotal",-oldPrice).put("reason",reason).put("worker",worker))
@@ -1039,7 +1039,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    saleItems.add(JSONObject().put("ts",saleTs).put("time",saleTime).put("ticketId",ticketId)
     .put("code",item.optString("code")).put("name",item.optString("name")).put("qty",quantity)
     .put("price",item.optDouble("price")).put("subtotal",item.optDouble("price")*quantity)
-    .put("worker",shift.optString("worker")).put("type","SALE"))
+    .put("worker",shift.optString("worker")).put("employeeId",shift.optString("employeeId")).put("type","SALE"))
   }
   Store.saveProducts(this,products);Store.addSales(this,saleItems)
   val change=payment-total;val count=list.size
