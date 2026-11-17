@@ -507,6 +507,8 @@ class InicioTurnoActivity:FragmentActivity(){
    val products=snapshot?.products?:localProducts
    if(products.length()==0)throw java.io.IOException("El inventario cargado no contiene productos")
    Store.saveProducts(this,products)
+   // Fijar una copia inicial independiente para este perfil antes de abrir el turno.
+   InventoryArchive.save(this,products,workerId,worker)
    val now=System.currentTimeMillis()
    val employeeConfig=EmployeePayroll.config(this,workerId)
    val hours=employeeConfig?.dailyHours?:8
