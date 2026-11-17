@@ -523,7 +523,8 @@ class InicioTurnoActivity:FragmentActivity(){
    val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
    val workerSnapshot=InventoryReader.latestForWorker(this,savedTree,workerId,profileName)
-   val snapshot=workerSnapshot ?: if(localProducts.length()==0 && savedTree!=null)InventoryReader.latestMaster(this,savedTree)else null
+   val masterSnapshot=if(workerSnapshot==null&&savedTree!=null)try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}else null
+   val snapshot=workerSnapshot?:masterSnapshot
    WorkerArchive.ensureProfileFolders(this,workerId,profileName)
    val latest=snapshot?.folder?: "INVENTARIO SENE / TRABAJADORES / $profileKey / INVENTARIOS"
    val prefs=getSharedPreferences("sene_ventas_local",0)
