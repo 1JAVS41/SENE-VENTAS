@@ -517,8 +517,8 @@ class InicioTurnoActivity:FragmentActivity(){
    val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nID del trabajador: ").append(workerId).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
-   if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body)
-   else saveTextBackupLocal(this,"SENE-VENTAS-INICIO",body)
+   if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body,workerId,worker)
+   else saveTextBackupLocal(this,"SENE-VENTAS-INICIO",body,workerId,worker)
    Store.saveShift(this,shift)
    if(!EmployeePayroll.recordShiftStart(this,workerId,now))msg("Aviso: no se pudo guardar el registro de asistencia local.")
    // Abrir el chat directo del patrón con el reporte completo ya preparado para enviar.
@@ -1256,7 +1256,7 @@ class AgregarInventarioActivity:Activity(){
   val tree=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
   if(!tree.isNullOrBlank())try{savedInSharedFolder=InventoryArchive.save(this,p)}catch(_:Exception){}
   try{
-   if(!savedInSharedFolder)saveTextBackupLocal(this,"SENE-INGRESO-PROVEEDOR",backup.toString())
+   if(!savedInSharedFolder){val active=Store.shift(this);saveTextBackupLocal(this,"SENE-INGRESO-PROVEEDOR",backup.toString(),active?.optString("employeeId").orEmpty(),active?.optString("worker").orEmpty())}
   }catch(e:Exception){msg("No se pudo crear el respaldo local: "+(e.message?:"error"));return}
   Store.saveProducts(this,p)
   val s=Store.shift(this)?:JSONObject()
