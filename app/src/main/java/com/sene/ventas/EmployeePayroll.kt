@@ -69,7 +69,19 @@ object EmployeePayroll {
             days.any{it !in Calendar.SUNDAY..Calendar.SATURDAY}||cfg.payDay !in Calendar.SUNDAY..Calendar.SATURDAY)return false
         val saved=cfg.copy(employeeId=id,workDays=days.size,restDay=(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in days}?:Calendar.SUNDAY)
         val raw=prefs(c).getString(CONFIGS,null)
-        val existing=if(raw==null) emptyList() else try{val a0=JSONArray(raw);buildList{for(i in 0 until a0.length())decodeConfig(a0.optJSONObject(i)?:continue)?.let{add(it)}}}catch(_:Exception){emptyList()}
+        val existing=if(raw!=null) try{val a0=JSONArray(raw);buildList{for(i in 0 until a0.length())decodeConfig(a0.optJSONObject(i)?:continue)?.let{add(it)}}}catch(_:Exception){emptyList()} else {
+            val legacy=c.getSharedPreferences("sene_employee_payroll_v1",Context.MODE_PRIVATE).getString("employee_config",null)
+            try{
+                if(legacy==null) emptyList() else {
+                    val x=JSONObject(legacy);val oldProfile=WorkerProfiles.all(c).firstOrNull{it.name.equals(x.optString("employee"),true)}
+                    if(oldProfile==null||oldProfile.id==id) emptyList() else {
+                        val rest=x.optInt("restDay",Calendar.SUNDAY);val count=x.optInt("workDays",6)
+                        val oldDays=listOf(Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY,Calendar.SUNDAY).filter{it!=rest}.take(count).toSet()
+                        listOf(Config(oldProfile.name,x.optInt("dailyHours",8),x.optLong("weeklySalaryCents"),oldDays.size,rest,x.optInt("payDay",Calendar.SATURDAY),oldDays,oldProfile.id,System.currentTimeMillis()))
+                    }
+                }
+            }catch(_:Exception){emptyList()}
+        }
         val all=existing.filterNot{it.employeeId==id}+saved
         val a=JSONArray()
         all.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("employee",x.employee).put("dailyHours",x.dailyHours)
