@@ -679,9 +679,14 @@ class MainActivity:FragmentActivity(){
  private fun askCorrectionReason(newCode:String?){
   val reason=input("Describe el motivo de la corrección")
   val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8));addView(TextView(this@MainActivity).apply{text=if(newCode==null)"El producto original regresará al inventario y se devolverá al cliente su precio." else "El producto original regresará al inventario y se descontará el nuevo producto. Se calculará la diferencia.";textSize=13f;setTextColor(0xFF53617A.toInt())});addView(reason)}
-  AlertDialog.Builder(this).setTitle("MOTIVO DE LA CORRECCIÓN").setView(content)
-   .setPositiveButton("CONFIRMAR"){_,_->if(reason.text.isBlank()){msg("Escribe el motivo antes de continuar")}else applyTicketCorrection(newCode,reason.text.toString().trim())}
-   .setNegativeButton("CANCELAR"){_,_->correctionStage=0}.show()
+  val dialog=AlertDialog.Builder(this).setTitle("MOTIVO DE LA CORRECCIÓN").setView(content)
+   .setPositiveButton("CONFIRMAR",null).setNegativeButton("CANCELAR"){_,_->correctionStage=0}.create()
+  dialog.setOnShowListener{
+   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+    if(reason.text.isBlank()){reason.error="Describe el motivo"}else{val detail=reason.text.toString().trim();dialog.dismiss();applyTicketCorrection(newCode,detail)}
+   }
+  }
+  dialog.show()
  }
  private fun applyTicketCorrection(newCode:String?,reason:String){
   val sales=Store.sales(this);var original:JSONObject?=null
