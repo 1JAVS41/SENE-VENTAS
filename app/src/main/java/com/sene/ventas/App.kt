@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothSocket
 import android.provider.Settings
 import android.content.*
 import android.graphics.Typeface
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.widget.ImageView
 import android.graphics.drawable.GradientDrawable
@@ -31,6 +32,7 @@ import com.journeyapps.barcodescanner.BarcodeCallback
 import com.journeyapps.barcodescanner.BarcodeResult
 import com.journeyapps.barcodescanner.DefaultDecoderFactory
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.content.pm.PackageManager
@@ -482,7 +484,7 @@ class MainActivity:FragmentActivity(){
   }
   salesClockHandler.postDelayed(this,1000L)
  }}
- private val ticket=linkedMapOf<String,Int>();private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private val h=Handler(Looper.getMainLooper())
+ private val ticket=linkedMapOf<String,Int>();private var scanningTicketCorrection=false;private var correctionStage=0;private var correctionTicketId="";private var correctionAction="";private var correctionOriginalCode="";private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private val h=Handler(Looper.getMainLooper())
  private var reportDialog:AlertDialog?=null
  private lateinit var countdownView:TextView
  private var pendingFinalReport=false
@@ -598,12 +600,98 @@ class MainActivity:FragmentActivity(){
   super.onRequestPermissionsResult(requestCode,permissions,grantResults)
   if(requestCode==8201){if(grantResults.isNotEmpty()&&grantResults[0]==PackageManager.PERMISSION_GRANTED)showPrinterSetup()else msg("Se necesita permiso Bluetooth para mostrar impresoras vinculadas")}
  }
+ private fun beginTicketCorrection(){
+  AlertDialog.Builder(this).setTitle("CORRECCIÓN DE VENTA")
+   .setMessage("Escanea el código QR del ticket que deseas corregir. Solo los tickets emitidos con QR por esta versión podrán localizarse.")
+   .setPositiveButton("ESCANEAR TICKET"){_,_->scanningTicketCorrection=true;openScanner()}
+   .setNegativeButton("CANCELAR",null).show()
+ }
+ private fun handleTicketCorrectionScan(value:String){
+  if(!value.startsWith("SENE-TICKET:")){msg("Ese código no corresponde a un ticket SENE");return}
+  val sales=Store.sales(this);var found=false
+  for(i in 0 until sales.length()){if(sales.optJSONObject(i)?.optString("ticketId")==value){found=true;break}}
+  if(!found){msg("No se encontró el ticket. Verifica que sea un comprobante SENE vigente.");return}
+  correctionTicketId=value
+  AlertDialog.Builder(this).setTitle("TICKET LOCALIZADO")
+   .setItems(arrayOf("CAMBIAR PRODUCTO","ELIMINAR PRODUCTO")){_,which->
+    correctionAction=if(which==0)"REPLACE" else "DELETE";correctionStage=1
+    msg("Escanea el producto original que aparece en el ticket");openScanner()
+   }.setNegativeButton("CANCELAR",null).show()
+ }
+ private fun handleCorrectionProductScan(value:String){
+  if(correctionStage==1){
+   val sales=Store.sales(this);var available=false
+   for(i in 0 until sales.length()){
+    val row=sales.optJSONObject(i)?:continue
+    if(row.optString("ticketId")==correctionTicketId&&row.optString("type","SALE")=="SALE"&&row.optString("code")==value){
+     var already=0
+     for(j in 0 until sales.length()){val prior=sales.optJSONObject(j)?:continue;if(prior.optString("ticketId")==correctionTicketId&&prior.optString("sourceCode")==value)already+=prior.optInt("qty",1)}
+     if(already<row.optInt("qty",1))available=true
+    }
+   }
+   if(!available){correctionStage=0;msg("El producto no pertenece al ticket o ya fue corregido en su totalidad");return}
+   correctionOriginalCode=value
+   if(correctionAction=="DELETE")askCorrectionReason(null)
+   else{correctionStage=2;msg("Ahora escanea el producto nuevo que entregarás al cliente");openScanner()}
+   return
+  }
+  if(correctionStage==2)askCorrectionReason(value)
+ }
+ private fun askCorrectionReason(newCode:String?){
+  val reason=input("Describe el motivo de la corrección")
+  val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8));addView(TextView(this@MainActivity).apply{text=if(newCode==null)"El producto original regresará al inventario y se devolverá al cliente su precio." else "El producto original regresará al inventario y se descontará el nuevo producto. Se calculará la diferencia.";textSize=13f;setTextColor(0xFF53617A.toInt())});addView(reason)}
+  AlertDialog.Builder(this).setTitle("MOTIVO DE LA CORRECCIÓN").setView(content)
+   .setPositiveButton("CONFIRMAR"){_,_->if(reason.text.isBlank()){msg("Escribe el motivo antes de continuar")}else applyTicketCorrection(newCode,reason.text.toString().trim())}
+   .setNegativeButton("CANCELAR"){_,_->correctionStage=0}.show()
+ }
+ private fun applyTicketCorrection(newCode:String?,reason:String){
+  val sales=Store.sales(this);var original:JSONObject?=null
+  for(i in 0 until sales.length()){val row=sales.optJSONObject(i)?:continue;if(row.optString("ticketId")==correctionTicketId&&row.optString("type","SALE")=="SALE"&&row.optString("code")==correctionOriginalCode){original=row;break}}
+  val sold=original?:run{msg("No se pudo recuperar el producto original");correctionStage=0;return}
+  val oldPrice=sold.optDouble("price");val products=Store.products(this)
+  var oldProduct:JSONObject?=null;var newProduct:JSONObject?=null
+  for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;if(item.optString("code")==correctionOriginalCode)oldProduct=item;if(newCode!=null&&item.optString("code")==newCode)newProduct=item}
+  if(oldProduct==null){msg("El producto original ya no existe en el inventario");correctionStage=0;return}
+  if(newCode!=null&&(newProduct==null||newProduct!!.optInt("stock")<1)){msg("El producto nuevo no existe o no tiene existencia");correctionStage=0;return}
+  if(newCode==correctionOriginalCode){msg("Seleccionaste el mismo producto. No hay cambios que registrar.");correctionStage=0;return}
+  oldProduct!!.put("stock",oldProduct!!.optInt("stock")+1)
+  val now=System.currentTimeMillis();val time=stamp();val worker=(Store.shift(this)?:JSONObject()).optString("worker")
+  val movements=ArrayList<JSONObject>()
+  if(newProduct==null){
+   movements.add(JSONObject().put("ts",now).put("time",time).put("ticketId",correctionTicketId).put("type","SALE_DELETE").put("sourceCode",correctionOriginalCode).put("code",correctionOriginalCode).put("name","DEVOLUCIÓN · "+sold.optString("name")).put("qty",1).put("price",oldPrice).put("subtotal",-oldPrice).put("reason",reason).put("worker",worker))
+  }else{
+   newProduct!!.put("stock",newProduct!!.optInt("stock")-1);val newPrice=newProduct!!.optDouble("price")
+   movements.add(JSONObject().put("ts",now).put("time",time).put("ticketId",correctionTicketId).put("type","SALE_REPLACE_OLD").put("sourceCode",correctionOriginalCode).put("code",correctionOriginalCode).put("name","DEVOLUCIÓN · "+sold.optString("name")).put("qty",1).put("price",oldPrice).put("subtotal",-oldPrice).put("reason",reason).put("worker",worker))
+   movements.add(JSONObject().put("ts",now).put("time",time).put("ticketId",correctionTicketId).put("type","SALE_REPLACE_NEW").put("sourceCode",correctionOriginalCode).put("code",newCode).put("name","CAMBIO POR · "+newProduct!!.optString("name")).put("qty",1).put("price",newPrice).put("subtotal",newPrice).put("reason",reason).put("worker",worker))
+  }
+  Store.saveProducts(this,products);Store.addSales(this,movements)
+  val difference=if(newProduct==null)-oldPrice else newProduct!!.optDouble("price")-oldPrice
+  correctionStage=0
+  val message=if(newProduct==null)"Producto devuelto al inventario. Devolver al cliente: "+Store.money(oldPrice) else if(difference>0)"Cobrar al cliente: "+Store.money(difference) else if(difference<0)"Devolver al cliente: "+Store.money(-difference) else "No hay diferencia de precio."
+  AlertDialog.Builder(this).setTitle("CORRECCIÓN REGISTRADA").setMessage(message+"\n\nInventario, caja y reporte actualizados.").setPositiveButton("ACEPTAR",null).show()
+ }
+ private fun showTicketQr(ticketId:String,total:Double,items:List<JSONObject>){
+  try{
+   val matrix=MultiFormatWriter().encode(ticketId,BarcodeFormat.QR_CODE,560,560)
+   val pixels=IntArray(560*560)
+   for(y in 0 until 560)for(x in 0 until 560)pixels[y*560+x]=if(matrix.get(x,y))0xFF111111.toInt() else 0xFFFFFFFF.toInt()
+   val bitmap=Bitmap.createBitmap(pixels,560,560,Bitmap.Config.ARGB_8888)
+   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(dp(16),dp(8),dp(16),dp(8))}
+   panel.addView(TextView(this).apply{text="TICKET REGISTRADO";textSize=16f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1C315B.toInt());gravity=Gravity.CENTER})
+   panel.addView(TextView(this).apply{text="TOTAL: "+Store.money(total);textSize=20f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF168B45.toInt());gravity=Gravity.CENTER;setPadding(0,dp(8),0,dp(6))})
+   panel.addView(ImageView(this).apply{setImageBitmap(bitmap);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER})
+   panel.addView(TextView(this).apply{text="Conserva este código QR. Se necesita para corregir esta venta.";textSize=12f;setTextColor(0xFF65718A.toInt());gravity=Gravity.CENTER;setPadding(0,dp(6),0,0)})
+   AlertDialog.Builder(this).setTitle("COMPROBANTE SENE").setView(panel).setPositiveButton("CERRAR",null).show()
+   printReceiptIfConfigured(ticketId,total,items)
+  }catch(e:Exception){msg("Venta guardada. No se pudo generar el QR en pantalla: "+(e.message?:"error"))}
+ }
  private fun showToolsMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
   val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
   val dialog=AlertDialog.Builder(this).setTitle("HERRAMIENTAS SENE").setView(scroll).setNegativeButton("CERRAR",null).create()
   val items=listOf(
    Triple("🖨  CONECTE SU IMPRESORA","Configurar Bluetooth e imprimir un ticket de prueba",10),
+   Triple("CORREGIR VENTA","Escanear ticket para cambiar o eliminar un producto",11),
    Triple("VENTAS DEL TURNO","Resumen de ventas, piezas y caja",0),
    Triple("AGREGAR INVENTARIO","Registrar mercancía recibida del proveedor",1),
    Triple("GASTOS A PROVEEDORES","Consultar pagos y salidas de caja",2),
@@ -626,6 +714,7 @@ class MainActivity:FragmentActivity(){
     5->AlertDialog.Builder(this).setTitle("Cerrar turno").setMessage("¿Enviar reporte final y cerrar turno?").setPositiveButton("Enviar y cerrar"){_,_->sendReport(true)}.setNegativeButton("Cancelar",null).show()
     6->saveReportToPhone()
     10->showPrinterSetup()
+    11->beginTicketCorrection()
    }}
   }
   dialog.show()
@@ -770,13 +859,35 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   offerSupplierInventory(c,null)
  }
  private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);val b=StringBuilder();var sum=0.0;for((c,q) in ticket){for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\n");break}}};ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString();val diff=(parseAmount(paid.text.toString())?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff)}
- private fun sellTicket(){if(due()){showReportAlert();return};if(ticket.isEmpty()){msg("Ticket vacio. Escanea un producto.");return}
- val p=Store.products(this);val list=mutableListOf<Pair<JSONObject,Int>>();var sum=0.0
- for((c,q) in ticket){var found:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i);if(x?.optString("code")==c){found=x;break}};if(found==null){msg("Producto no encontrado: "+c);return};if(found.optInt("stock")<q){msg("Stock insuficiente: "+found.optString("name")+". Quedan "+found.optInt("stock"));return};list.add(found to q);sum+=found.optDouble("price")*q}
- val pay=paid.text.toString().toDoubleOrNull()?:0.0;if(pay<sum){msg("Falta dinero");return};val s=Store.shift(this)?:JSONObject()
- val saleTime=stamp();val saleTs=System.currentTimeMillis();val saleItems=ArrayList<JSONObject>()
- for((x,q) in list){x.put("stock",x.optInt("stock")-q);saleItems.add(JSONObject().put("ts",saleTs).put("time",saleTime).put("code",x.optString("code")).put("name",x.optString("name")).put("qty",q).put("price",x.optDouble("price")).put("subtotal",x.optDouble("price")*q).put("worker",s.optString("worker")))}
- Store.saveProducts(this,p);Store.addSales(this,saleItems);val change=pay-sum;val n=list.size;ticket.clear();paid.setText("");msg("Venta guardada: "+n+" productos | Total "+Store.money(sum)+" | Cambio "+Store.money(change));draw()}
+ private fun sellTicket(){
+  if(due()){showReportAlert();return}
+  if(ticket.isEmpty()){msg("Ticket vacío. Escanea un producto.");return}
+  val products=Store.products(this);val list=mutableListOf<Pair<JSONObject,Int>>();var total=0.0
+  for((productCode,quantity) in ticket){
+   var found:JSONObject?=null
+   for(i in 0 until products.length()){val item=products.optJSONObject(i);if(item?.optString("code")==productCode){found=item;break}}
+   if(found==null){msg("Producto no encontrado: "+productCode);return}
+   if(found.optInt("stock")<quantity){msg("Stock insuficiente: "+found.optString("name")+". Quedan "+found.optInt("stock"));return}
+   list.add(found to quantity);total+=found.optDouble("price")*quantity
+  }
+  val payment=parseAmount(paid.text.toString())?:0.0
+  if(payment<total){msg("Falta dinero");return}
+  val shift=Store.shift(this)?:JSONObject();val saleTime=stamp();val saleTs=System.currentTimeMillis()
+  val ticketId="SENE-TICKET:"+UUID.randomUUID().toString();val saleItems=ArrayList<JSONObject>()
+  for((item,quantity) in list){
+   item.put("stock",item.optInt("stock")-quantity)
+   saleItems.add(JSONObject().put("ts",saleTs).put("time",saleTime).put("ticketId",ticketId)
+    .put("code",item.optString("code")).put("name",item.optString("name")).put("qty",quantity)
+    .put("price",item.optDouble("price")).put("subtotal",item.optDouble("price")*quantity)
+    .put("worker",shift.optString("worker")).put("type","SALE"))
+  }
+  Store.saveProducts(this,products);Store.addSales(this,saleItems)
+  val change=payment-total;val count=list.size
+  ticket.clear();paid.setText("")
+  showTicketQr(ticketId,total,saleItems)
+  msg("Venta guardada: "+count+" productos | Total "+Store.money(total)+" | Cambio "+Store.money(change))
+  draw()
+ }
  private fun reportText(final:Boolean):String{
   val shift=Store.shift(this)?:JSONObject();val all=Store.sales(this)
   val out=StringBuilder("SENE VENTAS  •  "+if(final)"CIERRE DE TURNO" else "REPORTE DE TURNO")
@@ -792,7 +903,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    if(sale.optLong("ts")>=shift.optLong("startTs",0L)){
     val amount=sale.optDouble("subtotal");total+=amount
     val kind=sale.optString("type","SALE")
-    val label=when(kind){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE"->"CORRECCIÓN";else->"VENTA"}
+    val label=when(kind){"SALE_DELETE"->"DEVOLUCIÓN";"SALE_REPLACE_OLD"->"PRODUCTO DEVUELTO";"SALE_REPLACE_NEW"->"PRODUCTO ENTREGADO";else->"VENTA"}
     out.append("\n[").append(label).append("] ").append(sale.optString("time"))
      .append("\n").append(sale.optString("name")).append(" x").append(sale.optInt("qty",1))
      .append("  |  ").append(Store.money(amount))
@@ -899,7 +1010,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   panel.addView(TextView(this).apply{text="PRODUCTOS: "+total+"     •     STOCK BAJO: "+low;textSize=13f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF314B7C.toInt());setPadding(dp(5),dp(5),dp(5),dp(10))},0)
   AlertDialog.Builder(this).setTitle("INVENTARIO · EXISTENCIAS").setView(scroll).setPositiveButton("CERRAR",null).show()
  }
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty())reviewScannedCodes(codes);return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){val scanned=codes.last();when{scanningTicketCorrection->{scanningTicketCorrection=false;handleTicketCorrectionScan(scanned)};correctionStage>0->handleCorrectionProductScan(scanned);else->reviewScannedCodes(codes)}};return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
 
 class AgregarInventarioActivity:Activity(){
