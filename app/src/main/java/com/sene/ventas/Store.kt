@@ -44,6 +44,7 @@ object Store {
  fun phone(c:Context)=root(c).optString("phone","523311337592")
  fun setPhone(c:Context,p:String){ val r=root(c);r.put("phone",p);put(c,r) }
  fun saveProducts(c:Context,a:JSONArray,saveAsMaster:Boolean=true){val r=root(c);r.put("products",a).put("stockUpdatedAt",System.currentTimeMillis());if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply();put(c,r)}
+ fun publishMasterProducts(c:Context,a:JSONArray){c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()}
  fun stockUpdatedAtText(c:Context):String{val ts=root(c).optLong("stockUpdatedAt",0L);return if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Sin registro previo de actualización"}
  fun saveSales(c:Context,a:JSONArray){db(c).replace("sales",a);try{ReportFile.update(c)}catch(_:Exception){}}
  fun saveShift(c:Context,s:JSONObject?){val r=root(c);if(s==null)r.remove("shift")else r.put("shift",s);put(c,r)}
