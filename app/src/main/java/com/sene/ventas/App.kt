@@ -504,6 +504,7 @@ class InicioTurnoActivity:FragmentActivity(){
    if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body)
    else saveTextBackupLocal(this,"SENE-VENTAS-INICIO",body)
    Store.saveShift(this,shift)
+   if(!EmployeePayroll.recordShiftStart(this,workerId,now))msg("Aviso: no se pudo guardar el registro de asistencia local.")
    // Abrir el chat directo del patrón con el reporte completo ya preparado para enviar.
    pendingStartAfterWhatsApp=openWhatsAppText(this,body)
    if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado y el respaldo TXT está guardado en el teléfono, en SENE VENTAS / INVENTARIO SENE. Revisa el número de WhatsApp del patrón.")
@@ -1136,7 +1137,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     confirmingReport=false
     val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
     val shift=Store.shift(this)
-    if(final){Store.saveShift(this,null);ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
+    if(final){shift?.optString("employeeId")?.takeIf{it.isNotBlank()}?.let{EmployeePayroll.recordShiftEnd(this,it,System.currentTimeMillis())};Store.saveShift(this,null);ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
     else if(shift!=null){shift.put("lastReport",System.currentTimeMillis());Store.saveShift(this,shift);reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
    }
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
