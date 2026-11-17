@@ -421,6 +421,11 @@ private object InventoryReader {
   return snapshots.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{snapshot->try{formatter.parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}})
    ?:throw java.io.IOException("No se encontró un inventario válido en INVENTARIO SENE")
  }
+ fun latestMaster(activity:Activity,tree:Uri):InventorySnapshot {
+  val snapshots=listSnapshots(activity,tree).filter{!it.folder.contains("TRABAJADORES",true)}
+  return snapshots.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
+   ?:throw java.io.IOException("No se encontró un inventario maestro válido en INVENTARIO SENE")
+ }
  fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
   val key=WorkerArchive.profileKey(employeeId,workerName)
   val candidates=mutableListOf<InventorySnapshot>()
@@ -518,7 +523,7 @@ class InicioTurnoActivity:FragmentActivity(){
    val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
    val workerSnapshot=InventoryReader.latestForWorker(this,savedTree,workerId,profileName)
-   val snapshot=workerSnapshot ?: if(localProducts.length()==0 && savedTree!=null)InventoryReader.latest(this,savedTree)else null
+   val snapshot=workerSnapshot ?: if(localProducts.length()==0 && savedTree!=null)InventoryReader.latestMaster(this,savedTree)else null
    WorkerArchive.ensureProfileFolders(this,workerId,profileName)
    val latest=snapshot?.folder?: "INVENTARIO SENE / TRABAJADORES / $profileKey / INVENTARIOS"
    val prefs=getSharedPreferences("sene_ventas_local",0)
