@@ -1302,7 +1302,40 @@ class AgregarInventarioActivity:Activity(){
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
  override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){draw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{draw()}else draw()}}}
- private fun draw(){val v=page("Administrador - Patrón");v.addView(button("MIS TRABAJADORES"){startActivity(Intent(this,PayrollAdminActivity::class.java).putExtra("manage_workers",true))});v.addView(button(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA",false){togglePatronBiometric()});v.addView(button("Cambiar PIN de Soy Patrón",false){changePatronPin()});v.addView(button("Hacer primer inventario"){openFirstInventory()});v.addView(button("Agregar o modificar producto",false){product()});v.addView(button("Cambiar número de WhatsApp",false){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()});v.addView(button("CONSULTAR NÓMINA",false){startActivity(Intent(this,PayrollAdminActivity::class.java))});v.addView(button("Ver inventario actual",false){inventory()});v.addView(button("Guardar TXT del stock",false){export()});v.addView(button("Cargar inventario desde TXT",false){chooseInventoryFolder()});v.addView(button("Volver a ventas",false){finish()});display(v)}
+ private fun adminTag(label:String,sub:String,accent:Int=0xFF365BA4.toInt(),action:()->Unit):View {
+  val tag=LinearLayout(this).apply{
+   orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+   setPadding(dp(15),dp(13),dp(15),dp(13))
+   background=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFFFFFFFF.toInt(),0xFFF7F9FE.toInt())).apply{cornerRadius=dp(16).toFloat();setStroke(dp(1),0xFFDCE4F2.toInt())}
+   elevation=dp(2).toFloat();isClickable=true;isFocusable=true
+   setOnClickListener{action()}
+  }
+  val marker=View(this).apply{background=GradientDrawable().apply{setColor(accent);cornerRadius=dp(4).toFloat()}}
+  tag.addView(marker,LinearLayout.LayoutParams(dp(5),dp(38)))
+  val texts=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),0,dp(8),0)}
+  texts.addView(TextView(this).apply{text=label;textSize=14f;letterSpacing=.025f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF243557.toInt())})
+  texts.addView(TextView(this).apply{text=sub;textSize=11f;setTextColor(0xFF78849D.toInt());setPadding(0,dp(4),0,0)})
+  tag.addView(texts,LinearLayout.LayoutParams(0,-2,1f))
+  tag.addView(TextView(this).apply{text="›";textSize=27f;setTextColor(accent);gravity=Gravity.CENTER})
+  tag.layoutParams=LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(5);bottomMargin=dp(5)}
+  return tag
+ }
+ private fun draw(){
+  val v=page("Administrador - Patrón")
+  v.addView(txt("ADMINISTRACIÓN DEL NEGOCIO",12f).apply{background=rounded(0xFFE9EFFB.toInt(),12);setTextColor(0xFF365BA4.toInt())})
+  v.addView(adminTag("MIS TRABAJADORES","Perfiles, jornadas y sueldos"){startActivity(Intent(this,PayrollAdminActivity::class.java).putExtra("manage_workers",true))})
+  v.addView(adminTag(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA","Seguridad de acceso al administrador",0xFF25845A.toInt()){togglePatronBiometric()})
+  v.addView(adminTag("CAMBIAR PIN DE SOY PATRÓN","Actualiza tu clave privada"){changePatronPin()})
+  v.addView(adminTag("HACER PRIMER INVENTARIO","Registrar el inventario inicial",0xFF25845A.toInt()){openFirstInventory()})
+  v.addView(adminTag("AGREGAR O MODIFICAR PRODUCTO","Editar productos y existencias"){product()})
+  v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número para recibir reportes"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
+  v.addView(adminTag("CONSULTAR NÓMINA","Revisar nóminas de los trabajadores"){startActivity(Intent(this,PayrollAdminActivity::class.java))})
+  v.addView(adminTag("VER INVENTARIO ACTUAL","Consultar productos, precios y existencias"){inventory()})
+  v.addView(adminTag("GUARDAR TXT DEL STOCK","Crear respaldo del inventario",0xFF25845A.toInt()){export()})
+  v.addView(adminTag("CARGAR INVENTARIO DESDE TXT","Restaurar un inventario guardado"){chooseInventoryFolder()})
+  v.addView(adminTag("VOLVER A VENTAS","Regresar a la pantalla principal",0xFF78849D.toInt()){finish()})
+  display(v)
+ }
  private fun togglePatronBiometric(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
   val enabled=prefs.getBoolean("biometric_enabled",false)
@@ -1423,7 +1456,34 @@ class PatronActivity:FragmentActivity(){
    Store.saveProducts(this,products);saveInventorySnapshot();msg("Precio actualizado")
   }.setNegativeButton("Cancelar",null).show()
  }
- private fun inventory(){val a=Store.products(this);val b=StringBuilder();for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;b.append(x.optString("code")).append(" | ").append(x.optString("name")).append(" | ").append(Store.money(x.optDouble("price"))).append(" | ").append(x.optInt("stock")).append("\n")};AlertDialog.Builder(this).setTitle("Inventario actual").setMessage(if(b.isEmpty())"Sin productos" else b.toString()).setPositiveButton("Cerrar",null).show()}
+ private fun inventory(){
+  val products=Store.products(this)
+  val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
+  if(products.length()==0)list.addView(TextView(this).apply{text="Sin productos registrados";textSize=14f;gravity=Gravity.CENTER;setTextColor(0xFF77839B.toInt());setPadding(0,dp(24),0,dp(24))})
+  for(i in 0 until products.length()){
+   val item=products.optJSONObject(i)?:continue
+   val card=LinearLayout(this).apply{
+    orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(12),dp(14),dp(12))
+    background=GradientDrawable().apply{setColor(0xFFF8FAFE.toInt());cornerRadius=dp(14).toFloat();setStroke(dp(1),0xFFE0E7F2.toInt())}
+   }
+   card.addView(TextView(this).apply{text=item.optString("name","Producto");textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF243557.toInt())})
+   val code=TextView(this).apply{text="CÓDIGO  •  "+item.optString("code","—");textSize=11f;setTextColor(0xFF77839B.toInt());setPadding(0,dp(5),0,dp(8))}
+   card.addView(code)
+   val details=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+   fun chip(label:String,value:String,weight:Float){
+    val chip=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(8));background=GradientDrawable().apply{setColor(0xFFEAF0FB.toInt());cornerRadius=dp(10).toFloat()}}
+    chip.addView(TextView(this).apply{text=label;textSize=9f;letterSpacing=.04f;setTextColor(0xFF77839B.toInt())})
+    chip.addView(TextView(this).apply{text=value;textSize=13f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF294A85.toInt());setPadding(0,dp(3),0,0)})
+    details.addView(chip,LinearLayout.LayoutParams(0,-2,weight).apply{marginEnd=dp(7)})
+   }
+   chip("PRECIO",Store.money(item.optDouble("price")),1f)
+   chip("EXISTENCIA",item.optInt("stock").toString(),1f)
+   card.addView(details)
+   list.addView(card,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(9)})
+  }
+  val scroll=ScrollView(this).apply{addView(list);isFillViewport=true}
+  AlertDialog.Builder(this).setTitle("INVENTARIO ACTUAL").setView(scroll).setPositiveButton("CERRAR",null).show()
+ }
  private fun chooseInventoryFolder(){
   // Abrir directamente el selector de archivos, sin opciones intermedias.
   pickInventoryTxt()
