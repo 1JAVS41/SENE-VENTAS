@@ -236,7 +236,7 @@ private fun Activity.pin(ok:()->Unit){
    if(e.text.toString()==currentPatronPin(this)){dialog.dismiss();if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ok()}else ok()}else{e.text?.clear();e.error="PIN incorrecto"}
   }
   dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener{
-   if(!biometricEnabled){dialog.dismiss();return@setOnClickListener}
+   if(!biometricEnabled){dialog.dismiss();finish();return@setOnClickListener}
    val host=this
    if(host !is FragmentActivity){msg("La autenticación biométrica no está disponible en esta pantalla");return@setOnClickListener}
    val manager=BiometricManager.from(host)
