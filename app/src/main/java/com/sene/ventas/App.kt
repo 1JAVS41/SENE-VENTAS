@@ -493,7 +493,7 @@ class InicioTurnoActivity:FragmentActivity(){
  private var pendingCash=""
  private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
   pendingWorkerId=workerId
-  val localProducts=Store.products(this)
+  val localProducts=Store.masterProducts(this)
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
   // Cada perfil recupera su propio inventario más reciente; si aún no tiene uno,
   // el primer turno parte del inventario general existente.
@@ -511,7 +511,7 @@ class InicioTurnoActivity:FragmentActivity(){
  }
  private fun createShiftReport(workerId:String,worker:String,phone:String,cash:String,tree:Uri?){
   try{
-   val localProducts=Store.products(this)
+   val localProducts=Store.masterProducts(this)
    val savedTree=tree?:getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)}
    // Un TXT cargado ya deja el inventario disponible en Store. Si no existe
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
@@ -526,7 +526,7 @@ class InicioTurnoActivity:FragmentActivity(){
    val updated=snapshot?.updated?:prefs.getString("inventory_source_updated","Cargado desde TXT")!!
    val products=snapshot?.products?:localProducts
    if(products.length()==0)throw java.io.IOException("El inventario cargado no contiene productos")
-   Store.saveProducts(this,products)
+   Store.saveProducts(this,products,false)
    // Fijar una copia inicial independiente para este perfil antes de abrir el turno.
    InventoryArchive.save(this,products,workerId,worker)
    val now=System.currentTimeMillis()
