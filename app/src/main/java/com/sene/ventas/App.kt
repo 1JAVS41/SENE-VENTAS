@@ -421,6 +421,27 @@ private object InventoryReader {
   return snapshots.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{snapshot->try{formatter.parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}})
    ?:throw java.io.IOException("No se encontró un inventario válido en INVENTARIO SENE")
  }
+ fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
+  val key=WorkerArchive.profileKey(employeeId,workerName)
+  val candidates=mutableListOf<InventorySnapshot>()
+  val local=WorkerArchive.localInventoryFolder(activity,employeeId,workerName)
+  local.listFiles()?.filter{it.isFile&&it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}?.forEach{file->
+   try{
+    val content=file.readText(Charsets.UTF_8)
+    val products=JSONArray()
+    content.lineSequence().map{it.trim()}.filter{it.isNotBlank()}.forEach{line->
+     if(line.startsWith("Actualizado:",true)||line.startsWith("Código",true)||line.equals("INVENTARIO_SENE_V1",true))return@forEach
+     val parts=line.split("|").map{it.trim()};if(parts.size<4)return@forEach
+     val price=parseAmount(parts[2]);val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
+     if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock))
+    }
+    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";candidates.add(InventorySnapshot("INVENTARIO-SENE / TRABAJADORES / $key / INVENTARIOS",file.name,updated,products))}
+   }catch(_:Exception){}
+  }
+  if(tree!=null)try{candidates.addAll(listSnapshots(activity,tree).filter{it.folder.contains(key,true)})}catch(_:Exception){}
+  return candidates.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
+ }
+
 }
 private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
 
@@ -494,10 +515,7 @@ class InicioTurnoActivity:FragmentActivity(){
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
    val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
-   val workerSnapshot=if(savedTree!=null)InventoryReader.listSnapshots(this,savedTree)
-    .filter{it.folder.contains(profileKey,true)}
-    .maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}
-     .thenBy{it.updated}) else null
+   val workerSnapshot=InventoryReader.latestForWorker(this,savedTree,workerId,profileName)
    val snapshot=workerSnapshot ?: if(localProducts.length()==0 && savedTree!=null)InventoryReader.latest(this,savedTree)else null
    WorkerArchive.ensureProfileFolders(this,workerId,profileName)
    val latest=snapshot?.folder?: "INVENTARIO SENE / TRABAJADORES / $profileKey / INVENTARIOS"
