@@ -35,7 +35,7 @@ object SeneSharedFiles {
     }
 
     fun encode(category: String, ownerKey: String, payload: ByteArray, updated: String): ByteArray {
-        require(category == "INVENTARIO_SENE" || category == "INVENTARIO_MAESTRO" || category == "REPORTES")
+        require(category == "INVENTARIO_SENE" || category == "INVENTARIO_MAESTRO" || category == "REPORTES" || category == "REPORTES")
         require(ownerKey.trim().length >= 8)
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val header = listOf(MAGIC, "CATEGORY=$category", "UPDATED=$updated", "KDF=PBKDF2-HMAC-SHA256-210000")
@@ -54,7 +54,7 @@ object SeneSharedFiles {
         fun field(name: String) = lines.firstOrNull { it.startsWith("$name=") }
             ?.substringAfter("=") ?: throw IllegalArgumentException("Falta $name")
         val category = field("CATEGORY")
-        require(category == "INVENTARIO_SENE" || category == "INVENTARIO_MAESTRO")
+        require(category == "INVENTARIO_SENE" || category == "INVENTARIO_MAESTRO" || category == "REPORTES")
         require(field("KDF") == "PBKDF2-HMAC-SHA256-210000")
         val header = lines.take(4).joinToString("\n")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
