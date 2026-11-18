@@ -1415,7 +1415,7 @@ class PatronActivity:FragmentActivity(){
   v.addView(txt("ADMINISTRACIÓN DEL NEGOCIO",12f).apply{background=rounded(0xFFE9EFFB.toInt(),12);setTextColor(0xFF365BA4.toInt())})
   v.addView(adminTag("MIS TRABAJADORES","Perfiles, jornadas y sueldos"){startActivity(Intent(this,PayrollAdminActivity::class.java).putExtra("manage_workers",true))})
   Store.shift(this)?.let{active->v.addView(adminTag("FORZAR CIERRE DE TURNO","Turno activo: "+active.optString("worker")+" · Cierre administrativo",0xFFB3261E.toInt()){
-   startActivity(Intent(this,MainActivity::class.java).putExtra("admin_force_close",true))
+   startActivity(Intent(this,MainActivity::class.java).putExtra("admin_force_close",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
    finish()
   })}
   v.addView(adminTag(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA","Seguridad de acceso al administrador",0xFF25845A.toInt()){togglePatronBiometric()})
