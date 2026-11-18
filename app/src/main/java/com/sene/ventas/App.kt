@@ -1324,6 +1324,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val eventKey=if(final) "$stableShiftId:CLOSE" else "$stableShiftId:REPORT:${s.optInt("reportCount",0)}"
    pendingReportEventKey=eventKey
    pendingReportText=ReportCrypto.prepare(this,s.optString("employeeId"),if(final)"CIERRE_TURNO" else "REPORTE_TURNO",body,eventKey)
+   // Guardar primero el mensaje cifrado en almacenamiento privado local de la APK.
+   val encryptedFolder=java.io.File(getExternalFilesDir(null)?:filesDir,"REPORTES-CIFRADOS")
+   if(!encryptedFolder.exists()&&!encryptedFolder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local de reportes cifrados")
+   val safeEvent=eventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
+   val encryptedFile=java.io.File(encryptedFolder,"$safeEvent.txt")
+   encryptedFile.writeText(pendingReportText?:throw java.io.IOException("No se generó el reporte cifrado"),Charsets.UTF_8)
+   if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
    pendingFinalShare=final
    launchPendingReportShare()
   }catch(e:Exception){msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))}
