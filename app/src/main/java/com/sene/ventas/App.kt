@@ -351,7 +351,15 @@ private object InventoryReader {
    value
   }
   val raw=resolver.openInputStream(uri)?.use{it.readBytes()}?:throw java.io.IOException("No se pudo abrir el archivo seleccionado")
-  val decoded=when { SeneSharedFiles.isSharedFile(raw) -> SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity)).payload; InventoryCrypto.isEncrypted(raw) -> InventoryCrypto.decrypt(raw); else -> raw }
+  val decoded=when {
+   SeneSharedFiles.isSharedFile(raw) -> {
+    val shared=SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity))
+    if(shared.category!="INVENTARIO_SENE"&&shared.category!="INVENTARIO_MAESTRO")throw java.io.IOException("El archivo compartido no es un inventario")
+    shared.payload
+   }
+   InventoryCrypto.isEncrypted(raw) -> InventoryCrypto.decrypt(raw)
+   else -> raw
+  }
   // Compatibilidad con TXT de inventarios creados por versiones anteriores.
   // No se exige una frase fija en el encabezado; se valida la tabla real.
   val content=when {
