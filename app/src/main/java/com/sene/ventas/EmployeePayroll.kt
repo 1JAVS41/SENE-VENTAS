@@ -28,7 +28,7 @@ object EmployeePayroll {
         val reason:String,val description:String,val timestamp:Long,val periodKey:String,
         val settled:Boolean,val employeeId:String = ""
     )
-    data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="")
+    data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false)
 
     private fun prefs(c:Context)=c.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
     private fun activeId(c:Context):String=Store.shift(c)?.optString("employeeId").orEmpty()
@@ -99,10 +99,10 @@ object EmployeePayroll {
     private fun periodStart(ts:Long,payDay:Int):Calendar=Calendar.getInstance().apply{timeInMillis=parseDate(periodKey(ts,payDay))}
     fun attendance(c:Context):List<Attendance>{
         val raw=prefs(c).getString(ATTENDANCE,"[]")?: "[]"
-        return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt"),x.optString("closureReason"),x.optString("closureSource")))}}}catch(_:Exception){emptyList()}
+        return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt"),x.optString("closureReason"),x.optString("closureSource"),x.optBoolean("completedWorkday",false)))}}}catch(_:Exception){emptyList()}
     }
     private fun saveAttendance(c:Context,items:List<Attendance>):Boolean{
-        val a=JSONArray();items.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("date",x.date).put("startedAt",x.startedAt).put("closedAt",x.closedAt).put("closureReason",x.closureReason).put("closureSource",x.closureSource))}
+        val a=JSONArray();items.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("date",x.date).put("startedAt",x.startedAt).put("closedAt",x.closedAt).put("closureReason",x.closureReason).put("closureSource",x.closureSource).put("completedWorkday",x.completedWorkday))}
         return prefs(c).edit().putString(ATTENDANCE,a.toString()).commit()
     }
     @Synchronized fun recordShiftStart(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Boolean{
@@ -111,10 +111,10 @@ object EmployeePayroll {
         if(i>=0)all[i]=all[i].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="") else all.add(Attendance(employeeId,key,ts,0L))
         return saveAttendance(c,all)
     }
-    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String=""):Boolean{
+    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false):Boolean{
         if(employeeId.isBlank())return false
         val key=dateKey(ts);val all=attendance(c).toMutableList();val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source) else all.add(Attendance(employeeId,key,0L,ts,reason,source))
+        if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source,completedWorkday=completedWorkday) else all.add(Attendance(employeeId,key,0L,ts,reason,source,completedWorkday))
         return saveAttendance(c,all)
     }
     fun absences(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Int{
