@@ -74,7 +74,7 @@ class PayrollRequestActivity:FragmentActivity(){
      val amount=found.optDouble("price")*q;found.put("stock",found.optInt("stock")-q);Store.saveProducts(this,products)
      Store.addMove(this,JSONObject().put("type","EMPLOYEE_CONSUMPTION").put("ts",System.currentTimeMillis()).put("time",stampPayroll()).put("amount",amount).put("worker",workerName).put("employeeId",workerId).put("text","CONSUMO DE EMPLEADO: $workerName | "+found.optString("name")+" x$q | "+Store.money(amount)+" | Descuento de nómina"))
      val sent=SeneOrderSender.send(this,workerId,workerName,"CONSUMO",found.optString("name")+" x$q",cents,entry.id)
-     Toast.makeText(this,if(sent)"Consumo registrado y enviado al patrón por WhatsApp." else "Consumo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
+     Toast.makeText(this,if(sent)"Consumo registrado. WhatsApp se abrió con la orden preparada; pulsa ENVIAR para entregarla al patrón." else "Consumo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
     }.setNegativeButton("VOLVER",null).show()
    d.dismiss()
   }};d.show()
@@ -95,7 +95,7 @@ class PayrollRequestActivity:FragmentActivity(){
      if(entry==null){Toast.makeText(this,"No se pudo registrar el préstamo",Toast.LENGTH_LONG).show();return@setPositiveButton}
      Store.addMove(this,JSONObject().put("type","LOAN_DISBURSEMENT").put("ts",System.currentTimeMillis()).put("time",stampPayroll()).put("amount",value).put("worker",workerName).put("employeeId",workerId).put("text","PRÉSTAMO ENTREGADO A $workerName | "+reason.text+" | "+Store.money(value)+" | Descuento de nómina"))
      val sent=SeneOrderSender.send(this,workerId,workerName,"PRESTAMO",reason.text.toString(),cents,entry.id)
-     Toast.makeText(this,if(sent)"Préstamo registrado y enviado al patrón por WhatsApp." else "Préstamo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
+     Toast.makeText(this,if(sent)"Préstamo registrado. WhatsApp se abrió con la orden preparada; pulsa ENVIAR para entregarla al patrón." else "Préstamo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
     }.setNegativeButton("CANCELAR",null).show()
    d.dismiss()
   }};d.show()
