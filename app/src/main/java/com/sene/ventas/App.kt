@@ -300,15 +300,17 @@ private object InventoryArchive {
   val savedTree=activity.getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.let{Uri.parse(it)}
   val number=nextNumber(activity,savedTree,employeeId,workerName)
   val target=java.io.File(folder,"inventario-$number.txt")
-  writeInventory(target.outputStream(),products)
+  writeInventory(activity,target.outputStream(),products)
   if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el inventario local")
   if(employeeId.isNullOrBlank())activity.getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",target.name).putString("inventory_source_updated",stamp()).apply()
   return target
  }
- private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
-  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+ private fun writeInventory(activity:Activity,stream:java.io.OutputStream,products:JSONArray){
+  val updated=stamp()
+  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(updated).append("\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
   for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock")).append(" | ").append(p.optString("aisle")).append(" | ").append(p.optString("shelf"))}
-  stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
+  val encrypted=SeneSharedFiles.encode("INVENTARIO_SENE",ReportCrypto.ownerKey(activity),out.toString().toByteArray(Charsets.UTF_8),updated)
+  stream.use{it.write(encrypted)}
  }
  fun save(activity:Activity,products:JSONArray,employeeId:String?=null,workerName:String=""):Boolean {
   val local=saveLocal(activity,products,employeeId,workerName)
@@ -349,7 +351,15 @@ private object InventoryReader {
    value
   }
   val raw=resolver.openInputStream(uri)?.use{it.readBytes()}?:throw java.io.IOException("No se pudo abrir el archivo seleccionado")
-  val decoded=if(InventoryCrypto.isEncrypted(raw))InventoryCrypto.decrypt(raw) else raw
+  val decoded=when {
+   SeneSharedFiles.isSharedFile(raw) -> {
+    val shared=SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity))
+    if(shared.category!="INVENTARIO_SENE"&&shared.category!="INVENTARIO_MAESTRO")throw java.io.IOException("El archivo compartido no es un inventario")
+    shared.payload
+   }
+   InventoryCrypto.isEncrypted(raw) -> InventoryCrypto.decrypt(raw)
+   else -> raw
+  }
   // Compatibilidad con TXT de inventarios creados por versiones anteriores.
   // No se exige una frase fija en el encabezado; se valida la tabla real.
   val content=when {
@@ -422,22 +432,35 @@ private object InventoryReader {
    ?:throw java.io.IOException("No se encontró un inventario válido en INVENTARIO SENE")
  }
  fun latestMaster(activity:Activity,tree:Uri?):InventorySnapshot? {
-  val candidates=mutableListOf<InventorySnapshot>()
+  val localCandidates=mutableListOf<InventorySnapshot>()
   val local=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
   local.listFiles()?.filter{it.isFile&&it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}?.forEach{file->
    try{
-    val content=file.readText(Charsets.UTF_8);val products=JSONArray()
+    val raw=file.readBytes()
+    val decoded=when{
+     SeneSharedFiles.isSharedFile(raw)->SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity)).payload
+     InventoryCrypto.isEncrypted(raw)->InventoryCrypto.decrypt(raw)
+     else->raw
+    }
+    val content=String(decoded,Charsets.UTF_8)
+    val products=JSONArray()
     content.lineSequence().map{it.trim()}.filter{it.isNotBlank()}.forEach{line->
      if(line.startsWith("Actualizado:",true)||line.startsWith("Código",true)||line.equals("INVENTARIO_SENE_V1",true))return@forEach
      val parts=line.split("|").map{it.trim()};if(parts.size<4)return@forEach
      val price=parseAmount(parts[2]);val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
      if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock).put("aisle",parts.getOrElse(4){""}).put("shelf",parts.getOrElse(5){""}))
     }
-    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";candidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
+    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";localCandidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
    }catch(_:Exception){}
   }
-  if(tree!=null)try{candidates.addAll(listSnapshots(activity,tree).filter{!it.folder.contains("TRABAJADORES",true)&&it.file.matches(Regex("(?i)^inventario-\\d+\\.txt$"))})}catch(_:Exception){}
-  return candidates.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
+  if(tree!=null)try{
+   val snapshots=listSnapshots(activity,tree)
+   val master=snapshots.filter{it.folder.contains("INVENTARIO-MAESTRO",true)}
+   if(master.isNotEmpty())return master.maxByOrNull{it.updated}
+   val shared=snapshots.filter{!it.folder.contains("TRABAJADORES",true)}
+   if(shared.isNotEmpty())return shared.maxByOrNull{it.updated}
+  }catch(_:Exception){}
+  return localCandidates.maxByOrNull{it.updated}
  }
  fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
   val key=WorkerArchive.profileKey(employeeId,workerName)
@@ -510,10 +533,14 @@ class InicioTurnoActivity:FragmentActivity(){
  private var pendingWorkerId=""
  private var pendingCash=""
  private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
-  // La clave debe quedar configurada antes de registrar el turno o preparar reportes.
-  ReportKeySetup.ensureConfigured(this){
-   continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
+  // El trabajador nunca debe recibir el diálogo de clave del propietario.
+  if(!ReportCrypto.hasKey(this)){
+   AlertDialog.Builder(this).setTitle("CONFIGURACIÓN DEL PATRÓN PENDIENTE")
+    .setMessage("El patrón debe abrir SOY PATRÓN y configurar la clave compartida antes de iniciar turnos.")
+    .setPositiveButton("ENTENDIDO",null).show()
+   return
   }
+  continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
  }
  private fun continueStartShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
   pendingWorkerId=workerId
@@ -541,7 +568,7 @@ class InicioTurnoActivity:FragmentActivity(){
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
    val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
-   ArchiveRetention.cleanupIfDue(this,savedTree)
+   ArchiveRetention.cleanupIfDue(this,savedTree,ReportCrypto.ownerKey(this))
    // Todos los perfiles comienzan siempre desde el inventario maestro más reciente.
    // Las copias e historiales individuales permanecen dentro de su carpeta de perfil.
    val snapshot=try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}
@@ -1377,7 +1404,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val time=SimpleDateFormat("HH-mm-ss",Locale.US).format(Date())
   val name="SENE-VENTAS-$date-$time.txt"
   val target=DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear el TXT")
-  resolver.openOutputStream(target,"w")?.use{out->source.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el TXT")
+  resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(this,source.readBytes()))}?:throw java.io.IOException("No se pudo escribir el TXT")
   return target
  }
  private fun stock(){
@@ -1452,7 +1479,8 @@ class AgregarInventarioActivity:Activity(){
 
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
- override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){draw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{draw()}else draw()}}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){ensureOwnerKeyThenDraw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ensureOwnerKeyThenDraw()}else ensureOwnerKeyThenDraw()}}}
+ private fun ensureOwnerKeyThenDraw(){ReportKeySetup.ensureConfigured(this){draw()}}
  private fun adminTag(label:String,sub:String,accent:Int=0xFF365BA4.toInt(),action:()->Unit):View {
   val tag=LinearLayout(this).apply{
    orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
@@ -1863,20 +1891,22 @@ private fun saveReportToDownloads(activity:Activity,file:java.io.File):Uri? {
  }
  val uri=resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)?:return null
  try {
-  resolver.openOutputStream(uri,"w")?.use{out->file.inputStream().use{input->input.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el reporte")
+  resolver.openOutputStream(uri,"w")?.use{it.write(encryptedReportBackup(activity,file.readBytes()))}?:throw java.io.IOException("No se pudo escribir el reporte")
   val done=android.content.ContentValues().apply{put(android.provider.MediaStore.MediaColumns.IS_PENDING,0)}
   resolver.update(uri,done,null,null)
   return uri
  }catch(e:Exception){resolver.delete(uri,null,null);throw e}
 }
 
+private fun encryptedReportBackup(activity:Activity,body:ByteArray):ByteArray =
+ SeneSharedFiles.encode("REPORTES",ReportCrypto.ownerKey(activity),body,stamp())
 private const val REPORT_BACKUP_NOTE="\n\nGuarde este reporte en una carpeta segura. Será su respaldo de inventario hasta este momento."
 private fun saveTextBackupLocal(activity:Activity,prefix:String,body:String,employeeId:String="",workerName:String=""):java.io.File {
  val folder=if(employeeId.isNotBlank())WorkerArchive.localReportsFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"SENE VENTAS/INVENTARIO SENE")
  if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta privada de respaldo SENE VENTAS")
  val date=SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS",Locale.US).format(Date())
  val target=java.io.File(folder,"$prefix-$date.txt")
- target.writeText(body,Charsets.UTF_8)
+ target.writeBytes(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))
  if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el TXT de respaldo")
  return target
 }
@@ -1895,7 +1925,7 @@ private fun saveTextBackup(activity:Activity,tree:Uri,prefix:String,body:String,
  val folder=child(root,date)?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,date)?:throw java.io.IOException("No se pudo crear la carpeta de respaldo")
  val time=SimpleDateFormat("HH-mm-ss-SSS",Locale.US).format(Date())
  val target=DocumentsContract.createDocument(resolver,folder,"text/plain","$prefix-$date-$time.txt")?:throw java.io.IOException("No se pudo crear el TXT de respaldo")
- resolver.openOutputStream(target,"w")?.use{it.write(body.toByteArray(Charsets.UTF_8))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
+ resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
  return target
 }
 private fun openWhatsAppText(activity:Activity,body:String):Boolean {
@@ -1998,8 +2028,13 @@ class WelcomeActivity:Activity(){
   setOnClickListener{click()}
  }
  private var checking=false
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);showWelcome()}
- override fun onResume(){super.onResume();if(!isFinishing)checkExistingSession()}
+ private var keySetupReady=false
+ override fun onCreate(savedInstanceState:Bundle?){
+  super.onCreate(savedInstanceState);showWelcome()
+  if(ReportCrypto.hasKey(this))keySetupReady=true
+  else ReportKeySetup.ensureConfigured(this){keySetupReady=true;checkExistingSession()}
+ }
+ override fun onResume(){super.onResume();if(keySetupReady&&!isFinishing)checkExistingSession()}
  private fun checkExistingSession(){
   if(checking)return
   checking=true

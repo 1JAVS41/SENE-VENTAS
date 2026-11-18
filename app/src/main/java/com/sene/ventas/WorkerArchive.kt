@@ -83,13 +83,13 @@ object ArchiveRetention {
     private const val PERIOD = 30L * 24L * 60L * 60L * 1000L
     private const val KEEP = 10
 
-    @Synchronized fun cleanupIfDue(context: Context, tree: Uri?) {
+    @Synchronized fun cleanupIfDue(context: Context, tree: Uri?, ownerKey: String) {
         val prefs = context.getSharedPreferences(PREFS, 0)
         val now = System.currentTimeMillis()
         if (now - prefs.getLong(LAST_RUN, 0L) < PERIOD) return
         try {
-            cleanLocal(context)
-            if (tree != null) cleanTree(context, tree)
+            cleanLocal(context, ownerKey)
+            if (tree != null) cleanTree(context, tree, ownerKey)
             prefs.edit().putLong(LAST_RUN, now).apply()
         } catch (_: Exception) {
             // Si falla el acceso al almacenamiento compartido, se reintentará en el siguiente inicio.
@@ -99,7 +99,7 @@ object ArchiveRetention {
     private data class Entry(val file: File, val modified: Long)
     private data class DocEntry(val uri: Uri, val modified: Long)
 
-    private fun cleanLocal(context: Context) {
+    private fun cleanLocal(context: Context, ownerKey: String) {
         val base = context.getExternalFilesDir(null) ?: context.filesDir
         val groups = linkedMapOf<String, MutableList<Entry>>()
         fun scan(dir: File, path: String) {
@@ -113,7 +113,7 @@ object ArchiveRetention {
                         collectLocal(child, files)
                         if (files.isNotEmpty()) groups.getOrPut(key) { mutableListOf() }.addAll(files)
                     } else if (name.equals("INVENTARIO-SENE", true) && !path.contains("TRABAJADORES")) {
-                        val files = children.filter { it.isFile && it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$")) }
+                        val files = (child.listFiles() ?: emptyArray()).filter { it.isFile && it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$")) }
                             .map { Entry(it, it.lastModified()) }
                         if (files.isNotEmpty()) groups.getOrPut(child.absolutePath) { mutableListOf() }.addAll(files)
                         scan(child, child.absolutePath)
@@ -122,9 +122,21 @@ object ArchiveRetention {
             }
         }
         scan(base, base.absolutePath)
-        groups.values.forEach { entries ->
-            entries.sortedByDescending { it.modified }.drop(KEEP).forEach { it.file.delete() }
+        groups.forEach { (group, entries) ->
+            val expected = if (group.contains("REPORTES", true)) "REPORTES" else "INVENTARIO_SENE"
+            val valid = entries.all { entry ->
+                try { validBackup(entry.file.readBytes(), ownerKey, expected) } catch (_: Exception) { false }
+            }
+            if (valid) entries.sortedByDescending { it.modified }.drop(KEEP).forEach { it.file.delete() }
+            // Si la clave no coincide o hay TXT heredados, se conserva todo el grupo.
         }
+    }
+
+    private fun validBackup(raw: ByteArray, ownerKey: String, expected: String): Boolean {
+        if (!SeneSharedFiles.isSharedFile(raw)) return false
+        val doc = SeneSharedFiles.decode(raw, ownerKey)
+        return if (expected == "REPORTES") doc.category == "REPORTES"
+            else doc.category == "INVENTARIO_SENE" || doc.category == "INVENTARIO_MAESTRO"
     }
 
     private fun collectLocal(dir: File, out: MutableList<Entry>) {
@@ -134,7 +146,7 @@ object ArchiveRetention {
         }
     }
 
-    private fun cleanTree(context: Context, tree: Uri) {
+    private fun cleanTree(context: Context, tree: Uri, ownerKey: String) {
         val resolver = context.contentResolver
         val groups = linkedMapOf<String, MutableList<DocEntry>>()
         val visited = mutableSetOf<String>()
@@ -165,7 +177,7 @@ object ArchiveRetention {
                         val inventoryGroup = when {
                             childPath.contains("/TRABAJADORES/", true) && childPath.contains("/INVENTARIOS/", true) ->
                                 childPath.substringBefore("/INVENTARIOS/", childPath) + "/INVENTARIOS"
-                            childPath.endsWith("/INVENTARIO-SENE/$name", true) && !childPath.contains("/TRABAJADORES/", true) ->
+                            childPath.endsWith("INVENTARIO-SENE/$name", true) && !childPath.contains("/TRABAJADORES/", true) ->
                                 childPath.substringBeforeLast("/")
                             else -> null
                         }
@@ -187,8 +199,15 @@ object ArchiveRetention {
         }
         val root = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
         walk(root, "", 0)
-        groups.values.forEach { entries ->
-            entries.sortedByDescending { it.modified }.drop(KEEP).forEach {
+        groups.forEach { (group, entries) ->
+            val expected = if (group.contains("REPORTES", true)) "REPORTES" else "INVENTARIO_SENE"
+            val valid = entries.all { entry ->
+                try {
+                    val raw = resolver.openInputStream(entry.uri)?.use { it.readBytes() } ?: return@all false
+                    validBackup(raw, ownerKey, expected)
+                } catch (_: Exception) { false }
+            }
+            if (valid) entries.sortedByDescending { it.modified }.drop(KEEP).forEach {
                 try { DocumentsContract.deleteDocument(resolver, it.uri) } catch (_: Exception) {}
             }
         }
