@@ -205,20 +205,51 @@ class PayrollAdminActivity:FragmentActivity(){
  }
  private fun addWorkerProfile(){
   val name=payInput("Nombre completo del trabajador")
-  val phone=payInput("Número de celular (opcional)",true)
-  val pin=payInput("Crea un PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
-  val confirm=payInput("Confirma el PIN de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
-  val box=LinearLayout(this).apply{orientation=1;setPadding(20,8,20,8);addView(name);addView(phone);addView(pin);addView(confirm)}
-  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR").setMessage("Crea el perfil y define el PIN que le entregarás para iniciar turno.").setView(box).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
+  val phone=payInput("Número de celular",true)
+  val salary=payInput("Sueldo semanal $",true)
+  val pin=payInput("PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val confirm=payInput("Confirma el PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val days=listOf(Calendar.SUNDAY,Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY)
+  val labels=listOf("Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
+  val checks=days.mapIndexed{i,d->d to CheckBox(this).apply{text=labels[i];textSize=14f;isChecked=d in setOf(Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY)}}
+  val pay=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,labels);setSelection(6)}
+  val box=LinearLayout(this).apply{
+   orientation=1;setPadding(20,8,20,8)
+   addView(name);addView(phone);addView(salary)
+   addView(payText("DÍAS QUE TRABAJARÁ",15f,true));checks.forEach{addView(it.second)}
+   addView(payText("DÍA DE PAGO",15f,true));addView(pay)
+   addView(pin);addView(confirm)
+  }
+  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR PERFIL")
+   .setMessage("Registra los datos del trabajador. El PIN será el que utilizará para iniciar turno.")
+   .setView(ScrollView(this).apply{addView(box)}).setPositiveButton("GUARDAR",null).setNegativeButton("CANCELAR",null).create()
   dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
    val code=pin.text.toString()
+   val weekly=salary.text.toString().replace(",",".").toDoubleOrNull()
+   val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
    if(name.text.isBlank()){name.error="Escribe el nombre";return@setOnClickListener}
+   if(weekly==null||weekly<=0){salary.error="Sueldo semanal inválido";return@setOnClickListener}
+   if(chosen.isEmpty()){Toast.makeText(this,"Selecciona al menos un día laboral.",Toast.LENGTH_LONG).show();return@setOnClickListener}
    if(code.length!=4||code.any{!it.isDigit()}){pin.error="El PIN debe tener exactamente 4 dígitos";return@setOnClickListener}
    if(code!=confirm.text.toString()){confirm.error="Los PIN no coinciden";return@setOnClickListener}
    val profile=WorkerProfiles.create(this,name.text.toString(),phone.text.toString(),code)
    if(profile==null){name.error="Ese nombre ya existe o no se pudo guardar";return@setOnClickListener}
+   val cfg=EmployeePayroll.Config(profile.name,8,moneyCents(weekly),chosen.size,
+    (Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,
+    days[pay.selectedItemPosition],chosen,profile.id,System.currentTimeMillis())
+   if(!EmployeePayroll.saveConfig(this,cfg)){
+    Toast.makeText(this,"El perfil se creó, pero no se pudo guardar su nómina. Vuelve a configurar sus datos.",Toast.LENGTH_LONG).show()
+    dialog.dismiss();drawEmployee(profile.id);return@setOnClickListener
+   }
    dialog.dismiss()
-   AlertDialog.Builder(this).setTitle("PERFIL CREADO").setMessage("Entrega estos datos al trabajador:\n\nNOMBRE: "+profile.name+"\nPIN DE ACCESO: "+code+"\nTELÉFONO: "+profile.phone.ifBlank{"No registrado"}+"\n\nEl PIN no volverá a mostrarse después de cerrar este aviso.").setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
+   val work=chosen.sortedBy{if(it==Calendar.SUNDAY)0 else it}.joinToString(", "){labels[days.indexOf(it)]}
+   AlertDialog.Builder(this).setTitle("DATOS PARA TU TRABAJADOR")
+    .setMessage("PERFIL AGREGADO\n\nNOMBRE: "+profile.name+"\nCELULAR: "+profile.phone.ifBlank{"No indicado"}+
+     "\nPIN PARA INICIAR TURNO: "+code+"\nDÍAS DE TRABAJO: "+work+
+     "\nSUELDO SEMANAL: "+EmployeePayroll.money(cfg.weeklySalaryCents)+
+     "\nDÍA DE PAGO: "+labels[pay.selectedItemPosition]+
+     "\n\nEntrega estos datos únicamente a tu trabajador. Guarda el PIN; por seguridad no se podrá volver a consultar.")
+    .setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
   }}
   dialog.show()
  }
