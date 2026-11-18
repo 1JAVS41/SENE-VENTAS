@@ -118,6 +118,7 @@ object ReportCrypto {
 
         val passphrase = currentKey(c)
         val reportId = UUID.randomUUID().toString()
+        // El consecutivo se conserva por trabajador en el dispositivo; el UUID evita colisiones incluso entre dispositivos.
         val sequenceKey = "sequence_" + workerId
         val reportNumber = p.getLong(sequenceKey, 0L) + 1L
         if (!p.edit().putLong(sequenceKey, reportNumber).commit())
