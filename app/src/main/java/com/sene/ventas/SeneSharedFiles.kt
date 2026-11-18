@@ -35,7 +35,7 @@ object SeneSharedFiles {
     }
 
     fun encode(category: String, ownerKey: String, payload: ByteArray, updated: String): ByteArray {
-        require(category == "INVENTARIO_SENE" || category == "INVENTARIO_MAESTRO")
+        require(category == "INVENTARIO_SENE" || category == "INVENTARIO_MAESTRO" || category == "REPORTES")
         require(ownerKey.trim().length >= 8)
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val header = listOf(MAGIC, "CATEGORY=$category", "UPDATED=$updated", "KDF=PBKDF2-HMAC-SHA256-210000")
