@@ -2018,8 +2018,13 @@ class WelcomeActivity:Activity(){
   setOnClickListener{click()}
  }
  private var checking=false
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);showWelcome()}
- override fun onResume(){super.onResume();if(!isFinishing)checkExistingSession()}
+ private var keySetupReady=false
+ override fun onCreate(savedInstanceState:Bundle?){
+  super.onCreate(savedInstanceState);showWelcome()
+  if(ReportCrypto.hasKey(this))keySetupReady=true
+  else ReportKeySetup.ensureConfigured(this){keySetupReady=true;checkExistingSession()}
+ }
+ override fun onResume(){super.onResume();if(keySetupReady&&!isFinishing)checkExistingSession()}
  private fun checkExistingSession(){
   if(checking)return
   checking=true
