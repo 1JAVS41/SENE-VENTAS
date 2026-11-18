@@ -661,11 +661,19 @@ class MainActivity:FragmentActivity(){
  private var pendingFinalShare=false
  private var confirmingReport=false
  private var refreshAfterPatron=false
- private val lock=object:Runnable{override fun run(){if(::sell.isInitialized){updateReportCountdown();if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}};h.postDelayed(this,1000)}}
+ private var overtimeDialog:AlertDialog?=null
+ private val lock=object:Runnable{override fun run(){
+  if(::sell.isInitialized){
+   updateReportCountdown()
+   if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}
+   checkScheduledWorkdayEnd()
+  }
+  h.postDelayed(this,1000)
+ }}
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(10800000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=10800000}
  override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();if(intent.getBooleanExtra("admin_force_close",false))h.post{requestAdminForceClose()}}}
- override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
+ override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized){if(due())h.post{showReportAlert()};h.post{checkScheduledWorkdayEnd()}}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
  private fun refreshSalesInternetClock(){
   salesInternetText="Consultando…"
@@ -908,24 +916,58 @@ class MainActivity:FragmentActivity(){
   }catch(e:Exception){msg("Venta guardada. No se pudo generar el QR en pantalla: "+(e.message?:"error"))}
  }
  private fun showWorkday(){val shift=Store.shift(this)?:run{msg("No hay una jornada activa");return};val start=shift.optLong("startTs",0L);val hours=shift.optInt("workHours",configuredWorkHours(this));val end=shift.optLong("expectedEndTs",start+hours*3600000L);val remaining=(end-System.currentTimeMillis()).coerceAtLeast(0L);val h=remaining/3600000L;val m=(remaining%3600000L)/60000L;val text="TRABAJADOR: "+shift.optString("worker","-")+ "\nHORA DE ENTRADA: "+shift.optString("started","-")+"\nJORNADA: "+hours+" horas\nHORA PROGRAMADA DE SALIDA: "+shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end)))+"\n"+if(remaining>0)"TIEMPO RESTANTE: "+String.format(Locale.US,"%02d h %02d min",h,m) else "JORNADA COMPLETADA. Ya puedes finalizar el turno.";AlertDialog.Builder(this).setTitle("MI JORNADA LABORAL").setMessage(text).setPositiveButton("ENTENDIDO",null).show()}
+ private fun checkScheduledWorkdayEnd(){
+  val shift=Store.shift(this)?:return
+  val end=shift.optLong("expectedEndTs",shift.optLong("startTs",0L)+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
+  val now=System.currentTimeMillis()
+  if(end<=0L||now<end||shift.optBoolean("finishPending",false))return
+  val lastPrompt=shift.optLong("overtimePromptAt",0L)
+  if(lastPrompt>0L&&now-lastPrompt<900000L)return
+  showScheduledFinishPrompt(shift)
+ }
+ private fun showScheduledFinishPrompt(shift:JSONObject){
+  if(overtimeDialog?.isShowing==true)return
+  val dialog=AlertDialog.Builder(this)
+   .setTitle("JORNADA LABORAL TERMINADA")
+   .setMessage("Tu jornada laboral ha terminado. ¿Deseas finalizar el turno o tienes pendientes aún?")
+   .setCancelable(false)
+   .setPositiveButton("FINALIZAR TURNO",null)
+   .setNegativeButton("TERMINAR PENDIENTES",null)
+   .create()
+  overtimeDialog=dialog
+  dialog.setOnShowListener{
+   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+    val active=Store.shift(this)?:run{dialog.dismiss();return@setOnClickListener}
+    val now=System.currentTimeMillis()
+    val expected=active.optLong("expectedEndTs",active.optLong("startTs",0L)+active.optInt("workHours",configuredWorkHours(this))*3600000L)
+    val worked=now-active.optLong("startTs",0L)
+    val completed=active.optLong("startTs",0L)>0L&&worked>=expected-active.optLong("startTs",0L)
+    active.put("closingType","SCHEDULED").put("closingBy","TRABAJADOR")
+     .put("closingTs",now).put("closed",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
+     .put("completedWorkday",completed).put("finishPending",true)
+    Store.saveShift(this,active)
+    dialog.dismiss()
+    sendReport(true)
+   }
+   dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener{
+    val active=Store.shift(this)
+    active?.put("overtimePromptAt",System.currentTimeMillis())?.let{Store.saveShift(this,it)}
+    dialog.dismiss()
+   }
+  }
+  dialog.setOnDismissListener{if(overtimeDialog===dialog)overtimeDialog=null}
+  dialog.show()
+ }
  private fun requestFinishWorkday(){
   val shift=Store.shift(this)?:return
   val start=shift.optLong("startTs",0L)
   val end=shift.optLong("expectedEndTs",start+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
-  val complete=System.currentTimeMillis()>=end
-  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
-  fun timeTag(title:String,value:String,accent:Int){
-   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(12),dp(15),dp(12));background=GradientDrawable().apply{setColor(0xFFF6F8FD.toInt());cornerRadius=dp(14).toFloat();setStroke(dp(1),0xFFDCE5F2.toInt())}}
-   card.addView(TextView(this).apply{text=title;textSize=12f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF71809A.toInt())})
-   card.addView(TextView(this).apply{text=value;textSize=19f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(accent);setPadding(0,dp(5),0,0)})
-   panel.addView(card,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(9)})
-  }
-  timeTag("COMENZASTE TU TURNO A",shift.optString("started","—"),0xFF24569A.toInt())
-  timeTag("DEBERÍAS SALIR A",shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end))),0xFF16804A.toInt())
-  val message=if(complete)"Tu jornada está completa. Se preparará el reporte final para enviarlo al WhatsApp de Soy Patrón. ¿Deseas continuar?" else {val left=end-System.currentTimeMillis();val hh=left/3600000L;val mm=(left%3600000L)/60000L;"Aún no puedes finalizar el turno. Te faltan "+String.format(Locale.US,"%02d h %02d min",hh,mm)+"."}
-  AlertDialog.Builder(this).setTitle("FINALIZAR TURNO").setView(panel).setMessage(message)
-   .setPositiveButton(if(complete)"ENVIAR REPORTE" else "ENTENDIDO"){_,_->if(complete)sendReport(true)}
-   .setNegativeButton(if(complete)"CANCELAR" else "CERRAR",null).show()
+  if(System.currentTimeMillis()>=end){showScheduledFinishPrompt(shift);return}
+  val left=end-System.currentTimeMillis()
+  val hh=left/3600000L;val mm=(left%3600000L)/60000L
+  AlertDialog.Builder(this).setTitle("FINALIZAR TURNO")
+   .setMessage("Aún no puedes finalizar la jornada programada. Te faltan "+String.format(Locale.US,"%02d h %02d min",hh,mm)+".")
+   .setPositiveButton("ENTENDIDO",null).show()
  }
  private fun requestEarlyProfileChange(){
   val shift=Store.shift(this)?:return
