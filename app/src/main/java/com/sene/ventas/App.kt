@@ -571,36 +571,21 @@ class InicioTurnoActivity:FragmentActivity(){
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};createShiftReport(pendingWorkerId,pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
  private fun chooseWorker(){
   val profiles=WorkerProfiles.all(this)
+  if(profiles.isEmpty()){
+   AlertDialog.Builder(this).setTitle("SIN PERFILES DISPONIBLES")
+    .setMessage("Solicita a tu patrón que te dé de alta en el sistema y te entregue tus datos de acceso para poder iniciar turno.")
+    .setPositiveButton("ENTENDIDO",null).show()
+   return
+  }
   val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
   val scroll=ScrollView(this)
   lateinit var dialog:AlertDialog
   profiles.forEach{profile->
    content.addView(button("👤  "+profile.name,false){dialog.dismiss();authenticateWorker(profile)})
   }
-  content.addView(button("＋  AGREGAR PERFIL",true){dialog.dismiss();pin{registerWorker()}})
-  if(profiles.isEmpty())content.addView(txt("Aún no hay perfiles registrados. Agrega el primero para comenzar.",14f),0)
   scroll.addView(content)
   dialog=AlertDialog.Builder(this).setTitle("INICIAR TURNO").setView(scroll)
    .setNegativeButton("CERRAR",null).create()
-  // Los perfiles y AGREGAR PERFIL quedan juntos dentro del menú de inicio de turno.
-  dialog.show()
- }
- private fun registerWorker(){
-  val name=input("Nombre del trabajador")
-  val phone=input("Número de celular (opcional)",true)
-  val pinCode=input("Crea tu PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
-  val confirm=input("Confirma tu PIN de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
-  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(name);addView(phone);addView(pinCode);addView(txt("Este será tu PIN para iniciar tu turno. No lo olvides",14f));addView(confirm)}
-  val dialog=AlertDialog.Builder(this).setTitle("REGISTRAR TRABAJADOR").setView(box).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
-  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
-   val p=pinCode.text.toString()
-   if(name.text.isBlank()){name.error="Escribe el nombre";return@setOnClickListener}
-   if(p.length!=4||p.any{!it.isDigit()}){pinCode.error="El PIN debe tener exactamente 4 dígitos";return@setOnClickListener}
-   if(p!=confirm.text.toString()){confirm.error="Los PIN no coinciden";return@setOnClickListener}
-   val created=WorkerProfiles.create(this,name.text.toString(),phone.text.toString(),p)
-   if(created==null){name.error="Ese nombre ya existe o no se pudo guardar";return@setOnClickListener}
-   dialog.dismiss();enterWorker(created)
-  }}
   dialog.show()
  }
  private fun authenticateWorker(profile:WorkerProfiles.Profile){
@@ -677,7 +662,7 @@ class MainActivity:FragmentActivity(){
  private val lock=object:Runnable{override fun run(){if(::sell.isInitialized){updateReportCountdown();if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}};h.postDelayed(this,1000)}}
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(7200000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=7200000}
- override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock()}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();if(intent.getBooleanExtra("admin_force_close",false))h.post{requestAdminForceClose()}}}
  override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
  private fun refreshSalesInternetClock(){
@@ -940,6 +925,44 @@ class MainActivity:FragmentActivity(){
    .setPositiveButton(if(complete)"ENVIAR REPORTE" else "ENTENDIDO"){_,_->if(complete)sendReport(true)}
    .setNegativeButton(if(complete)"CANCELAR" else "CERRAR",null).show()
  }
+ private fun requestEarlyProfileChange(){
+  val shift=Store.shift(this)?:return
+  val reason=input("Especifica el motivo obligatorio",true)
+  val dialog=AlertDialog.Builder(this).setTitle("CAMBIAR DE PERFIL")
+   .setMessage("Al continuar se cerrará tu turno actual, se generará tu reporte y se avisará al patrón por WhatsApp. Este cierre se reflejará en tu nómina.")
+   .setView(reason).setPositiveButton("CONTINUAR",null).setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
+   val why=reason.text.toString().trim()
+   if(why.isBlank()){reason.error="El motivo es obligatorio";return@setOnClickListener}
+   val now=System.currentTimeMillis()
+   val expected=shift.optLong("expectedEndTs",shift.optLong("startTs",now)+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
+   shift.put("closingReason",why).put("closingType","EARLY_EXIT").put("closingBy","TRABAJADOR")
+    .put("earlyExit",now<expected).put("closingTs",now).put("closed",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
+   Store.saveShift(this,shift)
+   dialog.dismiss()
+   sendReport(true)
+  }}
+  dialog.show()
+ }
+ private fun requestAdminForceClose(){
+  val shift=Store.shift(this)?:run{msg("No hay un turno activo para cerrar.");return}
+  val reason=input("Motivo obligatorio del cierre administrativo",true)
+  val dialog=AlertDialog.Builder(this).setTitle("FORZAR CIERRE DE TURNO")
+   .setMessage("Trabajador activo: "+shift.optString("worker")+"\nEl cierre quedará identificado como realizado por el patrón y se reflejará en la nómina.")
+   .setView(reason).setPositiveButton("CERRAR TURNO",null).setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
+   val why=reason.text.toString().trim()
+   if(why.isBlank()){reason.error="El motivo es obligatorio";return@setOnClickListener}
+   val now=System.currentTimeMillis()
+   val expected=shift.optLong("expectedEndTs",shift.optLong("startTs",now)+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
+   shift.put("closingReason",why).put("closingType","ADMIN_FORCED").put("closingBy","PATRÓN")
+    .put("earlyExit",now<expected).put("closingTs",now).put("closed",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
+   Store.saveShift(this,shift)
+   dialog.dismiss()
+   sendReport(true)
+  }}
+  dialog.show()
+ }
  private fun showMyTurnMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   val dialog=AlertDialog.Builder(this).setTitle("MI TURNO").setView(ScrollView(this).apply{addView(panel)}).setNegativeButton("CERRAR",null).create()
@@ -953,6 +976,7 @@ class MainActivity:FragmentActivity(){
   option("SOLICITA","Registrar un consumo o solicitar un préstamo"){startActivity(Intent(this,PayrollRequestActivity::class.java))}
   option("MI NÓMINA","Consultar sueldo, descuentos e historial"){startActivity(Intent(this,PayrollEmployeeActivity::class.java))}
   option("MI JORNADA LABORAL","Consultar entrada, salida estimada y tiempo restante"){showWorkday()}
+  option("CAMBIAR DE PERFIL","Cerrar tu turno antes de tiempo, indicar el motivo y avisar al patrón"){requestEarlyProfileChange()}
   dialog.show()
  }
  private fun showToolsMenu(){
@@ -1242,7 +1266,12 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    InventoryArchive.save(this,currentProducts)
    InventoryArchive.save(this,currentProducts,s.optString("employeeId").takeIf{it.isNotBlank()},s.optString("worker"))
    val file=ReportFile.update(this)
-   val body=file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
+   val closureNote=when(s.optString("closingType")){
+    "EARLY_EXIT"->"🗣 CIERRE ANTISIPADO 💢\nTRABAJADOR: "+s.optString("worker")+"\nMOTIVO: "+s.optString("closingReason")+"\nHORA DE CIERRE: "+s.optString("closed")+"\n"
+    "ADMIN_FORCED"->"CIERRE ADMINISTRATIVO FORZADO\nTRABAJADOR: "+s.optString("worker")+"\nMOTIVO: "+s.optString("closingReason")+"\nHORA DE CIERRE: "+s.optString("closed")+"\nREALIZADO POR: PATRÓN\n"
+    else->""
+   }
+   val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
    pendingShareUri=dailyUri
@@ -1265,7 +1294,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     confirmingReport=false
     val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
     val shift=Store.shift(this)
-    if(final){shift?.optString("employeeId")?.takeIf{it.isNotBlank()}?.let{EmployeePayroll.recordShiftEnd(this,it,System.currentTimeMillis())};Store.saveShift(this,null);ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
+    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"))}};Store.saveShift(this,null);ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
     else if(shift!=null){shift.put("lastReport",System.currentTimeMillis());Store.saveShift(this,shift);reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
    }
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
@@ -1385,6 +1414,10 @@ class PatronActivity:FragmentActivity(){
   val v=page("Administrador - Patrón")
   v.addView(txt("ADMINISTRACIÓN DEL NEGOCIO",12f).apply{background=rounded(0xFFE9EFFB.toInt(),12);setTextColor(0xFF365BA4.toInt())})
   v.addView(adminTag("MIS TRABAJADORES","Perfiles, jornadas y sueldos"){startActivity(Intent(this,PayrollAdminActivity::class.java).putExtra("manage_workers",true))})
+  Store.shift(this)?.let{active->v.addView(adminTag("FORZAR CIERRE DE TURNO","Turno activo: "+active.optString("worker")+" · Cierre administrativo",0xFFB3261E.toInt()){
+   startActivity(Intent(this,MainActivity::class.java).putExtra("admin_force_close",true))
+   finish()
+  })}
   v.addView(adminTag(if(getSharedPreferences(PATRON_PREFS,0).getBoolean("biometric_enabled",false))"DESACTIVAR ACCESO CON HUELLA" else "ACTIVAR ACCESO CON HUELLA","Seguridad de acceso al administrador",0xFF25845A.toInt()){togglePatronBiometric()})
   v.addView(adminTag("CAMBIAR PIN DE SOY PATRÓN","Actualiza tu clave privada"){changePatronPin()})
   v.addView(adminTag("HACER PRIMER INVENTARIO","Registrar el inventario inicial",0xFF25845A.toInt()){openFirstInventory()})
