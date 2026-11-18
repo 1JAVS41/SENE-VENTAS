@@ -1872,7 +1872,7 @@ object ReportFile {
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
   out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
   val products=data.optJSONArray("products") ?: org.json.JSONArray()
-  for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock")).append("\nPASILLO: ").append(x.optString("aisle").ifBlank{"No indicado"}).append(" | ESTANTE: ").append(x.optString("shelf").ifBlank{"No indicado"))}
+  for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock")).append("\nPASILLO: ").append(x.optString("aisle").ifBlank{"No indicado"}).append(" | ESTANTE: ").append(x.optString("shelf").ifBlank{"No indicado"})}
   val workerId=shift.optString("employeeId")
   val dir=if(workerId.isNotBlank())WorkerArchive.localReportsFolder(c,workerId,shift.optString("worker")) else (c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir)
   if(!dir.exists()&&!dir.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local del reporte")
