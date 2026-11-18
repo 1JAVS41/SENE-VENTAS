@@ -568,7 +568,7 @@ class InicioTurnoActivity:FragmentActivity(){
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
    val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
-   ArchiveRetention.cleanupIfDue(this,savedTree)
+   ArchiveRetention.cleanupIfDue(this,savedTree,ReportCrypto.ownerKey(this))
    // Todos los perfiles comienzan siempre desde el inventario maestro más reciente.
    // Las copias e historiales individuales permanecen dentro de su carpeta de perfil.
    val snapshot=try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}
