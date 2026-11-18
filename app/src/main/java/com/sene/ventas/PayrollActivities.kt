@@ -123,7 +123,8 @@ class PayrollEmployeeActivity:FragmentActivity(){
   if(cfg==null){root.addView(payText("El patrón aún no configuró tu sueldo y días laborables."));payShow(root);return}
   val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId);val abs=EmployeePayroll.absences(this,employeeId)
   val dayRate=cfg.weeklySalaryCents/cfg.workDays;val absenceDeduction=(dayRate*abs).coerceAtMost(cfg.weeklySalaryCents)
-  val adjusted=(cfg.weeklySalaryCents-absenceDeduction).coerceAtLeast(0)
+  val earlyMinutes=EmployeePayroll.earlyExitMinutes(this,employeeId);val earlyDeduction=EmployeePayroll.earlyExitDeductionCents(this,employeeId).coerceAtMost((cfg.weeklySalaryCents-absenceDeduction).coerceAtLeast(0))
+  val adjusted=(cfg.weeklySalaryCents-absenceDeduction-earlyDeduction).coerceAtLeast(0)
   val consumption=entries.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents}
   val loans=entries.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
   val net=(adjusted-consumption-loans).coerceAtLeast(0)
@@ -131,7 +132,7 @@ class PayrollEmployeeActivity:FragmentActivity(){
   val rest=(Calendar.SUNDAY..Calendar.SATURDAY).filter{it !in cfg.workDaysOfWeek}.joinToString(", "){dayName(it)}
   root.addView(payText("SUELDO SEMANAL\n"+EmployeePayroll.money(cfg.weeklySalaryCents),22f,true))
   root.addView(payText("DÍAS LABORABLES: $work\nDESCANSOS: "+rest.ifBlank{"Ninguno"}+"\nDía de pago: "+dayName(cfg.payDay)))
-  root.addView(payText("Faltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
+  root.addView(payText("Faltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos\nDescuento por salidas anticipadas: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
   root.addView(payText("TOTAL A RECIBIR\n"+EmployeePayroll.money(net),24f,true))
   root.addView(payText("HISTORIAL DEL PERIODO",17f,true))
   root.addView(payText("HISTORIAL COMPLETO",17f,true))
@@ -157,13 +158,20 @@ class PayrollAdminActivity:FragmentActivity(){
   val manage=intent.getBooleanExtra("manage_workers",false)
   val profiles=WorkerProfiles.all(this)
   val root=payPage(if(manage)"MIS TRABAJADORES" else "CONSULTAR NÓMINA")
-  if(profiles.isEmpty()){
-   root.addView(payText("Primero registra trabajadores desde INICIAR TURNO."))
-   if(manage)showWorkersScreen(root) else payShow(root)
+  if(profiles.isEmpty()&&!manage){
+   root.addView(payText("Todavía no hay trabajadores registrados."))
+   payShow(root)
    return
   }
   if(manage){
    root.addView(payText("Selecciona un empleado para configurar sus horas, días laborales, sueldo semanal y día de pago.",14f))
+   root.addView(payButton("＋  AGREGAR TRABAJADOR"){addWorkerProfile()})
+   if(profiles.isEmpty()){
+    root.addView(payText("Aún no hay perfiles. Registra aquí al primer trabajador y entrégale su nombre y PIN de acceso."))
+    root.addView(payButton("VOLVER A SOY PATRÓN"){finish()})
+    showWorkersScreen(root)
+    return
+   }
    root.addView(payText("EMPLEADOS REGISTRADOS",17f,true))
    profiles.forEach{p->
     root.addView(payButton("👤  "+p.name){
@@ -193,6 +201,25 @@ class PayrollAdminActivity:FragmentActivity(){
   addEmployeeConfiguration(root,profile,old,employeeId,true)
   showWorkersScreen(root)
  }
+ private fun addWorkerProfile(){
+  val name=payInput("Nombre completo del trabajador")
+  val phone=payInput("Número de celular (opcional)",true)
+  val pin=payInput("Crea un PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val confirm=payInput("Confirma el PIN de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val box=LinearLayout(this).apply{orientation=1;setPadding(20,8,20,8);addView(name);addView(phone);addView(pin);addView(confirm)}
+  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR").setMessage("Crea el perfil y define el PIN que le entregarás para iniciar turno.").setView(box).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
+   val code=pin.text.toString()
+   if(name.text.isBlank()){name.error="Escribe el nombre";return@setOnClickListener}
+   if(code.length!=4||code.any{!it.isDigit()}){pin.error="El PIN debe tener exactamente 4 dígitos";return@setOnClickListener}
+   if(code!=confirm.text.toString()){confirm.error="Los PIN no coinciden";return@setOnClickListener}
+   val profile=WorkerProfiles.create(this,name.text.toString(),phone.text.toString(),code)
+   if(profile==null){name.error="Ese nombre ya existe o no se pudo guardar";return@setOnClickListener}
+   dialog.dismiss()
+   AlertDialog.Builder(this).setTitle("PERFIL CREADO").setMessage("Entrega estos datos al trabajador:\n\nNOMBRE: "+profile.name+"\nPIN DE ACCESO: "+code+"\nTELÉFONO: "+profile.phone.ifBlank{"No registrado"}+"\n\nEl PIN no volverá a mostrarse después de cerrar este aviso.").setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
+  }}
+  dialog.show()
+ }
  private fun addEmployeeConfiguration(root:LinearLayout,profile:WorkerProfiles.Profile,old:EmployeePayroll.Config?,selectedId:String,manage:Boolean){
   val name=payInput("Nombre del empleado").apply{setText(profile.name);isEnabled=false}
   val hours=payInput("Horas diarias (1 a 24)",true).apply{setText((old?.dailyHours?:8).toString())}
@@ -213,11 +240,12 @@ class PayrollAdminActivity:FragmentActivity(){
   })
   val cfg=EmployeePayroll.config(this,selectedId)
   if(cfg!=null){
-   val abs=EmployeePayroll.absences(this,selectedId);val rate=cfg.weeklySalaryCents/cfg.workDays;val absenceDeduction=(rate*abs).coerceAtMost(cfg.weeklySalaryCents);val adjusted=(cfg.weeklySalaryCents-absenceDeduction).coerceAtLeast(0)
+   val abs=EmployeePayroll.absences(this,selectedId);val rate=cfg.weeklySalaryCents/cfg.workDays;val absenceDeduction=(rate*abs).coerceAtMost(cfg.weeklySalaryCents)
+   val earlyMinutes=EmployeePayroll.earlyExitMinutes(this,selectedId);val earlyDeduction=EmployeePayroll.earlyExitDeductionCents(this,selectedId).coerceAtMost((cfg.weeklySalaryCents-absenceDeduction).coerceAtLeast(0));val adjusted=(cfg.weeklySalaryCents-absenceDeduction-earlyDeduction).coerceAtLeast(0)
    val rows=EmployeePayroll.entriesForCurrentPeriod(this,selectedId);val cons=rows.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents};val loans=rows.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
    val cap=EmployeePayroll.capacity(this,selectedId);val net=(adjusted-cons-loans).coerceAtLeast(0)
    root.addView(payText("RESUMEN DEL PERIODO · "+profile.name,17f,true))
-   root.addView(payText("Sueldo semanal: "+EmployeePayroll.money(cfg.weeklySalaryCents)+"\nFaltas: $abs · Descuento: "+EmployeePayroll.money(absenceDeduction)+"\nConsumos: "+EmployeePayroll.money(cons)+"\nPréstamos: "+EmployeePayroll.money(loans)+"\nTotal descuentos: "+EmployeePayroll.money(absenceDeduction+cons+loans)+"\nNeto estimado: "+EmployeePayroll.money(net),17f,true))
+   root.addView(payText("Sueldo semanal: "+EmployeePayroll.money(cfg.weeklySalaryCents)+"\nFaltas: $abs · Descuento: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos · Descuento: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos: "+EmployeePayroll.money(cons)+"\nPréstamos: "+EmployeePayroll.money(loans)+"\nTotal descuentos: "+EmployeePayroll.money(absenceDeduction+earlyDeduction+cons+loans)+"\nNeto estimado: "+EmployeePayroll.money(net),17f,true))
    root.addView(payText("LÍMITE DEL 50%\nComprometido: "+EmployeePayroll.money(cap.committedCents)+"\nDisponible: "+EmployeePayroll.money(cap.availableCents)))
    root.addView(payText("HISTORIAL COMPLETO",17f,true))
    EmployeePayroll.entries(this,selectedId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
