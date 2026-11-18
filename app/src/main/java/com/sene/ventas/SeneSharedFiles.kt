@@ -50,7 +50,7 @@ object SeneSharedFiles {
 
     fun decode(raw: ByteArray, ownerKey: String): Document {
         val lines = raw.toString(Charsets.UTF_8).replace("\r\n", "\n").lines()
-        require(lines.size == 8 && lines[0] == MAGIC) { "Formato de archivo SENE no reconocido" }
+        require(lines.size == 7 && lines[0] == MAGIC) { "Formato de archivo SENE no reconocido" }
         fun field(name: String) = lines.firstOrNull { it.startsWith("$name=") }
             ?.substringAfter("=") ?: throw IllegalArgumentException("Falta $name")
         val category = field("CATEGORY")
