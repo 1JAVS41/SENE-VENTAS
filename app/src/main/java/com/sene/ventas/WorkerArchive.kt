@@ -113,7 +113,7 @@ object ArchiveRetention {
                         collectLocal(child, files)
                         if (files.isNotEmpty()) groups.getOrPut(key) { mutableListOf() }.addAll(files)
                     } else if (name.equals("INVENTARIO-SENE", true) && !path.contains("TRABAJADORES")) {
-                        val files = children.filter { it.isFile && it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$")) }
+                        val files = (child.listFiles() ?: emptyArray()).filter { it.isFile && it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$")) }
                             .map { Entry(it, it.lastModified()) }
                         if (files.isNotEmpty()) groups.getOrPut(child.absolutePath) { mutableListOf() }.addAll(files)
                         scan(child, child.absolutePath)
@@ -177,7 +177,7 @@ object ArchiveRetention {
                         val inventoryGroup = when {
                             childPath.contains("/TRABAJADORES/", true) && childPath.contains("/INVENTARIOS/", true) ->
                                 childPath.substringBefore("/INVENTARIOS/", childPath) + "/INVENTARIOS"
-                            childPath.endsWith("/INVENTARIO-SENE/$name", true) && !childPath.contains("/TRABAJADORES/", true) ->
+                            childPath.endsWith("INVENTARIO-SENE/$name", true) && !childPath.contains("/TRABAJADORES/", true) ->
                                 childPath.substringBeforeLast("/")
                             else -> null
                         }
