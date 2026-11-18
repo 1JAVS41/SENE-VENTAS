@@ -1330,10 +1330,10 @@ class AgregarInventarioActivity:Activity(){
   }
   // El permiso de la carpeta INVENTARIO SENE pertenece al teléfono del patrón.
   // El trabajador debe poder registrar la recepción en su propio dispositivo sin bloquearse por ese permiso.
-  val backup=StringBuilder("INVENTARIO_SENE_V1\\nActualizado: ").append(stamp()).append("\\nCódigo | Producto | Precio | Existencia")
+  val backup=StringBuilder("INVENTARIO_SENE_V1\\nActualizado: ").append(stamp()).append("\\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
   for(i in 0 until p.length()){
    val item=p.optJSONObject(i)?:continue
-   backup.append("\\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optDouble("price")).append(" | ").append(item.optInt("stock"))
+   backup.append("\\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optDouble("price")).append(" | ").append(item.optInt("stock")).append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))
   }
   var savedInSharedFolder=false
   val tree=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
