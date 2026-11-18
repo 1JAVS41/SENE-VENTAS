@@ -70,7 +70,7 @@ object ReportCrypto {
         return cipher.doFinal(packed.copyOfRange(IV_SIZE, packed.size)).toString(Charsets.UTF_8)
     }
 
-    fun hasKey(c: Context): Boolean = !prefs(c).getString(KEY_BLOB, null).isNullOrBlank()
+    fun hasKey(c: Context): Boolean = try { ownerKey(c).length >= 8 } catch (_: Exception) { false }
 
     @Synchronized fun saveKey(c: Context, value: String): Boolean {
         val clean = value.trim()
@@ -79,7 +79,8 @@ object ReportCrypto {
             val p = prefs(c)
             val oldBlob = p.getString(KEY_BLOB, null)
             val history = p.getStringSet("historical_keys_wrapped", emptySet())?.toMutableSet() ?: mutableSetOf()
-            if (!oldBlob.isNullOrBlank() && unwrap(oldBlob) != clean) history.add(oldBlob)
+            val oldValue = if (oldBlob.isNullOrBlank()) null else try { unwrap(oldBlob) } catch (_: Exception) { null }
+            if (!oldBlob.isNullOrBlank() && oldValue != null && oldValue != clean) history.add(oldBlob)
             p.edit().putString(KEY_BLOB, wrap(clean))
                 .putStringSet("historical_keys_wrapped", history).putBoolean("configured", true).commit()
         } catch (_: Exception) { false }
