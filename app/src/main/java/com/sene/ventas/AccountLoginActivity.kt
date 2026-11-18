@@ -13,7 +13,7 @@ class AccountLoginActivity : Activity() {
         fun ensureReportWhatsApp(activity: Activity, onComplete: () -> Unit) {
             val prefs = activity.getSharedPreferences("sene_report_whatsapp", Activity.MODE_PRIVATE)
             if (prefs.getBoolean("registered", false)) {
-                onComplete()
+                ReportKeySetup.ensureConfigured(activity, onComplete)
                 return
             }
             val phone = EditText(activity).apply {
@@ -56,7 +56,7 @@ class AccountLoginActivity : Activity() {
                     Store.setPhone(activity, digits)
                     prefs.edit().putBoolean("registered", true).apply()
                     dialog.dismiss()
-                    onComplete()
+                    ReportKeySetup.ensureConfigured(activity, onComplete)
                 }
             }
             dialog.show()

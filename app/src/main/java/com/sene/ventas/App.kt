@@ -555,7 +555,7 @@ class InicioTurnoActivity:FragmentActivity(){
    val dayNames=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
    val workDays=employeeConfig?.workDaysOfWeek?.sortedBy{if(it==Calendar.SUNDAY)0 else it}?.joinToString(", "){dayNames.getOrElse(it){"-"}}?: "Pendiente de configurar"
    val payDayName=employeeConfig?.let{dayNames.getOrElse(it.payDay){"-"}}?: "Pendiente de configurar"
-   val shift=JSONObject().put("employeeId",workerId).put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now).put("workDaysOfWeek",JSONArray().apply{employeeConfig?.workDaysOfWeek?.sorted()?.forEach{put(it)}}).put("weeklySalaryCents",employeeConfig?.weeklySalaryCents?:0L).put("payDay",employeeConfig?.payDay?:0)
+   val shift=JSONObject().put("shiftId",UUID.randomUUID().toString()).put("reportCount",0).put("employeeId",workerId).put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now).put("workDaysOfWeek",JSONArray().apply{employeeConfig?.workDaysOfWeek?.sorted()?.forEach{put(it)}}).put("weeklySalaryCents",employeeConfig?.weeklySalaryCents?:0L).put("payDay",employeeConfig?.payDay?:0)
    val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock")).append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
@@ -564,7 +564,9 @@ class InicioTurnoActivity:FragmentActivity(){
    Store.saveShift(this,shift)
    if(!EmployeePayroll.recordShiftStart(this,workerId,now))msg("Aviso: no se pudo guardar el registro de asistencia local.")
    // Abrir el chat directo del patrón con el reporte completo ya preparado para enviar.
-   pendingStartAfterWhatsApp=openWhatsAppText(this,body)
+   val startEventKey=shift.optString("shiftId")+":START"
+   val encryptedStart=ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey)
+   pendingStartAfterWhatsApp=openWhatsAppText(this,encryptedStart)
    if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado y el respaldo TXT está guardado en el teléfono, en SENE VENTAS / INVENTARIO SENE. Revisa el número de WhatsApp del patrón.")
   }catch(e:Exception){AlertDialog.Builder(this).setTitle("No se pudo iniciar el turno").setMessage("No se pudo guardar el respaldo en INVENTARIO SENE. Verifica que la carpeta esté disponible y tenga permisos de escritura.\n\nDetalle: "+(e.message?:"Error desconocido.")).setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}.setNegativeButton("Cerrar",null).show()}
  }
@@ -660,8 +662,8 @@ class MainActivity:FragmentActivity(){
  private var confirmingReport=false
  private var refreshAfterPatron=false
  private val lock=object:Runnable{override fun run(){if(::sell.isInitialized){updateReportCountdown();if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}};h.postDelayed(this,1000)}}
- private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(7200000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
- private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=7200000}
+ private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(10800000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
+ private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=10800000}
  override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();if(intent.getBooleanExtra("admin_force_close",false))h.post{requestAdminForceClose()}}}
  override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized&&due())h.post{showReportAlert()}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
@@ -683,7 +685,7 @@ class MainActivity:FragmentActivity(){
    }
   }.start()
  }
- private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 2 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
+ private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
  private var selectedPrinterAddress:String?=null
  private var printerSocket:BluetoothSocket?=null
  private val printerSppUuid=UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
@@ -1248,6 +1250,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   completeReport(final,Uri.parse(saved))
  }
  private var pendingReportText:String?=null
+ private var pendingReportEventKey:String=""
  private fun saveReportToPhone(){
   val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
    addCategory(Intent.CATEGORY_OPENABLE)
@@ -1275,7 +1278,10 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
    pendingShareUri=dailyUri
-   pendingReportText=body
+   val stableShiftId=s.optString("shiftId").ifBlank { UUID.randomUUID().toString().also { s.put("shiftId",it); Store.saveShift(this,s) } }
+   val eventKey=if(final) "$stableShiftId:CLOSE" else "$stableShiftId:REPORT:${s.optInt("reportCount",0)}"
+   pendingReportEventKey=eventKey
+   pendingReportText=ReportCrypto.prepare(this,s.optString("employeeId"),if(final)"CIERRE_TURNO" else "REPORTE_TURNO",body,eventKey)
    pendingFinalShare=final
    launchPendingReportShare()
   }catch(e:Exception){msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))}
@@ -1294,8 +1300,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     confirmingReport=false
     val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
     val shift=Store.shift(this)
-    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"))}};Store.saveShift(this,null);ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
-    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis());Store.saveShift(this,shift);reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
+    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"))}};Store.saveShift(this,null);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
+    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
    }
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
    .show()
@@ -1423,6 +1429,7 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("HACER PRIMER INVENTARIO","Registrar el inventario inicial",0xFF25845A.toInt()){openFirstInventory()})
   v.addView(adminTag("AGREGAR O MODIFICAR PRODUCTO","Editar productos y existencias"){product()})
   v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número para recibir reportes"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
+  v.addView(adminTag("CAMBIAR CLAVE DE CIFRADO","Clave compartida con SENE ADMIN"){ReportKeySetup.change(this){msg("Clave de cifrado actualizada. Conserva también la clave anterior para los reportes históricos.");draw()}})
   v.addView(adminTag("CONSULTAR NÓMINA","Revisar nóminas de los trabajadores"){startActivity(Intent(this,PayrollAdminActivity::class.java))})
   v.addView(adminTag("VER INVENTARIO ACTUAL","Consultar productos, precios y existencias"){inventory()})
   v.addView(adminTag("GUARDAR TXT DEL STOCK","Crear respaldo del inventario",0xFF25845A.toInt()){export()})
@@ -1842,6 +1849,7 @@ private fun openWhatsAppText(activity:Activity,body:String):Boolean {
  if(target.length==10)target="52"+target
  if(target.startsWith("521")&&target.length==13)target="52"+target.substring(3)
  if(target.length<12){activity.msg("El número de WhatsApp del patrón no parece válido. Incluye lada y código de país.");return false}
+ if(body.startsWith("SENE-ADMIN-REPORT|1") && body.length>55000){activity.msg("El reporte cifrado supera el límite seguro para enviarlo como texto de WhatsApp. No se enviará incompleto.");return false}
  val safeBody=if(body.length>55000)body.take(55000)+"\n\n[Reporte recortado. El respaldo TXT contiene el reporte completo.]" else body
  val encoded=URLEncoder.encode(safeBody,"UTF-8")
  val links=listOf(
