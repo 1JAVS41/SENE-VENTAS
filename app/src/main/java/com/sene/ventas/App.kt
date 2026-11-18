@@ -424,22 +424,35 @@ private object InventoryReader {
    ?:throw java.io.IOException("No se encontró un inventario válido en INVENTARIO SENE")
  }
  fun latestMaster(activity:Activity,tree:Uri?):InventorySnapshot? {
-  val candidates=mutableListOf<InventorySnapshot>()
+  val localCandidates=mutableListOf<InventorySnapshot>()
   val local=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
   local.listFiles()?.filter{it.isFile&&it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}?.forEach{file->
    try{
-    val content=file.readText(Charsets.UTF_8);val products=JSONArray()
+    val raw=file.readBytes()
+    val decoded=when{
+     SeneSharedFiles.isSharedFile(raw)->SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity)).payload
+     InventoryCrypto.isEncrypted(raw)->InventoryCrypto.decrypt(raw)
+     else->raw
+    }
+    val content=String(decoded,Charsets.UTF_8)
+    val products=JSONArray()
     content.lineSequence().map{it.trim()}.filter{it.isNotBlank()}.forEach{line->
      if(line.startsWith("Actualizado:",true)||line.startsWith("Código",true)||line.equals("INVENTARIO_SENE_V1",true))return@forEach
      val parts=line.split("|").map{it.trim()};if(parts.size<4)return@forEach
      val price=parseAmount(parts[2]);val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
      if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock).put("aisle",parts.getOrElse(4){""}).put("shelf",parts.getOrElse(5){""}))
     }
-    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";candidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
+    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";localCandidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
    }catch(_:Exception){}
   }
-  if(tree!=null)try{candidates.addAll(listSnapshots(activity,tree).filter{!it.folder.contains("TRABAJADORES",true)&&it.file.matches(Regex("(?i)^inventario-\\d+\\.txt$"))})}catch(_:Exception){}
-  return candidates.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
+  if(tree!=null)try{
+   val snapshots=listSnapshots(activity,tree)
+   val master=snapshots.filter{it.folder.contains("INVENTARIO-MAESTRO",true)}
+   if(master.isNotEmpty())return master.maxByOrNull{it.updated}
+   val shared=snapshots.filter{!it.folder.contains("TRABAJADORES",true)}
+   if(shared.isNotEmpty())return shared.maxByOrNull{it.updated}
+  }catch(_:Exception){}
+  return localCandidates.maxByOrNull{it.updated}
  }
  fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
   val key=WorkerArchive.profileKey(employeeId,workerName)
