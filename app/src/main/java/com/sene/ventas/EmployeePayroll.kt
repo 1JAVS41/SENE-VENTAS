@@ -28,7 +28,7 @@ object EmployeePayroll {
         val reason:String,val description:String,val timestamp:Long,val periodKey:String,
         val settled:Boolean,val employeeId:String = ""
     )
-    data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long)
+    data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="")
 
     private fun prefs(c:Context)=c.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
     private fun activeId(c:Context):String=Store.shift(c)?.optString("employeeId").orEmpty()
@@ -99,22 +99,22 @@ object EmployeePayroll {
     private fun periodStart(ts:Long,payDay:Int):Calendar=Calendar.getInstance().apply{timeInMillis=parseDate(periodKey(ts,payDay))}
     fun attendance(c:Context):List<Attendance>{
         val raw=prefs(c).getString(ATTENDANCE,"[]")?: "[]"
-        return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt")))}}}catch(_:Exception){emptyList()}
+        return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt"),x.optString("closureReason"),x.optString("closureSource")))}}}catch(_:Exception){emptyList()}
     }
     private fun saveAttendance(c:Context,items:List<Attendance>):Boolean{
-        val a=JSONArray();items.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("date",x.date).put("startedAt",x.startedAt).put("closedAt",x.closedAt))}
+        val a=JSONArray();items.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("date",x.date).put("startedAt",x.startedAt).put("closedAt",x.closedAt).put("closureReason",x.closureReason).put("closureSource",x.closureSource))}
         return prefs(c).edit().putString(ATTENDANCE,a.toString()).commit()
     }
     @Synchronized fun recordShiftStart(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Boolean{
         if(employeeId.isBlank())return false
         val key=dateKey(ts);val all=attendance(c).toMutableList();val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(i>=0)all[i]=all[i].copy(startedAt=ts) else all.add(Attendance(employeeId,key,ts,0L))
+        if(i>=0)all[i]=all[i].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="") else all.add(Attendance(employeeId,key,ts,0L))
         return saveAttendance(c,all)
     }
-    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Boolean{
+    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String=""):Boolean{
         if(employeeId.isBlank())return false
         val key=dateKey(ts);val all=attendance(c).toMutableList();val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(i>=0)all[i]=all[i].copy(closedAt=ts) else all.add(Attendance(employeeId,key,0L,ts))
+        if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source) else all.add(Attendance(employeeId,key,0L,ts,reason,source))
         return saveAttendance(c,all)
     }
     fun absences(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Int{
@@ -128,6 +128,19 @@ object EmployeePayroll {
             cal.add(Calendar.DAY_OF_YEAR,1)
         }
         return count
+    }
+    fun earlyExitMinutes(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Long{
+        val cfg=config(c,employeeId)?:return 0L
+        val first=periodKey(ts,cfg.payDay);val last=dateKey(ts)
+        val required=cfg.dailyHours*3600000L
+        return attendance(c).filter{it.employeeId==employeeId&&it.date>=first&&it.date<=last&&it.startedAt>0L&&it.closedAt>0L}
+            .sumOf{record->((required-(record.closedAt-record.startedAt)).coerceAtLeast(0L)+59999L)/60000L}
+    }
+    fun earlyExitDeductionCents(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Long{
+        val cfg=config(c,employeeId)?:return 0L
+        val minutes=earlyExitMinutes(c,employeeId,ts)
+        val hourly=cfg.weeklySalaryCents.toDouble()/cfg.workDays.toDouble()/cfg.dailyHours.toDouble()
+        return kotlin.math.round(hourly*minutes/60.0).toLong().coerceAtLeast(0L)
     }
     fun entries(c:Context,employeeId:String?=null):List<Entry>{
         val raw=prefs(c).getString(ENTRIES,"[]")?: "[]"
@@ -146,7 +159,7 @@ object EmployeePayroll {
     fun capacity(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Capacity{
         val cfg=config(c,employeeId)?:return Capacity(0,0,0,0)
         val absent=absences(c,employeeId,ts);val rate=cfg.weeklySalaryCents/cfg.workDays
-        val deduction=(rate*absent).coerceAtMost(cfg.weeklySalaryCents);val adjusted=(cfg.weeklySalaryCents-deduction).coerceAtLeast(0)
+        val deduction=(rate*absent).coerceAtMost(cfg.weeklySalaryCents);val early=earlyExitDeductionCents(c,employeeId,ts).coerceAtMost((cfg.weeklySalaryCents-deduction).coerceAtLeast(0));val adjusted=(cfg.weeklySalaryCents-deduction-early).coerceAtLeast(0)
         val limit=adjusted/2;val key=periodKey(ts,cfg.payDay)
         val committed=entries(c,employeeId).filter{it.periodKey==key&&!it.settled&&(it.type==TYPE_LOAN||it.type==TYPE_CONSUMPTION)}.sumOf{it.amountCents}
         return Capacity(adjusted,limit,committed,(limit-committed).coerceAtLeast(0))
