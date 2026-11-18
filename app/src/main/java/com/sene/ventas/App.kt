@@ -1404,7 +1404,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val time=SimpleDateFormat("HH-mm-ss",Locale.US).format(Date())
   val name="SENE-VENTAS-$date-$time.txt"
   val target=DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear el TXT")
-  resolver.openOutputStream(target,"w")?.use{out->source.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el TXT")
+  resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(this,source.readBytes()))}?:throw java.io.IOException("No se pudo escribir el TXT")
   return target
  }
  private fun stock(){
@@ -1891,20 +1891,22 @@ private fun saveReportToDownloads(activity:Activity,file:java.io.File):Uri? {
  }
  val uri=resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)?:return null
  try {
-  resolver.openOutputStream(uri,"w")?.use{out->file.inputStream().use{input->input.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el reporte")
+  resolver.openOutputStream(uri,"w")?.use{it.write(encryptedReportBackup(activity,file.readBytes()))}?:throw java.io.IOException("No se pudo escribir el reporte")
   val done=android.content.ContentValues().apply{put(android.provider.MediaStore.MediaColumns.IS_PENDING,0)}
   resolver.update(uri,done,null,null)
   return uri
  }catch(e:Exception){resolver.delete(uri,null,null);throw e}
 }
 
+private fun encryptedReportBackup(activity:Activity,body:ByteArray):ByteArray =
+ SeneSharedFiles.encode("REPORTES",ReportCrypto.ownerKey(activity),body,stamp())
 private const val REPORT_BACKUP_NOTE="\n\nGuarde este reporte en una carpeta segura. Será su respaldo de inventario hasta este momento."
 private fun saveTextBackupLocal(activity:Activity,prefix:String,body:String,employeeId:String="",workerName:String=""):java.io.File {
  val folder=if(employeeId.isNotBlank())WorkerArchive.localReportsFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"SENE VENTAS/INVENTARIO SENE")
  if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta privada de respaldo SENE VENTAS")
  val date=SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS",Locale.US).format(Date())
  val target=java.io.File(folder,"$prefix-$date.txt")
- target.writeText(body,Charsets.UTF_8)
+ target.writeBytes(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))
  if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el TXT de respaldo")
  return target
 }
@@ -1923,7 +1925,7 @@ private fun saveTextBackup(activity:Activity,tree:Uri,prefix:String,body:String,
  val folder=child(root,date)?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,date)?:throw java.io.IOException("No se pudo crear la carpeta de respaldo")
  val time=SimpleDateFormat("HH-mm-ss-SSS",Locale.US).format(Date())
  val target=DocumentsContract.createDocument(resolver,folder,"text/plain","$prefix-$date-$time.txt")?:throw java.io.IOException("No se pudo crear el TXT de respaldo")
- resolver.openOutputStream(target,"w")?.use{it.write(body.toByteArray(Charsets.UTF_8))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
+ resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
  return target
 }
 private fun openWhatsAppText(activity:Activity,body:String):Boolean {
