@@ -1299,11 +1299,9 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    .setPositiveButton("SÍ, YA LO ENVIÉ"){_,_->
     confirmingReport=false
     val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
-    if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey)
-    pendingReportEventKey=""
     val shift=Store.shift(this)
-    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"))}};Store.saveShift(this,null);ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
-    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
+    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"))}};Store.saveShift(this,null);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
+    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
    }
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
    .show()
