@@ -1342,7 +1342,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     confirmingReport=false
     val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
     val shift=Store.shift(this)
-    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"))}};Store.saveShift(this,null);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
+    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"),active.optBoolean("completedWorkday",false))}};Store.saveShift(this,null);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
     else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
    }
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
