@@ -666,7 +666,7 @@ class MainActivity:FragmentActivity(){
   }
   salesClockHandler.postDelayed(this,1000L)
  }}
- private val ticket=linkedMapOf<String,Int>();private var scanningTicketCorrection=false;private var correctionStage=0;private var correctionTicketId="";private var correctionAction="";private var correctionOriginalCode="";private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:TextView;private lateinit var totalView:TextView;private lateinit var sell:Button;private val h=Handler(Looper.getMainLooper())
+ private val ticket=linkedMapOf<String,Int>();private var scanningTicketCorrection=false;private var correctionStage=0;private var correctionTicketId="";private var correctionAction="";private var correctionOriginalCode="";private lateinit var code:EditText;private lateinit var paid:EditText;private lateinit var ticketView:LinearLayout;private lateinit var totalView:TextView;private lateinit var sell:Button;private val h=Handler(Looper.getMainLooper())
  private var reportDialog:AlertDialog?=null
  private lateinit var countdownView:TextView
  private var pendingFinalReport=false
@@ -867,17 +867,17 @@ class MainActivity:FragmentActivity(){
   var newPrice=0.0;var newName=""
   if(newCode!=null){val products=Store.products(this);for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;if(item.optString("code")==newCode){newPrice=item.optDouble("price");newName=item.optString("name");break}}}
   val summary=if(newCode==null)"PRODUCTO: "+(original?.optString("name")?:"-")+"\nVALOR A DEVOLVER: "+Store.money(oldPrice)+"\nEl producto regresará al inventario." else "PRODUCTO ORIGINAL: "+(original?.optString("name")?:"-")+"\nVALOR ORIGINAL: "+Store.money(oldPrice)+"\nPRODUCTO NUEVO: "+newName+"\nVALOR NUEVO: "+Store.money(newPrice)+"\n"+if(newPrice>oldPrice)"DIFERENCIA A COBRAR: "+Store.money(newPrice-oldPrice) else if(newPrice<oldPrice)"DIFERENCIA A DEVOLVER: "+Store.money(oldPrice-newPrice) else "SIN DIFERENCIA DE PRECIO"
-  val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8));addView(TextView(this@MainActivity).apply{text=summary;textSize=13f;setTextColor(0xFF263D70.toInt());setPadding(0,0,0,dp(10))});addView(TextView(this@MainActivity).apply{text="MOTIVO DE LA CORRECCIÓN";textSize=12f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF53617A.toInt())});addView(reason)}
+  val damaged=CheckBox(this).apply{text="El producto está dañado (no regresa al inventario disponible)";textSize=13f;setTextColor(0xFFB3261E.toInt());isChecked=false;visibility=if(newCode==null)View.VISIBLE else View.GONE};val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8));addView(TextView(this@MainActivity).apply{text=summary;textSize=13f;setTextColor(0xFF263D70.toInt());setPadding(0,0,0,dp(10))});addView(damaged);addView(TextView(this@MainActivity).apply{text="MOTIVO DE LA CORRECCIÓN";textSize=12f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF53617A.toInt())});addView(reason)}
   val dialog=AlertDialog.Builder(this).setTitle("MOTIVO DE LA CORRECCIÓN").setView(content)
    .setPositiveButton("CONFIRMAR",null).setNegativeButton("CANCELAR"){_,_->correctionStage=0}.create()
   dialog.setOnShowListener{
    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
-    if(reason.text.isBlank()){reason.error="Describe el motivo"}else{val detail=reason.text.toString().trim();dialog.dismiss();applyTicketCorrection(newCode,detail)}
+    if(reason.text.isBlank()){reason.error="Describe el motivo"}else{val detail=reason.text.toString().trim();dialog.dismiss();applyTicketCorrection(newCode,detail,damaged.isChecked)}
    }
   }
   dialog.show()
  }
- private fun applyTicketCorrection(newCode:String?,reason:String){
+ private fun applyTicketCorrection(newCode:String?,reason:String,damaged:Boolean=false){
   val sales=Store.sales(this);var original:JSONObject?=null
   for(i in 0 until sales.length()){val row=sales.optJSONObject(i)?:continue;if(row.optString("ticketId")==correctionTicketId&&row.optString("type","SALE")=="SALE"&&row.optString("code")==correctionOriginalCode){original=row;break}}
   val sold=original?:run{msg("No se pudo recuperar el producto original");correctionStage=0;return}
@@ -887,7 +887,8 @@ class MainActivity:FragmentActivity(){
   if(oldProduct==null){msg("El producto original ya no existe en el inventario");correctionStage=0;return}
   if(newCode!=null&&(newProduct==null||newProduct!!.optInt("stock")<1)){msg("El producto nuevo no existe o no tiene existencia");correctionStage=0;return}
   if(newCode==correctionOriginalCode){msg("Seleccionaste el mismo producto. No hay cambios que registrar.");correctionStage=0;return}
-  oldProduct!!.put("stock",oldProduct!!.optInt("stock")+1)
+  if(newCode!=null || !damaged)oldProduct!!.put("stock",oldProduct!!.optInt("stock")+1)
+  if(newCode==null && damaged){val prefs=getSharedPreferences("sene_ventas_local",0);val damagedList=try{JSONArray(prefs.getString("damaged_products","[]")?:"[]")}catch(_:Exception){JSONArray()};damagedList.put(JSONObject().put("code",correctionOriginalCode).put("name",sold.optString("name")).put("qty",1).put("price",oldPrice).put("time",stamp()).put("reason",reason).put("ticketId",correctionTicketId).put("worker",(Store.shift(this)?:JSONObject()).optString("worker")));prefs.edit().putString("damaged_products",damagedList.toString()).apply()}
   val now=System.currentTimeMillis();val time=stamp();val worker=(Store.shift(this)?:JSONObject()).optString("worker")
   val movements=ArrayList<JSONObject>()
   if(newProduct==null){
@@ -900,7 +901,7 @@ class MainActivity:FragmentActivity(){
   Store.saveProducts(this,products);Store.addSales(this,movements)
   val difference=if(newProduct==null)-oldPrice else newProduct!!.optDouble("price")-oldPrice
   correctionStage=0
-  val message=if(newProduct==null)"Producto devuelto al inventario. Devolver al cliente: "+Store.money(oldPrice) else if(difference>0)"Cobrar al cliente: "+Store.money(difference) else if(difference<0)"Devolver al cliente: "+Store.money(-difference) else "No hay diferencia de precio."
+  val message=if(newProduct==null&&damaged)"Producto registrado en PRODUCTOS DAÑADOS. No regresó al inventario disponible. Devolver al cliente: "+Store.money(oldPrice) else if(newProduct==null)"Producto devuelto al inventario. Devolver al cliente: "+Store.money(oldPrice) else if(difference>0)"Cobrar al cliente: "+Store.money(difference) else if(difference<0)"Devolver al cliente: "+Store.money(-difference) else "No hay diferencia de precio."
   AlertDialog.Builder(this).setTitle("CORRECCIÓN REGISTRADA").setMessage(message+"\n\nInventario, caja y reporte actualizados.").setPositiveButton("ACEPTAR",null).show()
  }
  private fun showTicketQr(ticketId:String,total:Double,items:List<JSONObject>){
@@ -965,6 +966,7 @@ class MainActivity:FragmentActivity(){
    Triple("AGREGAR INVENTARIO","Registrar mercancía recibida del proveedor",1),
    Triple("GASTOS A PROVEEDORES","Consultar pagos y salidas de caja",2),
    Triple("VER STOCK","Consultar existencias, precios y alertas",3),
+   Triple("PRODUCTOS DAÑADOS","Revisar devoluciones que no pueden volver a venderse",12),
    Triple("SOY PATRÓN / ADMINISTRADOR","Administrar inventario y configuración",4),
    Triple("GUARDAR REPORTE TXT","Exportar el reporte organizado",6)
   )
@@ -982,6 +984,7 @@ class MainActivity:FragmentActivity(){
     6->saveReportToPhone()
     10->showPrinterSetup()
     11->beginTicketCorrection()
+    12->showDamagedProducts()
    }}
   }
   dialog.show()
@@ -1037,6 +1040,7 @@ class MainActivity:FragmentActivity(){
   AlertDialog.Builder(this).setTitle("VENTAS HASTA EL MOMENTO").setView(report)
    .setPositiveButton("CERRAR",null).show()
  }
+ private fun showDamagedProducts(){val prefs=getSharedPreferences("sene_ventas_local",0);val items=try{JSONArray(prefs.getString("damaged_products","[]")?:"[]")}catch(_:Exception){JSONArray()};val lines=ArrayList<String>();for(i in 0 until items.length()){val x=items.optJSONObject(i)?:continue;lines.add(x.optString("time")+"\n"+x.optString("name")+" · Código: "+x.optString("code")+"\nCantidad: "+x.optInt("qty",1)+" · Motivo: "+x.optString("reason"))};AlertDialog.Builder(this).setTitle("PRODUCTOS DAÑADOS").setMessage(if(lines.isEmpty())"No hay productos dañados registrados." else lines.asReversed().joinToString("\n\n")).setPositiveButton("CERRAR",null).show()}
  private fun showProviderExpenses(){
   val shift=Store.shift(this)?:JSONObject()
   val start=shift.optLong("startTs",0L)
@@ -1065,7 +1069,7 @@ class MainActivity:FragmentActivity(){
   v.addView(button("ESCANEAR PRODUCTO"){openScanner()})
   code=input("Código de barras");v.addView(code)
   v.addView(button("AGREGAR AL TICKET",false){addCode(code.text.toString());code.setText("")})
-  ticketView=txt("Ticket vacío",18f);v.addView(ticketView)
+  ticketView=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));background=rounded(0xFFFFFFFF.toInt(),14,0xFFE2E6F0.toInt())};v.addView(ticketView)
   paid=input("¿Con cuánto te pagan?",true);v.addView(paid)
   totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
   paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
@@ -1132,12 +1136,12 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val x=p.optJSONObject(i)?:continue
    if(x.optString("code")==c){
     if(x.optInt("stock")<=0){offerSupplierInventory(c,x.optString("name"));return}
-    ticket[c]=(ticket[c]?:0)+1;refresh();return
+    val current=ticket[c]?:0;if(current>=x.optInt("stock")){msg("No puedes agregar más unidades. Stock disponible: "+x.optInt("stock"));return};ticket[c]=current+1;refresh();return
    }
   }
   offerSupplierInventory(c,null)
  }
- private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);val b=StringBuilder();var sum=0.0;for((c,q) in ticket){for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){val sub=x.optDouble("price")*q;sum+=sub;b.append(x.optString("name")).append(" x").append(q).append(" = ").append(Store.money(sub)).append("\n");break}}};ticketView.text=if(b.isEmpty())"Ticket vacío" else b.toString();val entered=parseAmount(paid.text.toString());val diff=(entered?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff);if(::sell.isInitialized){val ready=entered!=null&&entered>=sum&&sum>0.0&&!due();sell.text="COBRAR";sell.background=if(ready)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF39F36B.toInt(),0xFF00C853.toInt())).apply{cornerRadius=dp(14).toFloat()}else GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFFE53935.toInt(),0xFFB71C1C.toInt())).apply{cornerRadius=dp(14).toFloat()};sell.setTextColor(0xFFFFFFFF.toInt());sell.isEnabled=!due();sell.alpha=if(due())0.45f else 1f};if(::paid.isInitialized&&entered!=null)paid.background=rounded(0xFFFFFFFF.toInt(),14,0xFFDCE2EF.toInt())}
+ private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);ticketView.removeAllViews();var sum=0.0;if(ticket.isEmpty())ticketView.addView(TextView(this).apply{text="Ticket vacío";textSize=16f;setTextColor(0xFF66708A.toInt());setPadding(dp(8),dp(8),dp(8),dp(8))});for((c,q) in ticket.toMap()){var product:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){product=x;break}};val x=product?:continue;val sub=x.optDouble("price")*q;sum+=sub;val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(4),dp(6),dp(4),dp(6))};val name=TextView(this).apply{text=x.optString("name")+"\n"+Store.money(x.optDouble("price"))+" c/u";textSize=13f;setTextColor(0xFF263D70.toInt())};row.addView(name,LinearLayout.LayoutParams(0,-2,1f));val minus=Button(this).apply{text="−";textSize=18f;minWidth=dp(42);setOnClickListener{val n=(ticket[c]?:0)-1;if(n<=0)ticket.remove(c)else ticket[c]=n;refresh()}};row.addView(minus);row.addView(TextView(this).apply{text=q.toString();textSize=16f;gravity=Gravity.CENTER;setTextColor(0xFF17213D.toInt());setPadding(dp(8),0,dp(8),0)});val plus=Button(this).apply{text="+";textSize=18f;minWidth=dp(42);setOnClickListener{val current=ticket[c]?:0;val stock=x.optInt("stock");if(current>=stock)msg("No puedes agregar más unidades. Stock disponible: $stock")else{ticket[c]=current+1;refresh()}}};row.addView(plus);ticketView.addView(row);ticketView.addView(View(this).apply{setBackgroundColor(0xFFE7EAF1.toInt())},LinearLayout.LayoutParams(-1,dp(1)))};val entered=parseAmount(paid.text.toString());val diff=(entered?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff);if(::sell.isInitialized){val ready=entered!=null&&entered>=sum&&sum>0.0&&!due();sell.text="COBRAR";sell.background=if(ready)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF39F36B.toInt(),0xFF00C853.toInt())).apply{cornerRadius=dp(14).toFloat()}else GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFFE53935.toInt(),0xFFB71C1C.toInt())).apply{cornerRadius=dp(14).toFloat()};sell.setTextColor(0xFFFFFFFF.toInt());sell.isEnabled=!due();sell.alpha=if(due())0.45f else 1f};if(::paid.isInitialized&&entered!=null)paid.background=rounded(0xFFFFFFFF.toInt(),14,0xFFDCE2EF.toInt())}
  private fun sellTicket(){
   if(due()){showReportAlert();return}
   if(ticket.isEmpty()){msg("Ticket vacío. Escanea un producto.");return}
@@ -1151,6 +1155,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }
   val payment=parseAmount(paid.text.toString())?:0.0
   if(payment<total){msg("Falta dinero");return}
+  val change=payment-total;val availableCash=Store.cashBalance(this)
+  if(change>availableCash+0.0001){AlertDialog.Builder(this).setTitle("NO HAY CAMBIO SUFICIENTE").setMessage("No tienes efectivo suficiente para entregar el cambio.\n\nCambio que debes entregar: "+Store.money(change)+"\nEfectivo disponible en caja: "+Store.money(availableCash)+"\n\nInforma al cliente: «Disculpe, por el momento no tengo cambio suficiente».\n\nLa venta no se realizará.").setPositiveButton("ACEPTAR",null).show();return}
   val shift=Store.shift(this)?:JSONObject();val saleTime=stamp();val saleTs=System.currentTimeMillis()
   val ticketId="SENE-TICKET:"+UUID.randomUUID().toString();val saleItems=ArrayList<JSONObject>()
   for((item,quantity) in list){
@@ -1161,7 +1167,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     .put("worker",shift.optString("worker")).put("employeeId",shift.optString("employeeId")).put("type","SALE"))
   }
   Store.saveProducts(this,products);Store.addSales(this,saleItems)
-  val change=payment-total;val count=list.size
+  val count=list.size
   ticket.clear();paid.setText("")
   showTicketQr(ticketId,total,saleItems)
   msg("Venta guardada: "+count+" productos | Total "+Store.money(total)+" | Cambio "+Store.money(change))
