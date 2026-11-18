@@ -90,7 +90,7 @@ object ReportCrypto {
         return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     }
 
-    private fun currentKey(c: Context): String {
+    fun ownerKey(c: Context): String {
         val blob = prefs(c).getString(KEY_BLOB, null) ?: throw IllegalStateException("Falta configurar la clave de cifrado")
         return unwrap(blob)
     }
@@ -116,7 +116,7 @@ object ReportCrypto {
         val cacheKey = "pending_" + eventKey
         p.getString(cacheKey, null)?.let { return it }
 
-        val passphrase = currentKey(c)
+        val passphrase = ownerKey(c)
         val reportId = UUID.randomUUID().toString()
         // El consecutivo se conserva por trabajador en el dispositivo; el UUID evita colisiones incluso entre dispositivos.
         val sequenceKey = "sequence_" + workerId
