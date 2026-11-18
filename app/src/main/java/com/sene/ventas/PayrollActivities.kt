@@ -172,6 +172,7 @@ class PayrollAdminActivity:FragmentActivity(){
     root.addView(payText("Aún no hay perfiles. Registra aquí al primer trabajador y entrégale su nombre y PIN de acceso."))
     root.addView(payButton("VOLVER A SOY PATRÓN"){finish()})
     showWorkersScreen(root)
+    root.post { addWorkerProfile() }
     return
    }
    root.addView(payText("EMPLEADOS REGISTRADOS",17f,true))
