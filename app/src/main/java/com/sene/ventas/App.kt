@@ -1349,7 +1349,41 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     "ADMIN_FORCED"->"CIERRE ADMINISTRATIVO FORZADO\nTRABAJADOR: "+s.optString("worker")+"\nMOTIVO: "+s.optString("closingReason")+"\nHORA DE CIERRE: "+s.optString("closed")+"\nREALIZADO POR: PATRÓN\n"
     else->""
    }
-   val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
+   val employeeId=s.optString("employeeId")
+   val payrollConfig=EmployeePayroll.config(this,employeeId)
+   val payrollSummary=if(final && payrollConfig!=null){
+    val period=EmployeePayroll.periodKey(System.currentTimeMillis(),payrollConfig.payDay)
+    val attended=EmployeePayroll.attendance(this).filter{it.employeeId==employeeId&&it.date>=period&&it.date<=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())&&it.startedAt>0L}
+    val workedDays=attended.map{it.date}.distinct().size
+    val absences=EmployeePayroll.absences(this,employeeId)
+    val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId)
+    val loans=entries.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
+    val consumption=entries.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents}
+    "\n\nDESGLOSE PARA NÓMINA SENE ADMIN\nPERÍODO DESDE: "+period+
+     "\nDÍAS LABORABLES POR SEMANA: "+payrollConfig.workDays+
+     "\nDÍAS TRABAJADOS REGISTRADOS: "+workedDays+
+     "\nFALTAS REGISTRADAS HASTA EL CIERRE: "+absences+
+     "\nSUELDO SEMANAL: "+EmployeePayroll.money(payrollConfig.weeklySalaryCents)+
+     "\nDÍA DE PAGO: "+listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado").getOrElse(payrollConfig.payDay){"-"}+
+     "\nPRÉSTAMOS PENDIENTES: "+EmployeePayroll.money(loans)+
+     "\nCONSUMOS PENDIENTES: "+EmployeePayroll.money(consumption)+
+     "\nTIPO DE CIERRE: "+s.optString("closingType","CIERRE NORMAL")+
+     "\nQUIÉN CERRÓ: "+s.optString("closingBy","TRABAJADOR")+
+     "\nHORA DE ENTRADA: "+s.optString("started","No indicada")+
+     "\nHORA DE SALIDA: "+s.optString("closed","No indicada")+
+     "\nMOTIVO DE CIERRE: "+s.optString("closingReason","No aplica")
+   }else ""
+   val inventoryBlock=if(final){
+    val inventory=StringBuilder("\n\nINVENTARIO AL FINALIZAR TURNO\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+    for(i in 0 until currentProducts.length()){
+     val item=currentProducts.optJSONObject(i)?:continue
+     inventory.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name"))
+      .append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock"))
+      .append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))
+    }
+    inventory.toString()
+   }else ""
+   val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+payrollSummary+inventoryBlock+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
    pendingShareUri=dailyUri
