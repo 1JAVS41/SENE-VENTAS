@@ -306,8 +306,8 @@ private object InventoryArchive {
   return target
  }
  private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
-  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia")
-  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock"))}
+  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+  for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock")).append(" | ").append(p.optString("aisle")).append(" | ").append(p.optString("shelf"))}
   stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
  }
  fun save(activity:Activity,products:JSONArray,employeeId:String?=null,workerName:String=""):Boolean {
@@ -377,7 +377,7 @@ private object InventoryReader {
    val price=parseAmount(parts[2])
    val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
    if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null){
-    products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock))
+    products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock).put("aisle",parts.getOrElse(4){""}).put("shelf",parts.getOrElse(5){""}))
    }
   }
   if(products.length()==0)throw java.io.IOException("El TXT se reconoció como inventario SENE, pero no se encontraron filas válidas. Se esperaba: Código | Producto | Precio | Existencia")
@@ -431,7 +431,7 @@ private object InventoryReader {
      if(line.startsWith("Actualizado:",true)||line.startsWith("Código",true)||line.equals("INVENTARIO_SENE_V1",true))return@forEach
      val parts=line.split("|").map{it.trim()};if(parts.size<4)return@forEach
      val price=parseAmount(parts[2]);val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
-     if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock))
+     if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock).put("aisle",parts.getOrElse(4){""}).put("shelf",parts.getOrElse(5){""}))
     }
     if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";candidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
    }catch(_:Exception){}
@@ -451,7 +451,7 @@ private object InventoryReader {
      if(line.startsWith("Actualizado:",true)||line.startsWith("Código",true)||line.equals("INVENTARIO_SENE_V1",true))return@forEach
      val parts=line.split("|").map{it.trim()};if(parts.size<4)return@forEach
      val price=parseAmount(parts[2]);val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
-     if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock))
+     if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock).put("aisle",parts.getOrElse(4){""}).put("shelf",parts.getOrElse(5){""}))
     }
     if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";candidates.add(InventorySnapshot("INVENTARIO-SENE / TRABAJADORES / $key / INVENTARIOS",file.name,updated,products))}
    }catch(_:Exception){}
@@ -556,8 +556,8 @@ class InicioTurnoActivity:FragmentActivity(){
    val workDays=employeeConfig?.workDaysOfWeek?.sortedBy{if(it==Calendar.SUNDAY)0 else it}?.joinToString(", "){dayNames.getOrElse(it){"-"}}?: "Pendiente de configurar"
    val payDayName=employeeConfig?.let{dayNames.getOrElse(it.payDay){"-"}}?: "Pendiente de configurar"
    val shift=JSONObject().put("employeeId",workerId).put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now).put("workDaysOfWeek",JSONArray().apply{employeeConfig?.workDaysOfWeek?.sorted()?.forEach{put(it)}}).put("weeklySalaryCents",employeeConfig?.weeklySalaryCents?:0L).put("payDay",employeeConfig?.payDay?:0)
-   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia")
-   for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock"))}
+   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+   for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock")).append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
    if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body,workerId,worker)
    else saveTextBackupLocal(this,"SENE-VENTAS-INICIO",body,workerId,worker)
@@ -1433,15 +1433,17 @@ class PatronActivity:FragmentActivity(){
   val root=page("Primer inventario");root.addView(txt("Escanea cada producto y captura su descripción, cantidad inicial y precio. Pulsa AGREGAR PRODUCTO para incluirlo en la lista."))
   val code=input("Código de barras / código del producto");firstInventoryCode=code
   val name=input("Descripción del producto");val qty=input("Cantidad inicial",true);val price=input("Precio de venta $",true)
-  root.addView(code);root.addView(button("ESCANEAR PRODUCTO"){openScanner()});root.addView(name);root.addView(qty);root.addView(price)
+  val aisle=input("Pasillo (opcional)");val shelf=input("Número de estante (opcional)",true)
+  root.addView(code);root.addView(button("ESCANEAR PRODUCTO"){openScanner()});root.addView(name);root.addView(qty);root.addView(price);root.addView(aisle);root.addView(shelf)
   val list=LinearLayout(this).apply{orientation=1};val count=txt("Productos agregados: 0",15f);root.addView(count);root.addView(list)
   root.addView(button("AGREGAR PRODUCTO"){
    val q=qty.text.toString().toIntOrNull();val p=parseAmount(price.text.toString())
    if(code.text.isBlank()||name.text.isBlank()||q==null||q<0||p==null||p<0){msg("Captura código, descripción, cantidad y precio válidos");return@button}
    for(i in 0 until firstInventoryItems.length())if(firstInventoryItems.optJSONObject(i)?.optString("code")==code.text.toString().trim()){msg("Ese código ya está en la lista");return@button}
-   firstInventoryItems.put(JSONObject().put("code",code.text.toString().trim()).put("name",name.text.toString().trim()).put("stock",q).put("price",p))
-   list.addView(txt(code.text.toString()+" | "+name.text.toString()+"\nCantidad: "+q+"   Precio: "+Store.money(p),14f));count.text="Productos agregados: "+firstInventoryItems.length()
-   code.setText("");name.setText("");qty.setText("");price.setText("");code.requestFocus()
+   firstInventoryItems.put(JSONObject().put("code",code.text.toString().trim()).put("name",name.text.toString().trim()).put("stock",q).put("price",p).put("aisle",aisle.text.toString().trim()).put("shelf",shelf.text.toString().trim()))
+   val location=listOf(aisle.text.toString().trim().takeIf{it.isNotBlank()}?.let{"Pasillo $it"},shelf.text.toString().trim().takeIf{it.isNotBlank()}?.let{"Estante $it"}).filterNotNull().joinToString(" · ").ifBlank{"Ubicación no indicada"}
+   list.addView(txt(code.text.toString()+" | "+name.text.toString()+"\nCantidad: "+q+"   Precio: "+Store.money(p)+"\n"+location,14f));count.text="Productos agregados: "+firstInventoryItems.length()
+   code.setText("");name.setText("");qty.setText("");price.setText("");aisle.setText("");shelf.setText("");code.requestFocus()
   })
   root.addView(button("GUARDAR INVENTARIO"){
    if(firstInventoryItems.length()==0){msg("Agrega por lo menos un producto antes de guardar");return@button}
@@ -1466,11 +1468,12 @@ class PatronActivity:FragmentActivity(){
   for(i in 0 until products.length()){val item=products.optJSONObject(i);if(item?.optString("code")==codeValue){found=item;break}}
   if(found==null){
    val name=input("Descripción del producto");val price=input("Precio de venta $",true);val stock=input("Existencia inicial",true)
-   val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(txt("Código escaneado: "+codeValue));addView(name);addView(price);addView(stock)}
+   val aisle=input("Pasillo (opcional)");val shelf=input("Número de estante (opcional)",true)
+   val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(txt("Código escaneado: "+codeValue));addView(name);addView(price);addView(stock);addView(aisle);addView(shelf)}
    AlertDialog.Builder(this).setTitle("Producto nuevo").setView(box).setPositiveButton("GUARDAR"){_,_->
     val p=parseAmount(price.text.toString());val q=stock.text.toString().toIntOrNull()
     if(name.text.isBlank()||p==null||p<0||q==null||q<0){msg("Completa descripción, precio y existencia válidos");return@setPositiveButton}
-    products.put(JSONObject().put("code",codeValue).put("name",name.text.toString().trim()).put("price",p).put("stock",q))
+    products.put(JSONObject().put("code",codeValue).put("name",name.text.toString().trim()).put("price",p).put("stock",q).put("aisle",aisle.text.toString().trim()).put("shelf",shelf.text.toString().trim()))
     Store.saveProducts(this,products);saveInventorySnapshot();msg("Producto nuevo agregado")
    }.setNegativeButton("Cancelar",null).show()
    return
@@ -1478,13 +1481,24 @@ class PatronActivity:FragmentActivity(){
   val details=found!!
   AlertDialog.Builder(this).setTitle(details.optString("name"))
    .setMessage("Código: "+codeValue+"\nPrecio: "+Store.money(details.optDouble("price"))+"\nExistencia: "+details.optInt("stock"))
-   .setItems(arrayOf("AGREGAR MÁS","QUITAR PRODUCTO","MODIFICAR PRECIO")){_,which->
+   .setItems(arrayOf("AGREGAR MÁS","QUITAR PRODUCTO","MODIFICAR PRECIO","MODIFICAR PASILLO / ESTANTE")){_,which->
     when(which){
      0->adjustStock(codeValue,details,true)
      1->adjustStock(codeValue,details,false)
      2->changeProductPrice(codeValue,details)
+     3->changeProductLocation(codeValue,details)
     }
    }.setNegativeButton("Cancelar",null).show()
+ }
+ private fun changeProductLocation(codeValue:String,item:JSONObject){
+  val aisle=input("Pasillo (opcional)").apply{setText(item.optString("aisle"))}
+  val shelf=input("Número de estante (opcional)",true).apply{setText(item.optString("shelf"))}
+  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(aisle);addView(shelf)}
+  AlertDialog.Builder(this).setTitle("Ubicación del producto").setView(box).setPositiveButton("GUARDAR"){_,_->
+   val products=Store.products(this)
+   for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;if(p.optString("code")==codeValue){p.put("aisle",aisle.text.toString().trim()).put("shelf",shelf.text.toString().trim());break}}
+   Store.saveProducts(this,products);saveInventorySnapshot();msg("Ubicación actualizada")
+  }.setNegativeButton("Cancelar",null).show()
  }
  private fun adjustStock(codeValue:String,item:JSONObject,add:Boolean){
   val amount=input(if(add)"Cantidad que deseas agregar" else "Cantidad que deseas quitar",true)
@@ -1524,6 +1538,8 @@ class PatronActivity:FragmentActivity(){
    card.addView(TextView(this).apply{text=item.optString("name","Producto");textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF243557.toInt())})
    val code=TextView(this).apply{text="CÓDIGO  •  "+item.optString("code","—");textSize=11f;setTextColor(0xFF77839B.toInt());setPadding(0,dp(5),0,dp(8))}
    card.addView(code)
+   val location=listOf(item.optString("aisle").takeIf{it.isNotBlank()}?.let{"PASILLO  •  $it"},item.optString("shelf").takeIf{it.isNotBlank()}?.let{"ESTANTE  •  $it"}).filterNotNull().joinToString("     ").ifBlank{"UBICACIÓN  •  No indicada"}
+   card.addView(TextView(this).apply{text=location;textSize=11f;typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL);setTextColor(0xFF526B9C.toInt());setPadding(0,0,0,dp(8))})
    val details=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
    fun chip(label:String,value:String,weight:Float){
     val chip=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(8));background=GradientDrawable().apply{setColor(0xFFEAF0FB.toInt());cornerRadius=dp(10).toFloat()}}
@@ -1856,7 +1872,7 @@ object ReportFile {
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
   out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
   val products=data.optJSONArray("products") ?: org.json.JSONArray()
-  for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock"))}
+  for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock")).append("\nPASILLO: ").append(x.optString("aisle").ifBlank{"No indicado"}).append(" | ESTANTE: ").append(x.optString("shelf").ifBlank{"No indicado"))}
   val workerId=shift.optString("employeeId")
   val dir=if(workerId.isNotBlank())WorkerArchive.localReportsFolder(c,workerId,shift.optString("worker")) else (c.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: c.filesDir)
   if(!dir.exists()&&!dir.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local del reporte")
