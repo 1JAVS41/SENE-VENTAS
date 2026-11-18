@@ -300,15 +300,17 @@ private object InventoryArchive {
   val savedTree=activity.getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.let{Uri.parse(it)}
   val number=nextNumber(activity,savedTree,employeeId,workerName)
   val target=java.io.File(folder,"inventario-$number.txt")
-  writeInventory(target.outputStream(),products)
+  writeInventory(activity,target.outputStream(),products)
   if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el inventario local")
   if(employeeId.isNullOrBlank())activity.getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",target.name).putString("inventory_source_updated",stamp()).apply()
   return target
  }
- private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
-  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+ private fun writeInventory(activity:Activity,stream:java.io.OutputStream,products:JSONArray){
+  val updated=stamp()
+  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(updated).append("\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
   for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock")).append(" | ").append(p.optString("aisle")).append(" | ").append(p.optString("shelf"))}
-  stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
+  val encrypted=SeneSharedFiles.encode("INVENTARIO_SENE",ReportCrypto.ownerKey(activity),out.toString().toByteArray(Charsets.UTF_8),updated)
+  stream.use{it.write(encrypted)}
  }
  fun save(activity:Activity,products:JSONArray,employeeId:String?=null,workerName:String=""):Boolean {
   val local=saveLocal(activity,products,employeeId,workerName)
@@ -349,7 +351,7 @@ private object InventoryReader {
    value
   }
   val raw=resolver.openInputStream(uri)?.use{it.readBytes()}?:throw java.io.IOException("No se pudo abrir el archivo seleccionado")
-  val decoded=if(InventoryCrypto.isEncrypted(raw))InventoryCrypto.decrypt(raw) else raw
+  val decoded=when { SeneSharedFiles.isSharedFile(raw) -> SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity)).payload; InventoryCrypto.isEncrypted(raw) -> InventoryCrypto.decrypt(raw); else -> raw }
   // Compatibilidad con TXT de inventarios creados por versiones anteriores.
   // No se exige una frase fija en el encabezado; se valida la tabla real.
   val content=when {
@@ -510,10 +512,14 @@ class InicioTurnoActivity:FragmentActivity(){
  private var pendingWorkerId=""
  private var pendingCash=""
  private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
-  // La clave debe quedar configurada antes de registrar el turno o preparar reportes.
-  ReportKeySetup.ensureConfigured(this){
-   continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
+  // El trabajador nunca debe recibir el diálogo de clave del propietario.
+  if(!ReportCrypto.hasKey(this)){
+   AlertDialog.Builder(this).setTitle("CONFIGURACIÓN DEL PATRÓN PENDIENTE")
+    .setMessage("El patrón debe abrir SOY PATRÓN y configurar la clave compartida antes de iniciar turnos.")
+    .setPositiveButton("ENTENDIDO",null).show()
+   return
   }
+  continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
  }
  private fun continueStartShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
   pendingWorkerId=workerId
@@ -1452,7 +1458,8 @@ class AgregarInventarioActivity:Activity(){
 
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
- override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){draw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{draw()}else draw()}}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){ensureOwnerKeyThenDraw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ensureOwnerKeyThenDraw()}else ensureOwnerKeyThenDraw()}}}
+ private fun ensureOwnerKeyThenDraw(){ReportKeySetup.ensureConfigured(this){draw()}}
  private fun adminTag(label:String,sub:String,accent:Int=0xFF365BA4.toInt(),action:()->Unit):View {
   val tag=LinearLayout(this).apply{
    orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
