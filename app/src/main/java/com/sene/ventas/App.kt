@@ -510,6 +510,12 @@ class InicioTurnoActivity:FragmentActivity(){
  private var pendingWorkerId=""
  private var pendingCash=""
  private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
+  // La clave debe quedar configurada antes de registrar el turno o preparar reportes.
+  ReportKeySetup.ensureConfigured(this){
+   continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
+  }
+ }
+ private fun continueStartShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
   pendingWorkerId=workerId
   val localProducts=Store.masterProducts(this)
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
