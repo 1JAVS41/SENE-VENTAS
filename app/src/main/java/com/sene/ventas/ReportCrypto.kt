@@ -116,7 +116,7 @@ object ReportCrypto {
         val p = prefs(c)
         val cacheKey = "pending_" + eventKey
         p.getString(cacheKey, null)?.let {
-            val instruction = "*COPIA Y PEGA en SeneAdmin*\\n"
+            val instruction = "*COPIA Y PEGA en SeneAdmin*\n"
             return if (it.startsWith(instruction)) it else instruction + it
         }
 
