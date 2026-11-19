@@ -583,13 +583,17 @@ class InicioTurnoActivity:FragmentActivity(){
    // Se crea una copia inicial para el perfil, sin convertirla en la fuente maestra.
    InventoryArchive.save(this,products,workerId,profileName)
    val now=System.currentTimeMillis()
+   val profileRecord=WorkerProfiles.markFirstShift(this,workerId,now)?:WorkerProfiles.all(this).firstOrNull{it.id==workerId}
+   val firstShiftTs=profileRecord?.firstShiftTs?.takeIf{it>0L}?:now
+   val profileCreated=profileRecord?.createdAt?.takeIf{it>0L}?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible en perfil anterior"
+   val firstShiftStamp=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(firstShiftTs))
    val employeeConfig=EmployeePayroll.config(this,workerId)
    val hours=employeeConfig?.dailyHours?:8
    val dayNames=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
    val workDays=employeeConfig?.workDaysOfWeek?.sortedBy{if(it==Calendar.SUNDAY)0 else it}?.joinToString(", "){dayNames.getOrElse(it){"-"}}?: "Pendiente de configurar"
    val payDayName=employeeConfig?.let{dayNames.getOrElse(it.payDay){"-"}}?: "Pendiente de configurar"
    val shift=JSONObject().put("shiftId",UUID.randomUUID().toString()).put("reportCount",0).put("employeeId",workerId).put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now).put("workDaysOfWeek",JSONArray().apply{employeeConfig?.workDaysOfWeek?.sorted()?.forEach{put(it)}}).put("weeklySalaryCents",employeeConfig?.weeklySalaryCents?:0L).put("payDay",employeeConfig?.payDay?:0)
-   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nFECHA Y HORA DE CREACIÓN DEL PERFIL: ").append(profileCreated).append("\nFECHA Y HORA DEL PRIMER INICIO DE TURNO: ").append(firstShiftStamp).append("\nHORA DE ENTRADA: ").append(stamp()).append("\nHORA DE SALIDA: Por definir").append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock")).append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
    if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body,workerId,worker)
@@ -1383,7 +1387,9 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     }
     inventory.toString()
    }else ""
-   val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+payrollSummary+inventoryBlock+REPORT_BACKUP_NOTE
+   val damagedItems=try{JSONArray(getSharedPreferences("sene_ventas_local",0).getString("damaged_products","[]")?:"[]")}catch(_:Exception){JSONArray()}
+   val damagedBlock=if(damagedItems.length()>0){val out=StringBuilder("\n\nPRODUCTOS_DANADOS_SENE_V1\nCODIGO | PRODUCTO | CANTIDAD | FECHA | MOTIVO | TRABAJADOR");for(i in 0 until damagedItems.length()){val item=damagedItems.optJSONObject(i)?:continue;out.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optInt("qty",1)).append(" | ").append(item.optString("time")).append(" | ").append(item.optString("reason").replace("|","/")).append(" | ").append(item.optString("worker",s.optString("worker")))};out.toString()}else ""
+   val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+payrollSummary+inventoryBlock+damagedBlock+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
    pendingShareUri=dailyUri
