@@ -48,5 +48,13 @@ object WorkerProfiles {
         val profile=Profile(UUID.randomUUID().toString(),clean,phone.filter{it.isDigit()},salt,digest(salt,pin),System.currentTimeMillis(),0L)
         return if(save(c,existing+profile)){try{WorkerArchive.ensureProfileFolders(c,profile.id,profile.name)}catch(_:Exception){};profile}else null
     }
-    @Synchronized fun markFirstShift(c:Context,profileId:String,ts:Long):Profile?{\n        val items=all(c)\n        val current=items.firstOrNull{it.id==profileId}?:return null\n        if(current.firstShiftTs>0L)return current\n        val updated=current.copy(firstShiftTs=ts)\n        if(!save(c,items.map{if(it.id==profileId)updated else it}))return null\n        return updated\n    }\n    fun verify(profile:Profile,pin:String):Boolean=pin.length==4&&pin.all{it.isDigit()}&&digest(profile.salt,pin)==profile.pinHash
+    @Synchronized fun markFirstShift(c:Context,profileId:String,ts:Long):Profile?{
+        val items=all(c)
+        val current=items.firstOrNull{it.id==profileId}?:return null
+        if(current.firstShiftTs>0L)return current
+        val updated=current.copy(firstShiftTs=ts)
+        if(!save(c,items.map{if(it.id==profileId)updated else it}))return null
+        return updated
+    }
+    fun verify(profile:Profile,pin:String):Boolean=pin.length==4&&pin.all{it.isDigit()}&&digest(profile.salt,pin)==profile.pinHash
 }
