@@ -115,7 +115,10 @@ object ReportCrypto {
     @Synchronized fun prepare(c: Context, workerId: String, type: String, body: String, eventKey: String): String {
         val p = prefs(c)
         val cacheKey = "pending_" + eventKey
-        p.getString(cacheKey, null)?.let { return it }
+        p.getString(cacheKey, null)?.let {
+            val instruction = "*COPIA Y PEGA en SeneAdmin*\\n"
+            return if (it.startsWith(instruction)) it else instruction + it
+        }
 
         val passphrase = ownerKey(c)
         val reportId = UUID.randomUUID().toString()
