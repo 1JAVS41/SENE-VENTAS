@@ -2036,7 +2036,7 @@ object ReportFile {
    .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal-loanTotal))
    .append("\n\nETIQUETA: GASTOS Y MOVIMIENTOS")
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
-  // Incluir solicitudes de préstamo y consumo pendientes en cada reporte, no solo al cierre.
+  // Incluir solicitudes de préstamo y consumo pendientes en cada reporte para que SENE ADMIN las organice sin separarlas.
   val employeeId=shift.optString("employeeId")
   if(employeeId.isNotBlank()){
    val payrollEntries=EmployeePayroll.entriesForCurrentPeriod(c,employeeId)
