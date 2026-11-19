@@ -1297,6 +1297,21 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    }
   }
   val expenses=Store.providerExpenses(this,shift.optLong("startTs",0L),shift.optString("employeeId").takeIf{it.isNotBlank()})
+  // Incluir solicitudes de préstamo y consumo pendientes en cada reporte, no solo al cierre.
+  val employeeId=shift.optString("employeeId")
+  if(employeeId.isNotBlank()){
+   val payrollEntries=EmployeePayroll.entriesForCurrentPeriod(c,employeeId)
+   out.append("\\n\\nETIQUETA: SOLICITUDES DE NÓMINA PENDIENTES")
+   if(payrollEntries.isEmpty())out.append("\\nSin solicitudes pendientes en este período.")
+   for(entry in payrollEntries){
+    val kind=if(entry.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
+    out.append("\\n").append(kind).append(" | ").append(EmployeePayroll.money(entry.amountCents))
+     .append("\\nFECHA: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
+     .append("\\nMOTIVO: ").append(entry.reason.ifBlank{"No indicado"})
+     .append("\\nDESCRIPCIÓN: ").append(entry.description.ifBlank{"No indicada"})
+     .append("\\nESTADO: ").append(if(entry.settled)"LIQUIDADO" else "PENDIENTE")
+    }
+  }
   out.append("\n\nETIQUETA: RESUMEN DE CAJA")
    .append("\nVENTAS NETAS: ").append(Store.money(total))
    .append("\nPAGOS A PROVEEDORES: ").append(Store.money(expenses))
