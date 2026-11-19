@@ -207,6 +207,7 @@ class PayrollAdminActivity:FragmentActivity(){
  private fun addWorkerProfile(){
   val name=payInput("Nombre completo del trabajador")
   val phone=payInput("Número de celular",true)
+  val hours=payInput("Horas por turno (1 a 24)",true).apply{setText("8")}
   val salary=payInput("Sueldo semanal $",true)
   val pin=payInput("PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
   val confirm=payInput("Confirma el PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
@@ -216,7 +217,7 @@ class PayrollAdminActivity:FragmentActivity(){
   val pay=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,labels);setSelection(6)}
   val box=LinearLayout(this).apply{
    orientation=1;setPadding(20,8,20,8)
-   addView(name);addView(phone);addView(salary)
+   addView(name);addView(phone);addView(hours);addView(salary)
    addView(payText("DÍAS QUE TRABAJARÁ",15f,true));checks.forEach{addView(it.second)}
    addView(payText("DÍA DE PAGO",15f,true));addView(pay)
    addView(pin);addView(confirm)
@@ -227,15 +228,17 @@ class PayrollAdminActivity:FragmentActivity(){
   dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
    val code=pin.text.toString()
    val weekly=salary.text.toString().replace(",",".").toDoubleOrNull()
+   val dailyHours=hours.text.toString().toIntOrNull()
    val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
    if(name.text.isBlank()){name.error="Escribe el nombre";return@setOnClickListener}
+   if(dailyHours==null||dailyHours !in 1..24){hours.error="Indica de 1 a 24 horas por turno";return@setOnClickListener}
    if(weekly==null||weekly<=0){salary.error="Sueldo semanal inválido";return@setOnClickListener}
    if(chosen.isEmpty()){Toast.makeText(this,"Selecciona al menos un día laboral.",Toast.LENGTH_LONG).show();return@setOnClickListener}
    if(code.length!=4||code.any{!it.isDigit()}){pin.error="El PIN debe tener exactamente 4 dígitos";return@setOnClickListener}
    if(code!=confirm.text.toString()){confirm.error="Los PIN no coinciden";return@setOnClickListener}
    val profile=WorkerProfiles.create(this,name.text.toString(),phone.text.toString(),code)
    if(profile==null){name.error="Ese nombre ya existe o no se pudo guardar";return@setOnClickListener}
-   val cfg=EmployeePayroll.Config(profile.name,8,moneyCents(weekly),chosen.size,
+   val cfg=EmployeePayroll.Config(profile.name,dailyHours,moneyCents(weekly),chosen.size,
     (Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,
     days[pay.selectedItemPosition],chosen,profile.id,System.currentTimeMillis())
    if(!EmployeePayroll.saveConfig(this,cfg)){
@@ -247,6 +250,7 @@ class PayrollAdminActivity:FragmentActivity(){
    AlertDialog.Builder(this).setTitle("DATOS PARA TU TRABAJADOR")
     .setMessage("PERFIL AGREGADO\n\nNOMBRE: "+profile.name+"\nCELULAR: "+profile.phone.ifBlank{"No indicado"}+
      "\nPIN PARA INICIAR TURNO: "+code+"\nDÍAS DE TRABAJO: "+work+
+     "\nHORAS POR TURNO: "+cfg.dailyHours+
      "\nSUELDO SEMANAL: "+EmployeePayroll.money(cfg.weeklySalaryCents)+
      "\nDÍA DE PAGO: "+labels[pay.selectedItemPosition]+
      "\n\nEntrega estos datos únicamente a tu trabajador. Guarda el PIN; por seguridad no se podrá volver a consultar.")
