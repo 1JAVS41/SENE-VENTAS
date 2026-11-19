@@ -1583,6 +1583,23 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("CARGAR INVENTARIO DESDE TXT","Restaurar un inventario guardado"){chooseInventoryFolder()})
   v.addView(adminTag("VOLVER A VENTAS","Regresar a la pantalla principal",0xFF78849D.toInt()){finish()})
   display(v)
+  v.post { showFirstSetupGuideIfNeeded() }
+ }
+ private fun showFirstSetupGuideIfNeeded(){
+  val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
+  if(prefs.getBoolean("first_setup_guide_shown",false))return
+  val alreadyConfigured=prefs.getBoolean("first_inventory_created",false) ||
+   Store.products(this).length()>0 || WorkerProfiles.all(this).isNotEmpty()
+  if(alreadyConfigured){prefs.edit().putBoolean("first_setup_guide_shown",true).apply();return}
+  AlertDialog.Builder(this)
+   .setTitle("¡COMENCEMOS A ORGANIZAR TU NEGOCIO!")
+   .setMessage("Lo primero que debes hacer es crear todo tu inventario. Realiza estos pasos en orden:\n\n"+
+    "1. CREA TU INVENTARIO\nEscanea cada producto que tengas y agrega su descripción: nombre, precio, cantidad disponible y ubicación en el pasillo y estante que corresponda.\n\n"+
+    "2. DA DE ALTA A TUS TRABAJADORES\nCrea el perfil de cada trabajador con su nombre, número de celular, días que trabajará, horas por turno, sueldo y día de pago.\n\n"+
+    "Así tendrás tu negocio organizado antes de comenzar a trabajar con SENE VENTAS.")
+   .setCancelable(false)
+   .setPositiveButton("ENTENDIDO"){_,_->prefs.edit().putBoolean("first_setup_guide_shown",true).apply()}
+   .show()
  }
  private fun togglePatronBiometric(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
