@@ -740,7 +740,15 @@ class MainActivity:FragmentActivity(){
    }
   }.start()
  }
- private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
+ private fun showReportAlert(){
+  if(reportDialog?.isShowing==true)return
+  val active=Store.shift(this)?:return
+  // Un solo aviso por ciclo: no repetir mientras el trabajador no confirme el envío.
+  if(active.optBoolean("reportReminderShown",false))return
+  active.put("reportReminderShown",true)
+  Store.saveShift(this,active)
+  reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}
+ }
  private var selectedPrinterAddress:String?=null
  private var printerSocket:BluetoothSocket?=null
  private val printerSppUuid=UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
@@ -1439,7 +1447,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
     val shift=Store.shift(this)
     if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"),active.optBoolean("completedWorkday",false))}};Store.saveShift(this,null);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
-    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
+    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportReminderShown",false).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
    }
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
    .show()
