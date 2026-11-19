@@ -701,16 +701,26 @@ class MainActivity:FragmentActivity(){
  private var overtimeDialog:AlertDialog?=null
  private val lock=object:Runnable{override fun run(){
   if(::sell.isInitialized){
-   updateReportCountdown()
-   if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}
-   checkScheduledWorkdayEnd()
+   val active=Store.shift(this@MainActivity)
+   if(active?.optBoolean("finishPending",false)==true){
+    sell.isEnabled=false;sell.alpha=0.45f
+    if(::countdownView.isInitialized)countdownView.text="CIERRE DE TURNO EN PROCESO"
+   }else{
+    checkScheduledWorkdayEnd()
+    if(overtimeDialog?.isShowing!=true){
+     updateReportCountdown()
+     if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}
+    }else{
+     sell.isEnabled=false;sell.alpha=0.45f
+    }
+   }
   }
   h.postDelayed(this,1000)
  }}
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(10800000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=10800000}
  override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();if(intent.getBooleanExtra("admin_force_close",false))h.post{requestAdminForceClose()}}}
- override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized){if(due())h.post{showReportAlert()};h.post{checkScheduledWorkdayEnd()}}}
+ override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized){val active=Store.shift(this);if(active?.optBoolean("finishPending",false)==true){sell.isEnabled=false;sell.alpha=0.45f}else{h.post{checkScheduledWorkdayEnd();if(overtimeDialog?.isShowing!=true&&due())showReportAlert()}}}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
  private fun refreshSalesInternetClock(){
   salesInternetText="Consultando…"
@@ -984,6 +994,9 @@ class MainActivity:FragmentActivity(){
      .put("completedWorkday",completed).put("finishPending",true)
     Store.saveShift(this,active)
     dialog.dismiss()
+    reportDialog?.dismiss()
+    sell.isEnabled=false;sell.alpha=0.45f
+    if(::countdownView.isInitialized)countdownView.text="CIERRE DE TURNO EN PROCESO"
     sendReport(true)
    }
    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener{
@@ -1323,7 +1336,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    AlertDialog.Builder(this).setTitle("Elegir carpeta para reportes")
     .setMessage("La primera vez, elige dónde guardar los reportes. Recomendamos crear una carpeta llamada “Inventario SENE” y seleccionarla. SENE-VENTAS organizará automáticamente los documentos en carpetas por fecha.")
     .setPositiveButton("ELEGIR CARPETA"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,TREE_REPORT_REQUEST)}
-    .setNegativeButton("Cancelar",null).show()
+    .setNegativeButton("Cancelar"){_,_->if(final){Store.shift(this)?.let{active->active.put("finishPending",false).remove("closingType").remove("closingBy").remove("closingTs").remove("closed").remove("completedWorkday");Store.saveShift(this,active)};pendingFinalReport=false;h.post{if(::sell.isInitialized){sell.isEnabled=true;sell.alpha=1f};updateReportCountdown()}}}.show()
    return
   }
   completeReport(final,Uri.parse(saved))
@@ -1406,7 +1419,10 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
    pendingFinalShare=final
    launchPendingReportShare()
-  }catch(e:Exception){msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))}
+  }catch(e:Exception){
+   if(final)Store.shift(this)?.let{active->active.put("finishPending",false);Store.saveShift(this,active)}
+   msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))
+  }
  }
  private fun launchPendingReportShare(){
   val body=pendingReportText?:return
