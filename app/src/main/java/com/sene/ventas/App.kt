@@ -2119,6 +2119,7 @@ class WelcomeActivity:Activity(){
   card.addView(logo,LinearLayout.LayoutParams(dp(118),dp(118)).apply{bottomMargin=dp(14)})
   card.addView(TextView(this).apply{text="SENE / VENTAS";textSize=25f;gravity=Gravity.CENTER;typeface=Typeface.create("sans-serif-black",Typeface.BOLD);setTextColor(0xFF173C7B.toInt())})
   card.addView(TextView(this).apply{text="GESTIÓN INTELIGENTE";textSize=11f;letterSpacing=.16f;gravity=Gravity.CENTER;setTextColor(0xFF71809B.toInt());setPadding(0,dp(5),0,dp(24))})
+  card.addView(TextView(this).apply{text="Te recomendamos guardar tus claves y datos de acceso en una USB.";textSize=13f;gravity=Gravity.CENTER;setTextColor(0xFF526579.toInt());setPadding(dp(8),0,dp(8),dp(12))})
   card.addView(action("YA SOY CLIENTE SENE · INICIAR SESIÓN",true){startActivity(Intent(this,AccountLoginActivity::class.java))})
   card.addView(action("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))})
   root.addView(card,LinearLayout.LayoutParams(-1,-2))
