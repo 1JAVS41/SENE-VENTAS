@@ -1004,7 +1004,7 @@ class MainActivity:FragmentActivity(){
  }
  private fun requestEarlyProfileChange(){
   val shift=Store.shift(this)?:return
-  val reason=input("Especifica el motivo obligatorio",true)
+  val reason=input("Especifica el motivo obligatorio",false).apply{inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES}
   val dialog=AlertDialog.Builder(this).setTitle("CAMBIAR DE PERFIL")
    .setMessage("Al continuar se cerrará tu turno actual, se generará tu reporte y se avisará al patrón por WhatsApp. Este cierre se reflejará en tu nómina.")
    .setView(reason).setPositiveButton("CONTINUAR",null).setNegativeButton("CANCELAR",null).create()
