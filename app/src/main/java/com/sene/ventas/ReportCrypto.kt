@@ -138,7 +138,7 @@ object ReportCrypto {
         cipher.init(Cipher.ENCRYPT_MODE, derive(passphrase, salt))
         cipher.updateAAD(header.toByteArray(Charsets.UTF_8))
         val encrypted = cipher.doFinal(body.toByteArray(Charsets.UTF_8))
-        val message = header + "\nSALT=" + b64(salt) + "\nIV=" + b64(cipher.iv) + "\nDATA=" + b64(encrypted)
+        val message = "*COPIA Y PEGA en SeneAdmin*\\n" + header + "\nSALT=" + b64(salt) + "\nIV=" + b64(cipher.iv) + "\nDATA=" + b64(encrypted)
         if (!p.edit().putString(cacheKey, message).commit())
             throw IllegalStateException("No se pudo guardar el identificador del reporte")
         return message
