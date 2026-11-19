@@ -2034,6 +2034,7 @@ object ReportFile {
    .append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal))
    .append("\nPRÉSTAMOS ENTREGADOS: ").append(Store.money(loanTotal))
    .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal-loanTotal))
+  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
   // Incluir solicitudes de préstamo y consumo pendientes en cada reporte, no solo al cierre.
   val employeeId=shift.optString("employeeId")
   if(employeeId.isNotBlank()){
@@ -2050,7 +2051,7 @@ object ReportFile {
    }
   }
    .append("\n\nETIQUETA: GASTOS Y MOVIMIENTOS")
-  for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
+
   out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
   val products=data.optJSONArray("products") ?: org.json.JSONArray()
   for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock")).append("\nPASILLO: ").append(x.optString("aisle").ifBlank{"No indicado"}).append(" | ESTANTE: ").append(x.optString("shelf").ifBlank{"No indicado"})}
