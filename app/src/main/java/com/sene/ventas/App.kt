@@ -1297,21 +1297,6 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    }
   }
   val expenses=Store.providerExpenses(this,shift.optLong("startTs",0L),shift.optString("employeeId").takeIf{it.isNotBlank()})
-  // Incluir solicitudes de préstamo y consumo pendientes en cada reporte, no solo al cierre.
-  val employeeId=shift.optString("employeeId")
-  if(employeeId.isNotBlank()){
-   val payrollEntries=EmployeePayroll.entriesForCurrentPeriod(c,employeeId)
-   out.append("\\n\\nETIQUETA: SOLICITUDES DE NÓMINA PENDIENTES")
-   if(payrollEntries.isEmpty())out.append("\\nSin solicitudes pendientes en este período.")
-   for(entry in payrollEntries){
-    val kind=if(entry.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
-    out.append("\\n").append(kind).append(" | ").append(EmployeePayroll.money(entry.amountCents))
-     .append("\\nFECHA: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
-     .append("\\nMOTIVO: ").append(entry.reason.ifBlank{"No indicado"})
-     .append("\\nDESCRIPCIÓN: ").append(entry.description.ifBlank{"No indicada"})
-     .append("\\nESTADO: ").append(if(entry.settled)"LIQUIDADO" else "PENDIENTE")
-    }
-  }
   out.append("\n\nETIQUETA: RESUMEN DE CAJA")
    .append("\nVENTAS NETAS: ").append(Store.money(total))
    .append("\nPAGOS A PROVEEDORES: ").append(Store.money(expenses))
@@ -2049,6 +2034,21 @@ object ReportFile {
    .append("\nPAGOS A PROVEEDORES: ").append(Store.money(providerTotal))
    .append("\nPRÉSTAMOS ENTREGADOS: ").append(Store.money(loanTotal))
    .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal-loanTotal))
+  // Incluir solicitudes de préstamo y consumo pendientes en cada reporte, no solo al cierre.
+  val employeeId=shift.optString("employeeId")
+  if(employeeId.isNotBlank()){
+   val payrollEntries=EmployeePayroll.entriesForCurrentPeriod(c,employeeId)
+   out.append("\n\nETIQUETA: SOLICITUDES DE NÓMINA PENDIENTES")
+   if(payrollEntries.isEmpty())out.append("\nSin solicitudes pendientes en este período.")
+   for(entry in payrollEntries){
+    val kind=if(entry.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
+    out.append("\n").append(kind).append(" | ").append(EmployeePayroll.money(entry.amountCents))
+     .append("\nFECHA: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
+     .append("\nMOTIVO: ").append(entry.reason.ifBlank{"No indicado"})
+     .append("\nDESCRIPCIÓN: ").append(entry.description.ifBlank{"No indicada"})
+     .append("\nESTADO: ").append(if(entry.settled)"LIQUIDADO" else "PENDIENTE")
+   }
+  }
    .append("\n\nETIQUETA: GASTOS Y MOVIMIENTOS")
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
   out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
