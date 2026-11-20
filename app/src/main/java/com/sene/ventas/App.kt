@@ -2112,7 +2112,6 @@ object ReportFile {
    for(entry in payrollEntries){
     val kind=if(entry.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
     out.append("\n").append(kind).append(" | ").append(EmployeePayroll.money(entry.amountCents))
-     .append("\nSOLICITUD_ID: ").append(entry.id)
      .append("\nFECHA: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
      .append("\nMOTIVO: ").append(entry.reason.ifBlank{"No indicado"})
      .append("\nDESCRIPCIÓN: ").append(entry.description.ifBlank{"No indicada"})
