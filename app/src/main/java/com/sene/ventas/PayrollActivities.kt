@@ -14,27 +14,40 @@ import java.util.Date
 import java.util.Locale
 
 private fun FragmentActivity.payText(value:String,size:Float=16f,bold:Boolean=false)=TextView(this).apply{
- text=value;textSize=size;setTextColor(0xFF172B50.toInt());typeface=Typeface.create("sans-serif",if(bold)Typeface.BOLD else Typeface.NORMAL);setPadding(16,13,16,13)
- background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=18f;setStroke(1,0xFFDCE5F2.toInt())}
+ text=value;textSize=size;setTextColor(if(bold)0xFF17213D.toInt() else 0xFF66708A.toInt())
+ typeface=Typeface.create("sans-serif",if(bold)Typeface.BOLD else Typeface.NORMAL)
+ setPadding(18,15,18,15);setLineSpacing(2f,1f)
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=20f;setStroke(1,0xFFE2E8F3.toInt())}
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=5;p.bottomMargin=5;layoutParams=p
 }
 private fun FragmentActivity.payInput(hintText:String,number:Boolean=false)=EditText(this).apply{
- hint=hintText;textSize=16f;setSingleLine(true);setPadding(16,13,16,13)
- background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=16f;setStroke(1,0xFFCAD7EA.toInt())}
+ hint=hintText;textSize=16f;setSingleLine(true);setPadding(18,15,18,15)
+ setTextColor(0xFF17213D.toInt());setHintTextColor(0xFF929BB0.toInt())
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=16f;setStroke(1,0xFFDCE2EF.toInt())}
  if(number)inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=5;p.bottomMargin=7;layoutParams=p
 }
 private fun FragmentActivity.payButton(label:String,action:()->Unit)=LinearLayout(this).apply{
- orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(18,15,18,15)
- background=android.graphics.drawable.GradientDrawable().apply{setColor(0xFFFFFFFF.toInt());cornerRadius=18f;setStroke(1,0xFFDCE5F2.toInt())}
+ orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(18,16,18,16)
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(0xFFFFFFFF.toInt());cornerRadius=20f;setStroke(1,0xFFE0E7F2.toInt())}
  elevation=3f;isClickable=true;isFocusable=true
  addView(TextView(this@payButton).apply{text=label;textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1C315B.toInt())},LinearLayout.LayoutParams(0,-2,1f))
- addView(TextView(this@payButton).apply{text="›";textSize=25f;setTextColor(0xFF365BA4.toInt())})
+ addView(TextView(this@payButton).apply{text="›";textSize=27f;setTextColor(0xFF365BA4.toInt())})
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=6;p.bottomMargin=6;layoutParams=p
  setOnClickListener{action()}
 }
 private fun FragmentActivity.payPage(title:String)=LinearLayout(this).apply{
- orientation=1;setPadding(18,18,18,24);setBackgroundColor(0xFFF2F6FC.toInt())
- addView(payText("SENE VENTAS",21f,true));addView(payText(title,23f,true))
+ orientation=1;setPadding(18,18,18,28)
+ background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,intArrayOf(0xFFF5F7FC.toInt(),0xFFEAF0FA.toInt()))
+ val header=LinearLayout(this@payPage).apply{
+  orientation=1;setPadding(20,20,20,20)
+  background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF111A35.toInt(),0xFF2C477F.toInt())).apply{cornerRadius=24f}
+  addView(TextView(this@payPage).apply{text="SENE / VENTAS";textSize=12f;letterSpacing=.12f;setTextColor(0xFFB9C9F8.toInt());typeface=Typeface.DEFAULT_BOLD})
+  addView(TextView(this@payPage).apply{text=title;textSize=23f;setTextColor(-1);typeface=Typeface.create("sans-serif",Typeface.BOLD);setPadding(0,7,0,0)})
+ }
+ addView(header,LinearLayout.LayoutParams(-1,-2))
 }
-private fun FragmentActivity.payShow(root:LinearLayout){val scroll=ScrollView(this);scroll.addView(root);setContentView(scroll)}
+private fun FragmentActivity.payShow(root:LinearLayout){val scroll=ScrollView(this).apply{isFillViewport=true;clipToPadding=false;setPadding(0,0,0,24);addView(root)};setContentView(scroll)}
 private fun moneyCents(value:Double)=kotlin.math.round(value*100.0).toLong()
 private fun stampPayroll()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 
@@ -223,59 +236,73 @@ class PayrollAdminActivity:FragmentActivity(){
   val salary=payInput("Sueldo semanal $",true)
   val days=listOf(Calendar.SUNDAY,Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY)
   val labels=listOf("Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
-  val checks=days.mapIndexed{i,d->d to CheckBox(this).apply{text=labels[i];textSize=15f;setTextColor(0xFF172B50.toInt());isChecked=false}}
+  val checks=days.mapIndexed{i,d->d to CheckBox(this).apply{text=labels[i];textSize=15f;setTextColor(0xFF172B50.toInt());isChecked=false;setPadding(8,8,8,8)}}
   val pay=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,listOf("Selecciona día de pago")+labels);setSelection(0)}
-  val box=LinearLayout(this).apply{
-   orientation=1;setPadding(20,8,20,8)
+  val fields=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;setPadding(18,10,18,18)
    addView(payText("DATOS DEL TRABAJADOR",15f,true));addView(name);addView(phone);addView(pin);addView(confirm)
    addView(payText("CONDICIONES DE TRABAJO",15f,true));addView(hours);addView(salary)
    addView(payText("DÍAS QUE DEBE TRABAJAR",14f,true));checks.forEach{addView(it.second)}
    addView(payText("DÍA DE PAGO",14f,true));addView(pay)
   }
   val scroll=ScrollView(this).apply{
-   isFillViewport=true
-   isVerticalScrollBarEnabled=true
-   overScrollMode=android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-   addView(box,android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
+   isFillViewport=true;isVerticalScrollBarEnabled=true;overScrollMode=android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+   addView(fields,android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
   }
-  val screenHeight=resources.displayMetrics.heightPixels
-  scroll.layoutParams=android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,(screenHeight*0.43f).toInt())
-  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR")
-   .setMessage("Completa todos los datos en esta pantalla. Desliza hacia arriba para ver el resto. El PIN es privado y nunca se incluye en los reportes.")
-   .setView(scroll).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
-  dialog.setOnShowListener{
-   dialog.window?.setLayout((resources.displayMetrics.widthPixels*0.94f).toInt(),(screenHeight*0.90f).toInt())
-   dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-   dialog.getButton(-1).setOnClickListener{
-   val cleanName=name.text.toString().trim()
-   val cleanPhone=phone.text.toString().filter{it.isDigit()}
-   val code=pin.text.toString()
-   val h=hours.text.toString().toIntOrNull()
-   val s=salary.text.toString().trim().replace(",",".").toDoubleOrNull()
-   val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
-   if(cleanName.isBlank()){name.error="Escribe el nombre completo";return@setOnClickListener}
-   if(cleanPhone.length !in 10..15){phone.error="Escribe un celular válido de 10 a 15 dígitos";return@setOnClickListener}
-   if(code.length!=4||code.any{!it.isDigit()}){pin.error="El PIN debe tener exactamente 4 dígitos";return@setOnClickListener}
-   if(code!=confirm.text.toString()){confirm.error="Los PIN no coinciden";return@setOnClickListener}
-   if(h==null||h !in 1..24){hours.error="Elige las horas que debe trabajar";return@setOnClickListener}
-   if(s==null||s<=0){salary.error="Captura el sueldo semanal";return@setOnClickListener}
-   if(chosen.isEmpty()){Toast.makeText(this,"Selecciona al menos un día de trabajo.",Toast.LENGTH_LONG).show();return@setOnClickListener}
-   if(pay.selectedItemPosition<=0){Toast.makeText(this,"Selecciona el día de pago.",Toast.LENGTH_LONG).show();return@setOnClickListener}
-   val profile=WorkerProfiles.create(this,cleanName,cleanPhone,code)
-   if(profile==null){name.error="Ese nombre ya existe o no se pudo guardar";return@setOnClickListener}
-   val payDay=Calendar.SUNDAY+pay.selectedItemPosition-1
-   val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,payDay,chosen,profile.id,System.currentTimeMillis())
-   if(!EmployeePayroll.saveConfig(this,cfg)){
-    WorkerProfiles.delete(this,profile.id)
-    Toast.makeText(this,"No se pudo guardar la configuración completa. El perfil no quedó registrado; inténtalo de nuevo.",Toast.LENGTH_LONG).show()
-    return@setOnClickListener
+  val shell=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;setPadding(18,12,18,12);setBackgroundColor(0xFFF4F6FB.toInt())
+   addView(payText("Completa todos los datos obligatorios. Desliza esta sección para ver el formulario completo. El PIN es privado y nunca se incluye en los reportes.",13f))
+   addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+   val actions=LinearLayout(this@PayrollAdminActivity).apply{
+    orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL
+    setPadding(0,10,0,4)
    }
-   dialog.dismiss()
-   AlertDialog.Builder(this).setTitle("PERFIL COMPLETO")
-    .setMessage("TRABAJADOR: "+profile.name+"\nCELULAR: "+profile.phone+"\nDÍAS: "+chosen.sortedBy{if(it==Calendar.SUNDAY)0 else it}.joinToString(", "){labels[days.indexOf(it)]}+"\nHORAS POR JORNADA: "+h+"\nSUELDO SEMANAL: "+EmployeePayroll.money(moneyCents(s))+"\nDÍA DE PAGO: "+labels[payDay-Calendar.SUNDAY]+"\nPIN DE ACCESO: "+code+"\n\nEntrega el PIN únicamente al trabajador. No se enviará en el reporte.")
-    .setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
-  }}
+   val cancel=Button(this@PayrollAdminActivity).apply{
+    text="CANCELAR";isAllCaps=false;textSize=14f;setTextColor(0xFF31456F.toInt())
+    background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=16f;setStroke(1,0xFFD5DEED.toInt())}
+   }
+   val save=Button(this@PayrollAdminActivity).apply{
+    text="GUARDAR PERFIL";isAllCaps=false;textSize=14f;typeface=Typeface.DEFAULT_BOLD;setTextColor(-1)
+    background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF4569B5.toInt(),0xFF263F7D.toInt())).apply{cornerRadius=16f}
+   }
+   actions.addView(cancel,LinearLayout.LayoutParams(0,54,1f).apply{rightMargin=8})
+   actions.addView(save,LinearLayout.LayoutParams(0,54,1.35f).apply{leftMargin=8})
+   addView(actions,LinearLayout.LayoutParams(-1,-2))
+   cancel.setOnClickListener{dialog.dismiss()}
+   save.setOnClickListener{
+    val cleanName=name.text.toString().trim()
+    val cleanPhone=phone.text.toString().filter{it.isDigit()}
+    val code=pin.text.toString()
+    val h=hours.text.toString().toIntOrNull()
+    val s=salary.text.toString().trim().replace(",",".").toDoubleOrNull()
+    val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
+    if(cleanName.isBlank()){name.error="Escribe el nombre completo";scroll.smoothScrollTo(0,name.top);return@setOnClickListener}
+    if(cleanPhone.length !in 10..15){phone.error="Escribe un celular válido de 10 a 15 dígitos";scroll.smoothScrollTo(0,phone.top);return@setOnClickListener}
+    if(code.length!=4||code.any{!it.isDigit()}){pin.error="El PIN debe tener exactamente 4 dígitos";scroll.smoothScrollTo(0,pin.top);return@setOnClickListener}
+    if(code!=confirm.text.toString()){confirm.error="Los PIN no coinciden";scroll.smoothScrollTo(0,confirm.top);return@setOnClickListener}
+    if(h==null||h !in 1..24){hours.error="Elige las horas que debe trabajar";scroll.smoothScrollTo(0,hours.top);return@setOnClickListener}
+    if(s==null||s<=0){salary.error="Captura el sueldo semanal";scroll.smoothScrollTo(0,salary.top);return@setOnClickListener}
+    if(chosen.isEmpty()){Toast.makeText(this@PayrollAdminActivity,"Selecciona al menos un día de trabajo.",Toast.LENGTH_LONG).show();return@setOnClickListener}
+    if(pay.selectedItemPosition<=0){Toast.makeText(this@PayrollAdminActivity,"Selecciona el día de pago.",Toast.LENGTH_LONG).show();scroll.smoothScrollTo(0,pay.top);return@setOnClickListener}
+    val profile=WorkerProfiles.create(this@PayrollAdminActivity,cleanName,cleanPhone,code)
+    if(profile==null){name.error="Ese nombre ya existe o no se pudo guardar";scroll.smoothScrollTo(0,name.top);return@setOnClickListener}
+    val payDay=Calendar.SUNDAY+pay.selectedItemPosition-1
+    val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,payDay,chosen,profile.id,System.currentTimeMillis())
+    if(!EmployeePayroll.saveConfig(this@PayrollAdminActivity,cfg)){
+     WorkerProfiles.delete(this@PayrollAdminActivity,profile.id)
+     Toast.makeText(this@PayrollAdminActivity,"No se pudo guardar la configuración completa. El perfil no quedó registrado; inténtalo de nuevo.",Toast.LENGTH_LONG).show()
+     return@setOnClickListener
+    }
+    dialog.dismiss()
+    AlertDialog.Builder(this@PayrollAdminActivity).setTitle("PERFIL COMPLETO")
+     .setMessage("TRABAJADOR: "+profile.name+"\nCELULAR: "+profile.phone+"\nDÍAS: "+chosen.sortedBy{if(it==Calendar.SUNDAY)0 else it}.joinToString(", "){labels[days.indexOf(it)]}+"\nHORAS POR JORNADA: "+h+"\nSUELDO SEMANAL: "+EmployeePayroll.money(moneyCents(s))+"\nDÍA DE PAGO: "+labels[payDay-Calendar.SUNDAY]+"\nPIN DE ACCESO: Configurado (no se muestra por seguridad)"+"\n\nEntrega el PIN únicamente al trabajador. No se enviará en el reporte.")
+     .setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
+   }
+  }
+  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR").setView(shell).setCancelable(true).create()
   dialog.show()
+  dialog.window?.setLayout((resources.displayMetrics.widthPixels*0.96f).toInt(),(resources.displayMetrics.heightPixels*0.88f).toInt())
+  dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
  }
  private fun addEmployeeConfiguration(root:LinearLayout,profile:WorkerProfiles.Profile,old:EmployeePayroll.Config?,selectedId:String,manage:Boolean){
   val name=payInput("Nombre del empleado").apply{setText(profile.name);isEnabled=false}
