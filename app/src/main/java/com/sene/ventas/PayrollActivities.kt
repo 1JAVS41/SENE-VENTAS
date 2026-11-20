@@ -253,12 +253,12 @@ class PayrollAdminActivity:FragmentActivity(){
   }
   lateinit var dialog:android.app.Dialog
   val shell=LinearLayout(this).apply{
-   orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(14),dp(18),dp(12));setBackgroundColor(0xFFEEF3FA.toInt())
+   orientation=LinearLayout.VERTICAL;setPadding(payDp(18),payDp(14),payDp(18),payDp(12));setBackgroundColor(0xFFEEF3FA.toInt())
    addView(payText("Completa todos los datos obligatorios. Desliza esta sección para ver el formulario completo. El PIN es privado y nunca se incluye en los reportes.",13f))
    addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
    val actions=LinearLayout(this@PayrollAdminActivity).apply{
     orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL
-    setPadding(0,dp(12),0,dp(4))
+    setPadding(0,payDp(12),0,payDp(4))
    }
    val cancel=Button(this@PayrollAdminActivity).apply{
     text="CANCELAR";isAllCaps=false;textSize=14f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF244B84.toInt())
@@ -268,8 +268,8 @@ class PayrollAdminActivity:FragmentActivity(){
     text="GUARDAR PERFIL";isAllCaps=false;textSize=14f;typeface=Typeface.DEFAULT_BOLD;setTextColor(-1)
     background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF4569B5.toInt(),0xFF263F7D.toInt())).apply{cornerRadius=16f}
    }
-   actions.addView(cancel,LinearLayout.LayoutParams(0,dp(54),1f).apply{rightMargin=dp(6)})
-   actions.addView(save,LinearLayout.LayoutParams(0,dp(54),1.35f).apply{leftMargin=dp(6)})
+   actions.addView(cancel,LinearLayout.LayoutParams(0,payDp(54),1f).apply{rightMargin=payDp(6)})
+   actions.addView(save,LinearLayout.LayoutParams(0,payDp(54),1.35f).apply{leftMargin=payDp(6)})
    addView(actions,LinearLayout.LayoutParams(-1,-2))
    cancel.setOnClickListener{dialog.dismiss()}
    save.setOnClickListener{
