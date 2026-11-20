@@ -232,10 +232,21 @@ class PayrollAdminActivity:FragmentActivity(){
    addView(payText("DÍAS QUE DEBE TRABAJAR",14f,true));checks.forEach{addView(it.second)}
    addView(payText("DÍA DE PAGO",14f,true));addView(pay)
   }
+  val scroll=ScrollView(this).apply{
+   isFillViewport=true
+   isVerticalScrollBarEnabled=true
+   overScrollMode=View.OVER_SCROLL_IF_CONTENT_SCROLLS
+   addView(box,ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
+  }
+  val screenHeight=resources.displayMetrics.heightPixels
+  scroll.layoutParams=ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,(screenHeight*0.58f).toInt())
   val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR")
-   .setMessage("Completa todos los datos en esta pantalla. El PIN es privado y nunca se incluye en los reportes.")
-   .setView(ScrollView(this).apply{addView(box)}).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
-  dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
+   .setMessage("Completa todos los datos en esta pantalla. Desliza hacia arriba para ver el resto. El PIN es privado y nunca se incluye en los reportes.")
+   .setView(scroll).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
+  dialog.setOnShowListener{
+   dialog.window?.setLayout((resources.displayMetrics.widthPixels*0.94f).toInt(),(screenHeight*0.88f).toInt())
+   dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+   dialog.getButton(-1).setOnClickListener{
    val cleanName=name.text.toString().trim()
    val cleanPhone=phone.text.toString().filter{it.isDigit()}
    val code=pin.text.toString()
