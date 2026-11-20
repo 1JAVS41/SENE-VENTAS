@@ -249,6 +249,7 @@ class PayrollAdminActivity:FragmentActivity(){
    isFillViewport=true;isVerticalScrollBarEnabled=true;overScrollMode=android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
    addView(fields,android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
   }
+  lateinit var dialog:AlertDialog
   val shell=LinearLayout(this).apply{
    orientation=LinearLayout.VERTICAL;setPadding(18,12,18,12);setBackgroundColor(0xFFF4F6FB.toInt())
    addView(payText("Completa todos los datos obligatorios. Desliza esta sección para ver el formulario completo. El PIN es privado y nunca se incluye en los reportes.",13f))
@@ -299,7 +300,7 @@ class PayrollAdminActivity:FragmentActivity(){
      .setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
    }
   }
-  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR").setView(shell).setCancelable(true).create()
+  dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR").setView(shell).setCancelable(true).create()
   dialog.show()
   dialog.window?.setLayout((resources.displayMetrics.widthPixels*0.96f).toInt(),(resources.displayMetrics.heightPixels*0.88f).toInt())
   dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
