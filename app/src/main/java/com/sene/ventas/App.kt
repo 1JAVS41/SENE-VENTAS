@@ -658,7 +658,7 @@ class InicioTurnoActivity:FragmentActivity(){
  private val deviceClockTick=object:Runnable{override fun run(){if(::deviceLabel.isInitialized)deviceLabel.text="Hora del celular: "+stamp();deviceClockHandler.postDelayed(this,1000L)}}
  private fun draw(){
   val v=page("SENE")
-  if(v.childCount>3)(v.getChildAt(3) as? TextView)?.text="Todo en un solo lugar, todo bajo control."
+  if(v.childCount>3)(v.getChildAt(3) as? TextView)?.text="Elige una opción para continuar."
   deviceLabel=txt("Hora del celular: "+stamp())
   v.addView(deviceLabel)
   internetLabel=txt("Hora de Internet: "+internet,15f)
@@ -666,7 +666,7 @@ class InicioTurnoActivity:FragmentActivity(){
   v.addView(button("INICIAR TURNO",true){if(currentPatronPin(this)==DEFAULT_PIN){AlertDialog.Builder(this).setMessage("DIRÍGETE A SOY PATRÓN").setPositiveButton("ENTENDIDO",null).show()}else{chooseWorker()}})
   v.addView(button("SOY PATRÓN",false){refreshAfterPatron=true;val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE);if(currentPatronPin(this)==DEFAULT_PIN&&!prefs.getBoolean("default_pin_warning_shown",false)){forceDefaultPinChange{pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}}}else{pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}}})
   Protection.addBlindButton(this,v)
-  v.addView(button("MI TURNO LABORAL",false){showWorkHistory()})
+  v.addView(button("HISTORIAL DE TURNO",false){showWorkHistory()})
   deviceClockHandler.removeCallbacks(deviceClockTick)
   deviceClockTick.run()
   display(v)
