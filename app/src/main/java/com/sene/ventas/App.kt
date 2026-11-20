@@ -611,7 +611,7 @@ class InicioTurnoActivity:FragmentActivity(){
    val profileCreated=profileRecord?.createdAt?.takeIf{it>0L}?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible en perfil anterior"
    val firstShiftStamp=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(firstShiftTs))
    val employeeConfig=EmployeePayroll.config(this,workerId)
-   val hours=employeeConfig?.dailyHours?:8
+   val hours=employeeConfig?.dailyHours?:throw java.io.IOException("Faltan las horas de jornada del trabajador")
    val dayNames=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
    val workDays=employeeConfig?.workDaysOfWeek?.sortedBy{if(it==Calendar.SUNDAY)0 else it}?.joinToString(", "){dayNames.getOrElse(it){"-"}}?: "Pendiente de configurar"
    val payDayName=employeeConfig?.let{dayNames.getOrElse(it.payDay){"-"}}?: "Pendiente de configurar"
