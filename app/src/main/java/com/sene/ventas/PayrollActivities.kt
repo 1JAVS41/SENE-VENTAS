@@ -236,10 +236,10 @@ class PayrollAdminActivity:FragmentActivity(){
    isFillViewport=true
    isVerticalScrollBarEnabled=true
    overScrollMode=android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-   addView(box,ScrollView.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
+   addView(box,android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
   }
   val screenHeight=resources.displayMetrics.heightPixels
-  scroll.layoutParams=ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,(screenHeight*0.58f).toInt())
+  scroll.layoutParams=android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,(screenHeight*0.58f).toInt())
   val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR")
    .setMessage("Completa todos los datos en esta pantalla. Desliza hacia arriba para ver el resto. El PIN es privado y nunca se incluye en los reportes.")
    .setView(scroll).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
