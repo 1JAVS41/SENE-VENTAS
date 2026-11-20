@@ -235,8 +235,8 @@ class PayrollAdminActivity:FragmentActivity(){
   val scroll=ScrollView(this).apply{
    isFillViewport=true
    isVerticalScrollBarEnabled=true
-   overScrollMode=View.OVER_SCROLL_IF_CONTENT_SCROLLS
-   addView(box,ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
+   overScrollMode=android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+   addView(box,ScrollView.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
   }
   val screenHeight=resources.displayMetrics.heightPixels
   scroll.layoutParams=ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,(screenHeight*0.58f).toInt())
