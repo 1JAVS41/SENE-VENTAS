@@ -97,16 +97,16 @@ private fun Activity.rounded(color:Int,radius:Int=18,stroke:Int=0)=GradientDrawa
 private fun Activity.page(title:String,logoAction:(()->Unit)?=null):LinearLayout {
  val v=LinearLayout(this).apply {
   orientation=LinearLayout.VERTICAL
-  setPadding(dp(18),dp(18),dp(18),dp(30))
-  setBackgroundColor(0xFFF4F7FD.toInt())
+  setPadding(dp(18),dp(16),dp(18),dp(34))
+  setBackgroundColor(0xFFEEF3FA.toInt())
  }
  val top=LinearLayout(this).apply{
   orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-  setPadding(dp(16),dp(16),dp(16),dp(16))
-  background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(0xFF101B38.toInt(),0xFF31569A.toInt())).apply{cornerRadius=dp(22).toFloat()}
+  setPadding(dp(17),dp(18),dp(17),dp(18))
+  background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(0xFF173A78.toInt(),0xFF3979D8.toInt(),0xFF64A4F4.toInt())).apply{cornerRadius=dp(24).toFloat()}
   elevation=dp(4).toFloat()
  }
- val logoFrame=FrameLayout(this).apply{background=rounded(0xFF344A82.toInt(),17);setPadding(dp(6),dp(6),dp(6),dp(6))}
+ val logoFrame=FrameLayout(this).apply{background=rounded(0xFF2457A6.toInt(),18);setPadding(dp(6),dp(6),dp(6),dp(6))}
  val logo=ImageView(this).apply{setImageResource(R.drawable.logo_sene_pv);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER}
  logoFrame.addView(logo,FrameLayout.LayoutParams(-1,-1,Gravity.CENTER))
  if(logoAction!=null){logoFrame.isClickable=true;logoFrame.isFocusable=true;logoFrame.setOnClickListener{logoAction()};logoFrame.contentDescription="Abrir menú SENE"}
@@ -116,16 +116,16 @@ private fun Activity.page(title:String,logoAction:(()->Unit)?=null):LinearLayout
  brandColumn.addView(TextView(this).apply{text="GESTIÓN INTELIGENTE";textSize=10f;letterSpacing=.16f;setTextColor(0xFFB9C9F8.toInt());setPadding(0,dp(5),0,0)})
  top.addView(brandColumn,LinearLayout.LayoutParams(0,-2,1f))
  v.addView(top,LinearLayout.LayoutParams(-1,-2))
- val accent=View(this).apply{background=rounded(0xFF72A7F7.toInt(),3)}
- val accentParams=LinearLayout.LayoutParams(dp(42),dp(5));accentParams.topMargin=dp(23);accentParams.bottomMargin=dp(10);v.addView(accent,accentParams)
- v.addView(TextView(this).apply{text=title;textSize=27f;setTextColor(0xFF17213D.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);setPadding(0,0,0,dp(3))})
- v.addView(TextView(this).apply{text="Todo bajo control.";textSize=13f;setTextColor(0xFF7A8298.toInt());setPadding(0,0,0,dp(17))})
+ val accent=View(this).apply{background=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF2D6BC4.toInt(),0xFF72B5FF.toInt())).apply{cornerRadius=dp(4).toFloat()}}
+ val accentParams=LinearLayout.LayoutParams(dp(54),dp(6));accentParams.topMargin=dp(20);accentParams.bottomMargin=dp(11);v.addView(accent,accentParams)
+ v.addView(TextView(this).apply{text=title;textSize=29f;setTextColor(0xFF142B50.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);setPadding(0,0,0,dp(4))})
+ v.addView(TextView(this).apply{text="Todo bajo control.";textSize=13f;letterSpacing=.025f;setTextColor(0xFF637895.toInt());setPadding(0,0,0,dp(18))})
  return v
 }
 private fun Activity.txt(s:String,size:Float=17f)=TextView(this).apply{
  text=s;textSize=size;setTextColor(if(size>=17f)0xFF202B49.toInt() else 0xFF66708A.toInt())
  typeface=Typeface.create(if(size>=17f)"sans-serif-medium" else "sans-serif",Typeface.NORMAL)
- setPadding(dp(15),dp(13),dp(15),dp(13));background=rounded(0xFFFFFFFF.toInt(),14,0xFFE2E6F0.toInt())
+ setPadding(dp(16),dp(15),dp(16),dp(15));background=rounded(0xFFFFFFFF.toInt(),18,0xFFD9E4F3.toInt());elevation=dp(1).toFloat()
  setLineSpacing(dp(2).toFloat(),1f)
  val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(5);p.bottomMargin=dp(5);layoutParams=p
 }
@@ -139,10 +139,10 @@ private fun Activity.input(h:String,num:Boolean=false)=EditText(this).apply{
 }
 private fun Activity.button(s:String,green:Boolean=true,f:()->Unit)=Button(this).apply{
  text=s;textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);isAllCaps=false;letterSpacing=.025f
- minHeight=dp(54);setPadding(dp(18),dp(12),dp(18),dp(12));setTextColor(if(green)-1 else 0xFF293A68.toInt())
- background=if(green)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF435FAD.toInt(),0xFF283D78.toInt())).apply{cornerRadius=dp(14).toFloat()} else rounded(0xFFFFFFFF.toInt(),14,0xFFD9E0F0.toInt())
- elevation=dp(if(green)3 else 0).toFloat()
- val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(7);p.bottomMargin=dp(7);layoutParams=p
+ minHeight=dp(60);setPadding(dp(20),dp(15),dp(20),dp(15));setTextColor(if(green)-1 else 0xFF244B84.toInt())
+ background=if(green)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF2865B8.toInt(),0xFF17458D.toInt())).apply{cornerRadius=dp(18).toFloat()} else rounded(0xFFFFFFFF.toInt(),18,0xFFCFDDF0.toInt())
+ elevation=dp(if(green)4 else 1).toFloat()
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(8);p.bottomMargin=dp(8);layoutParams=p
  setOnClickListener{f()}
 }
 private fun Activity.powerButton(s:String,f:()->Unit)=Button(this).apply{
@@ -162,7 +162,7 @@ private fun Activity.display(v:LinearLayout){
  WindowCompat.setDecorFitsSystemWindows(window,false)
  window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
  val sc=ScrollView(this)
- sc.setBackgroundColor(0xFFF4F7FD.toInt())
+ sc.setBackgroundColor(0xFFEEF3FA.toInt())
  sc.isFillViewport=true
  sc.isSmoothScrollingEnabled=true
  sc.isVerticalScrollBarEnabled=true
