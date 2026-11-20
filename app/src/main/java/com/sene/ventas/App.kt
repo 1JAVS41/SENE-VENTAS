@@ -552,6 +552,8 @@ class InicioTurnoActivity:FragmentActivity(){
  private var pendingWorkerId=""
  private var pendingCash=""
  private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
+  val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}
+  if(profile==null||!workerProfileReady(profile)){msg("No se puede iniciar turno: el patrón debe completar todos los datos del trabajador.");return}
   // El trabajador nunca debe recibir el diálogo de clave del propietario.
   if(!ReportCrypto.hasKey(this)){
    AlertDialog.Builder(this).setTitle("CONFIGURACIÓN DEL PATRÓN PENDIENTE")
@@ -585,7 +587,9 @@ class InicioTurnoActivity:FragmentActivity(){
    val savedTree=tree?:getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)}
    // Un TXT cargado ya deja el inventario disponible en Store. Si no existe
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
-   val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
+   val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?:throw java.io.IOException("No se encontró el perfil del trabajador")
+   if(!workerProfileReady(profile))throw java.io.IOException("El perfil del trabajador está incompleto. El patrón debe completar celular, PIN, horas, sueldo, días laborales y día de pago.")
+   val profileName=profile.name
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
    ArchiveRetention.cleanupIfDue(this,savedTree,ReportCrypto.ownerKey(this))
    // Todos los perfiles comienzan siempre desde el inventario maestro más reciente.
@@ -612,7 +616,7 @@ class InicioTurnoActivity:FragmentActivity(){
    val workDays=employeeConfig?.workDaysOfWeek?.sortedBy{if(it==Calendar.SUNDAY)0 else it}?.joinToString(", "){dayNames.getOrElse(it){"-"}}?: "Pendiente de configurar"
    val payDayName=employeeConfig?.let{dayNames.getOrElse(it.payDay){"-"}}?: "Pendiente de configurar"
    val shift=JSONObject().put("shiftId",UUID.randomUUID().toString()).put("reportCount",0).put("employeeId",workerId).put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now).put("workDaysOfWeek",JSONArray().apply{employeeConfig?.workDaysOfWeek?.sorted()?.forEach{put(it)}}).put("weeklySalaryCents",employeeConfig?.weeklySalaryCents?:0L).put("payDay",employeeConfig?.payDay?:0)
-   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nFECHA Y HORA DE CREACIÓN DEL PERFIL: ").append(profileCreated).append("\nFECHA Y HORA DEL PRIMER INICIO DE TURNO: ").append(firstShiftStamp).append("\nHORA DE ENTRADA: ").append(stamp()).append("\nHORA DE SALIDA: Por definir").append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nFECHA Y HORA DE CREACIÓN DEL PERFIL: ").append(profileCreated).append("\nFECHA Y HORA DEL PRIMER INICIO DE TURNO: ").append(firstShiftStamp).append("\nHORA DE ENTRADA: ").append(stamp()).append("\nHORA DE SALIDA: Por definir").append("\nTrabajador: ").append(profile.name).append("\nNúmero del trabajador: ").append(profile.phone).append("\nPIN DE ACCESO: Configurado (no se comparte por seguridad)").append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(EmployeePayroll.money(employeeConfig!!.weeklySalaryCents)).append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock")).append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
    if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body,workerId,worker)
@@ -627,6 +631,13 @@ class InicioTurnoActivity:FragmentActivity(){
   }catch(e:Exception){AlertDialog.Builder(this).setTitle("No se pudo iniciar el turno").setMessage("No se pudo guardar el respaldo en INVENTARIO SENE. Verifica que la carpeta esté disponible y tenga permisos de escritura.\n\nDetalle: "+(e.message?:"Error desconocido.")).setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}.setNegativeButton("Cerrar",null).show()}
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==START_INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};createShiftReport(pendingWorkerId,pendingWorker,pendingWorkerPhone,pendingCash,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a Inventario SENE: "+(e.message?:"error"))}}}
+ private fun workerProfileReady(profile:WorkerProfiles.Profile):Boolean{
+  val phone=profile.phone.filter{it.isDigit()}
+  val cfg=EmployeePayroll.config(this,profile.id)?:return false
+  return profile.name.isNotBlank()&&phone.length in 10..15&&profile.salt.isNotBlank()&&profile.pinHash.isNotBlank()&&
+   cfg.dailyHours in 1..24&&cfg.weeklySalaryCents>0L&&cfg.workDaysOfWeek.isNotEmpty()&&
+   cfg.payDay in Calendar.SUNDAY..Calendar.SATURDAY
+ }
  private fun chooseWorker(){
   val profiles=WorkerProfiles.all(this)
   if(profiles.isEmpty()){
@@ -639,7 +650,14 @@ class InicioTurnoActivity:FragmentActivity(){
   val scroll=ScrollView(this)
   lateinit var dialog:AlertDialog
   profiles.forEach{profile->
-   content.addView(button("👤  "+profile.name,false){dialog.dismiss();authenticateWorker(profile)})
+   content.addView(button("👤  "+profile.name,false){
+    dialog.dismiss()
+    if(workerProfileReady(profile))authenticateWorker(profile)
+    else AlertDialog.Builder(this).setTitle("PERFIL INCOMPLETO")
+     .setMessage("Este trabajador todavía no tiene todos sus datos obligatorios: celular, PIN, horas de jornada, sueldo, días de trabajo y día de pago. El patrón debe completar el perfil antes de iniciar turno.")
+     .setPositiveButton("IR A SOY PATRÓN"){_,_->pin{startActivity(Intent(this,PatronActivity::class.java))}}
+     .setNegativeButton("CERRAR",null).show()
+   })
   }
   scroll.addView(content)
   dialog=AlertDialog.Builder(this).setTitle("INICIAR TURNO").setView(scroll)
