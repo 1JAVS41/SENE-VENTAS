@@ -268,21 +268,34 @@ class PayrollAdminActivity:FragmentActivity(){
  }
  private fun addEmployeeConfiguration(root:LinearLayout,profile:WorkerProfiles.Profile,old:EmployeePayroll.Config?,selectedId:String,manage:Boolean){
   val name=payInput("Nombre del empleado").apply{setText(profile.name);isEnabled=false}
-  val hours=payInput("Horas diarias (1 a 24)",true).apply{setText((old?.dailyHours?:8).toString())}
+  val phone=payInput("Número de celular (obligatorio)",true).apply{inputType=android.text.InputType.TYPE_CLASS_PHONE;setText(profile.phone)}
+  val hours=payInput("Horas diarias (1 a 24)",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;old?.let{setText(it.dailyHours.toString())}}
   val salary=payInput("Sueldo semanal $",true).apply{old?.let{setText(String.format(Locale.US,"%.2f",it.weeklySalaryCents/100.0))}}
   val days=listOf(Calendar.SUNDAY,Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY)
   val labels=listOf("Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
-  val selected=old?.workDaysOfWeek?:setOf(Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY)
+  val selected=old?.workDaysOfWeek?:emptySet()
   val checks=days.mapIndexed{i,d->d to CheckBox(this).apply{text=labels[i];textSize=15f;setTextColor(0xFF172B50.toInt());isChecked=d in selected}}
-  val pay=Spinner(this).apply{adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,labels);setSelection((old?.payDay?:Calendar.SATURDAY)-Calendar.SUNDAY)}
-  root.addView(payText("CONFIGURACIÓN DEL EMPLEADO",17f,true));root.addView(name);root.addView(hours);root.addView(salary)
+  val pay=Spinner(this).apply{
+   adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,listOf("Selecciona día de pago")+labels)
+   setSelection(old?.let{it.payDay-Calendar.SUNDAY+1}?:0)
+  }
+  root.addView(payText("DATOS DEL TRABAJADOR",17f,true));root.addView(name);root.addView(phone)
+  root.addView(payText("CONDICIONES DE TRABAJO",17f,true));root.addView(hours);root.addView(salary)
   root.addView(payText("SELECCIONA LOS DÍAS QUE TRABAJA",16f,true));checks.forEach{root.addView(it.second)}
   root.addView(payText("Los días no seleccionados se consideran descanso."));root.addView(payText("DÍA DE PAGO"));root.addView(pay)
-  root.addView(payButton("GUARDAR CONFIGURACIÓN"){
-   val h=hours.text.toString().toIntOrNull();val s=salary.text.toString().replace(",","\u002e").toDoubleOrNull();val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
-   if(h==null||h !in 1..24||s==null||s<=0||chosen.isEmpty()){Toast.makeText(this,"Revisa horas, sueldo y días laborables.",Toast.LENGTH_LONG).show();return@payButton}
-   val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,Calendar.SUNDAY+pay.selectedItemPosition,chosen,profile.id,old?.createdAt?:System.currentTimeMillis())
-   if(EmployeePayroll.saveConfig(this,cfg)){Toast.makeText(this,"Nómina de "+profile.name+" guardada.",Toast.LENGTH_LONG).show();if(manage)drawEmployee(selectedId)else draw()}else Toast.makeText(this,"No se pudo guardar.",Toast.LENGTH_LONG).show()
+  root.addView(payButton("GUARDAR TODOS LOS DATOS"){
+   val cleanPhone=phone.text.toString().filter{it.isDigit()}
+   val h=hours.text.toString().toIntOrNull()
+   val s=salary.text.toString().replace(",",".").toDoubleOrNull()
+   val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
+   if(cleanPhone.length !in 10..15){phone.error="Escribe un celular válido de 10 a 15 dígitos";return@payButton}
+   if(h==null||h !in 1..24){hours.error="Elige las horas de jornada";return@payButton}
+   if(s==null||s<=0){salary.error="Captura el sueldo semanal";return@payButton}
+   if(chosen.isEmpty()){Toast.makeText(this,"Selecciona al menos un día de trabajo.",Toast.LENGTH_LONG).show();return@payButton}
+   if(pay.selectedItemPosition<=0){Toast.makeText(this,"Selecciona el día de pago.",Toast.LENGTH_LONG).show();return@payButton}
+   val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,Calendar.SUNDAY+pay.selectedItemPosition-1,chosen,profile.id,old?.createdAt?:System.currentTimeMillis())
+   if(!WorkerProfiles.updatePhone(this,selectedId,cleanPhone)){Toast.makeText(this,"No se pudo guardar el celular.",Toast.LENGTH_LONG).show();return@payButton}
+   if(EmployeePayroll.saveConfig(this,cfg)){Toast.makeText(this,"Todos los datos de "+profile.name+" quedaron guardados.",Toast.LENGTH_LONG).show();if(manage)drawEmployee(selectedId)else draw()}else Toast.makeText(this,"No se pudo guardar la configuración.",Toast.LENGTH_LONG).show()
   })
   val cfg=EmployeePayroll.config(this,selectedId)
   if(cfg!=null){
