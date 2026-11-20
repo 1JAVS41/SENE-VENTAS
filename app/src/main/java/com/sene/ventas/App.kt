@@ -319,13 +319,18 @@ private object InventoryArchive {
    val tree=Uri.parse(saved);val resolver=activity.contentResolver
    val folder=if(!employeeId.isNullOrBlank())WorkerArchive.profileSection(activity,tree,employeeId,workerName,"INVENTARIOS") else {
     val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-    val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
-    var found:Uri?=null
-    resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
-     val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-     while(cur.moveToNext())if(id>=0&&col>=0&&cur.getString(col)=="INVENTARIO-SENE")found=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+    val rootName=resolver.query(root,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+     if(cur.moveToFirst())cur.getString(0) else null
     }
-    found?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,"INVENTARIO-SENE")?:throw java.io.IOException("No se pudo crear INVENTARIO-SENE")
+    if(rootName.equals("INVENTARIO-SENE",true)) root else {
+     val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
+     var found:Uri?=null
+     resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+      val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val col=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+      while(cur.moveToNext())if(id>=0&&col>=0&&cur.getString(col).equals("INVENTARIO-SENE",true))found=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+     }
+     found?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,"INVENTARIO-SENE")?:throw java.io.IOException("No se pudo crear INVENTARIO-SENE")
+    }
    }
    val number=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(local.name)?.groupValues?.get(1)?:throw java.io.IOException("Número de inventario inválido")
    val name="inventario-$number.txt"
@@ -1647,7 +1652,7 @@ class PatronActivity:FragmentActivity(){
   val saved=getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)
   if(saved.isNullOrBlank()){
    pendingFirstInventory=true
-   AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("Primero crea una carpeta nueva llamada INVENTARIO SENE. En el selector de archivos, pulsa Nueva carpeta, escribe exactamente INVENTARIO SENE, ábrela y presiona Usar esta carpeta. Ahí se guardará tu inventario con fecha y hora.")
+   AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("Selecciona directamente la carpeta INVENTARIO-SENE. Si todavía no existe, créala, ábrela y pulsa Usar esta carpeta. No crees otra carpeta INVENTARIO-SENE dentro de ella.")
     .setPositiveButton("CREAR CARPETA"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Cancelar",null).show()
   }else firstInventoryScreen()
  }
@@ -1676,7 +1681,7 @@ class PatronActivity:FragmentActivity(){
   })
   root.addView(button("VOLVER",false){draw()});display(root)
  }
- private fun saveInventorySnapshot(){try{if(InventoryArchive.save(this,Store.products(this))){msg("Inventario guardado en INVENTARIO SENE");}else{pendingInventorySave=true;AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("En el selector, crea una carpeta nueva llamada INVENTARIO SENE, ábrela y selecciónala. Ahí se guardará tu primer inventario y los siguientes TXT.") .setPositiveButton("CREAR / SELECCIONAR CARPETA"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Después",null).show()}}catch(e:Exception){msg("No se pudo guardar el inventario en INVENTARIO SENE: "+(e.message?:"error"))}}
+ private fun saveInventorySnapshot(){try{if(InventoryArchive.save(this,Store.products(this))){msg("Inventario guardado en INVENTARIO SENE");}else{pendingInventorySave=true;AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("Selecciona directamente la carpeta INVENTARIO-SENE. Si todavía no existe, créala, ábrela y pulsa Usar esta carpeta. No crees otra carpeta INVENTARIO-SENE dentro de ella.") .setPositiveButton("CREAR / SELECCIONAR CARPETA"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Después",null).show()}}catch(e:Exception){msg("No se pudo guardar el inventario en INVENTARIO SENE: "+(e.message?:"error"))}}
  private var waitingProductScan=false
  private fun product(){
   waitingProductScan=true
@@ -1842,7 +1847,7 @@ class PatronActivity:FragmentActivity(){
   }
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(waitingProductScan){waitingProductScan=false;showProductActions(codes.last())}else firstInventoryCode?.setText(codes.last())};return};if(r==INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};if(pendingFirstInventory){pendingFirstInventory=false;firstInventoryScreen()}else if(pendingInventorySave){pendingInventorySave=false;if(InventoryArchive.save(this,Store.products(this)))msg("Primer inventario guardado en INVENTARIO SENE")}else msg("Carpeta INVENTARIO SENE guardada")}catch(e:Exception){msg("No se pudo guardar el acceso a INVENTARIO SENE: "+(e.message?:"error"))};return};if(r==IMPORT_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};loadLatestInventory(tree)}catch(e:Exception){msg("No se pudo abrir la carpeta: "+(e.message?:"error"))};return};if(r==IMPORT_FILE_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}catch(_:Exception){};confirmSelectedInventory(uri)}}
- private fun export(){try{if(InventoryArchive.save(this,Store.products(this)))msg("TXT de inventario guardado en INVENTARIO SENE")else{pendingInventorySave=true;AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("Crea una carpeta nueva llamada INVENTARIO SENE, ábrela y selecciónala para guardar el TXT.") .setPositiveButton("CREAR / SELECCIONAR"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Cancelar",null).show()}}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))}}
+ private fun export(){try{if(InventoryArchive.save(this,Store.products(this)))msg("TXT de inventario guardado en INVENTARIO SENE")else{pendingInventorySave=true;AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("Selecciona directamente la carpeta INVENTARIO-SENE. Si todavía no existe, créala, ábrela y pulsa Usar esta carpeta. No crees otra carpeta INVENTARIO-SENE dentro de ella.") .setPositiveButton("CREAR / SELECCIONAR"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Cancelar",null).show()}}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))}}
 }
 
 private const val SCAN_REQUEST=7412
