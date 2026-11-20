@@ -1841,31 +1841,45 @@ class PatronActivity:FragmentActivity(){
    .setNegativeButton("Cancelar",null).show()
  }
  private fun loadLatestInventory(tree:Uri){
-  try{
-   val snapshots=InventoryReader.listSnapshots(this,tree).sortedWith(compareByDescending<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenByDescending{snapshot->try{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}})
-   if(snapshots.isEmpty()){
-    AlertDialog.Builder(this).setTitle("No hay inventarios válidos")
-     .setMessage("No se encontraron archivos de inventario válidos en esta carpeta. Puedes buscar otra carpeta donde esté guardado INVENTARIO SENE.")
-     .setPositiveButton("BUSCAR OTRA CARPETA"){_,_->browseInventoryFolder()}
-     .setNegativeButton("Cerrar",null).show()
-    return
+  val (workDialog,updateWork)=showWorkProgress("Revisando inventarios","Buscando y leyendo los respaldos disponibles…")
+  Thread{
+   try{
+    val snapshots=InventoryReader.listSnapshots(this@PatronActivity,tree).sortedWith(
+     compareByDescending<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}
+      .thenByDescending{snapshot->try{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).parse(snapshot.updated)?.time?:0L}catch(_:Exception){0L}}
+    )
+    runOnUiThread{
+     workDialog.dismiss()
+     if(isFinishing||isDestroyed)return@runOnUiThread
+     if(snapshots.isEmpty()){
+      AlertDialog.Builder(this@PatronActivity).setTitle("No hay inventarios válidos")
+       .setMessage("No se encontraron archivos de inventario válidos en esta carpeta. Puedes buscar otra carpeta donde esté guardado INVENTARIO SENE.")
+       .setPositiveButton("BUSCAR OTRA CARPETA"){_,_->browseInventoryFolder()}
+       .setNegativeButton("Cerrar",null).show()
+      return@runOnUiThread
+     }
+     val labels=snapshots.map{snapshot->snapshot.folder+"  •  "+snapshot.file+"\\nActualizado: "+snapshot.updated+"  •  "+snapshot.products.length()+" productos"}.toTypedArray()
+     AlertDialog.Builder(this@PatronActivity).setTitle("Selecciona el inventario que deseas cargar")
+      .setItems(labels){_,which->
+       val selected=snapshots[which]
+       AlertDialog.Builder(this@PatronActivity).setTitle("Confirmar carga de inventario")
+        .setMessage("Carpeta: "+selected.folder+"\\nArchivo: "+selected.file+"\\nÚltima actualización: "+selected.updated+"\\nProductos encontrados: "+selected.products.length()+"\\n\\nAl cargarlo se reemplazará el inventario actual. ¿Continuar?")
+        .setPositiveButton("CARGAR"){_,_->Store.saveProducts(this@PatronActivity,selected.products);getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",selected.file).putString("inventory_source_updated",selected.updated).apply();msg("Inventario seleccionado cargado correctamente");draw()}
+        .setNeutralButton("VOLVER A LA LISTA"){_,_->loadLatestInventory(tree)}
+        .setNegativeButton("Cancelar",null).show()
+      }.setNegativeButton("BUSCAR OTRA CARPETA"){_,_->browseInventoryFolder()}.show()
+    }
+   }catch(e:Exception){
+    runOnUiThread{
+     workDialog.dismiss()
+     if(isFinishing||isDestroyed)return@runOnUiThread
+     AlertDialog.Builder(this@PatronActivity).setTitle("No se pudo leer la carpeta")
+      .setMessage("No se pudieron consultar los inventarios. Puedes seleccionar otra carpeta.\\n\\nDetalle: "+(e.message?:"error"))
+      .setPositiveButton("BUSCAR OTRA CARPETA"){_,_->browseInventoryFolder()}
+      .setNegativeButton("Cerrar",null).show()
+    }
    }
-   val labels=snapshots.map{snapshot->snapshot.folder+"  •  "+snapshot.file+"\nActualizado: "+snapshot.updated+"  •  "+snapshot.products.length()+" productos"}.toTypedArray()
-   AlertDialog.Builder(this).setTitle("Selecciona el inventario que deseas cargar")
-    .setItems(labels){_,which->
-     val selected=snapshots[which]
-     AlertDialog.Builder(this).setTitle("Confirmar carga de inventario")
-      .setMessage("Carpeta: "+selected.folder+"\nArchivo: "+selected.file+"\nÚltima actualización: "+selected.updated+"\nProductos encontrados: "+selected.products.length()+"\n\nAl cargarlo se reemplazará el inventario actual. ¿Continuar?")
-      .setPositiveButton("CARGAR"){_,_->Store.saveProducts(this,selected.products);getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",selected.file).putString("inventory_source_updated",selected.updated).apply();msg("Inventario seleccionado cargado correctamente");draw()}
-      .setNeutralButton("VOLVER A LA LISTA"){_,_->loadLatestInventory(tree)}
-      .setNegativeButton("Cancelar",null).show()
-    }.setNegativeButton("BUSCAR OTRA CARPETA"){_,_->browseInventoryFolder()}.show()
-  }catch(e:Exception){
-   AlertDialog.Builder(this).setTitle("No se pudo leer la carpeta")
-    .setMessage("No se pudieron consultar los inventarios. Puedes seleccionar otra carpeta.\n\nDetalle: "+(e.message?:"error"))
-    .setPositiveButton("BUSCAR OTRA CARPETA"){_,_->browseInventoryFolder()}
-    .setNegativeButton("Cerrar",null).show()
-  }
+  }.start()
  }
  override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){if(waitingProductScan){waitingProductScan=false;showProductActions(codes.last())}else firstInventoryCode?.setText(codes.last())};return};if(r==INVENTORY_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};if(pendingFirstInventory){pendingFirstInventory=false;firstInventoryScreen()}else if(pendingInventorySave){pendingInventorySave=false;if(InventoryArchive.save(this,Store.products(this)))msg("Primer inventario guardado en INVENTARIO SENE")}else msg("Carpeta INVENTARIO SENE guardada")}catch(e:Exception){msg("No se pudo guardar el acceso a INVENTARIO SENE: "+(e.message?:"error"))};return};if(r==IMPORT_TREE_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};loadLatestInventory(tree)}catch(e:Exception){msg("No se pudo abrir la carpeta: "+(e.message?:"error"))};return};if(r==IMPORT_FILE_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}catch(_:Exception){};confirmSelectedInventory(uri)}}
  private fun export(){try{if(InventoryArchive.save(this,Store.products(this)))msg("TXT de inventario guardado en INVENTARIO SENE")else{pendingInventorySave=true;AlertDialog.Builder(this).setTitle("Crear carpeta INVENTARIO SENE").setMessage("Selecciona directamente la carpeta INVENTARIO-SENE. Si todavía no existe, créala, ábrela y pulsa Usar esta carpeta. No crees otra carpeta INVENTARIO-SENE dentro de ella.") .setPositiveButton("CREAR / SELECCIONAR"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,INVENTORY_TREE_REQUEST)}.setNegativeButton("Cancelar",null).show()}}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))}}
