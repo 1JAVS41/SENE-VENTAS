@@ -1606,8 +1606,10 @@ class PatronActivity:FragmentActivity(){
  private fun showFirstSetupGuideIfNeeded(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
   if(prefs.getBoolean("first_setup_guide_shown",false))return
+  // La guía depende de que exista inventario, no de que ya se hayan creado trabajadores.
+  // Si se dio de alta a alguien antes de cargar productos, todavía debe mostrarse.
   val alreadyConfigured=prefs.getBoolean("first_inventory_created",false) ||
-   Store.products(this).length()>0 || WorkerProfiles.all(this).isNotEmpty()
+   Store.products(this).length()>0
   if(alreadyConfigured){prefs.edit().putBoolean("first_setup_guide_shown",true).apply();return}
   AlertDialog.Builder(this)
    .setTitle("¡COMENCEMOS A ORGANIZAR TU NEGOCIO!")
