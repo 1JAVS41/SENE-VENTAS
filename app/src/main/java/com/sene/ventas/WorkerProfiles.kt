@@ -49,6 +49,11 @@ object WorkerProfiles {
         val profile=Profile(UUID.randomUUID().toString(),clean,cleanPhone,salt,digest(salt,pin),System.currentTimeMillis(),0L)
         return if(save(c,existing+profile)){try{WorkerArchive.ensureProfileFolders(c,profile.id,profile.name)}catch(_:Exception){};profile}else null
     }
+    @Synchronized fun delete(c:Context,profileId:String):Boolean{
+        val items=all(c)
+        if(items.none{it.id==profileId})return false
+        return save(c,items.filterNot{it.id==profileId})
+    }
     @Synchronized fun updatePhone(c:Context,profileId:String,phone:String):Boolean{
         val cleanPhone=phone.filter{it.isDigit()}
         if(cleanPhone.length !in 10..15)return false
