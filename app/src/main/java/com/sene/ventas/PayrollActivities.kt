@@ -262,12 +262,13 @@ class PayrollAdminActivity:FragmentActivity(){
   })
   val cfg=EmployeePayroll.config(this,selectedId)
   if(cfg!=null){
-   val abs=EmployeePayroll.absences(this,selectedId);val rate=cfg.weeklySalaryCents/cfg.workDays;val absenceDeduction=(rate*abs).coerceAtMost(cfg.weeklySalaryCents)
-   val earlyMinutes=EmployeePayroll.earlyExitMinutes(this,selectedId);val earlyDeduction=EmployeePayroll.earlyExitDeductionCents(this,selectedId).coerceAtMost((cfg.weeklySalaryCents-absenceDeduction).coerceAtLeast(0));val adjusted=(cfg.weeklySalaryCents-absenceDeduction-earlyDeduction).coerceAtLeast(0)
-   val rows=EmployeePayroll.entriesForCurrentPeriod(this,selectedId);val cons=rows.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents};val loans=rows.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
-   val cap=EmployeePayroll.capacity(this,selectedId);val net=(adjusted-cons-loans).coerceAtLeast(0)
+   val calculation=EmployeePayroll.calculateCurrentPeriod(this,selectedId)
+   val abs=calculation.absences;val absenceDeduction=calculation.absenceDeductionCents
+   val earlyMinutes=calculation.earlyExitMinutes;val earlyDeduction=calculation.earlyExitDeductionCents
+   val cons=calculation.consumptionCents;val loans=calculation.loanCents
+   val cap=EmployeePayroll.capacity(this,selectedId);val net=calculation.netCents
    root.addView(payText("RESUMEN DEL PERIODO · "+profile.name,17f,true))
-   root.addView(payText("Sueldo semanal: "+EmployeePayroll.money(cfg.weeklySalaryCents)+"\nFaltas: $abs · Descuento: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos · Descuento: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos: "+EmployeePayroll.money(cons)+"\nPréstamos: "+EmployeePayroll.money(loans)+"\nTotal descuentos: "+EmployeePayroll.money(absenceDeduction+earlyDeduction+cons+loans)+"\nNeto estimado: "+EmployeePayroll.money(net),17f,true))
+   root.addView(payText("Sueldo base del período: "+EmployeePayroll.money(calculation.grossCents)+"\nFaltas: $abs · Descuento: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos · Descuento: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos: "+EmployeePayroll.money(cons)+"\nPréstamos: "+EmployeePayroll.money(loans)+"\nTotal descuentos: "+EmployeePayroll.money(absenceDeduction+earlyDeduction+cons+loans)+"\nNeto estimado: "+EmployeePayroll.money(net),17f,true))
    root.addView(payText("LÍMITE DEL 50%\nComprometido: "+EmployeePayroll.money(cap.committedCents)+"\nDisponible: "+EmployeePayroll.money(cap.availableCents)))
    root.addView(payText("HISTORIAL COMPLETO",17f,true))
    EmployeePayroll.entries(this,selectedId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
