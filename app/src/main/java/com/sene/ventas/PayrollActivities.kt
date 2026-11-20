@@ -251,7 +251,7 @@ class PayrollAdminActivity:FragmentActivity(){
   }
   lateinit var dialog:AlertDialog
   val shell=LinearLayout(this).apply{
-   orientation=LinearLayout.VERTICAL;setPadding(18,12,18,12);setBackgroundColor(0xFFF4F6FB.toInt())
+   orientation=LinearLayout.VERTICAL;setPadding(18,12,18,12);setBackgroundColor(0xFFF4F7FD.toInt())
    addView(payText("Completa todos los datos obligatorios. Desliza esta sección para ver el formulario completo. El PIN es privado y nunca se incluye en los reportes.",13f))
    addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
    val actions=LinearLayout(this@PayrollAdminActivity).apply{
