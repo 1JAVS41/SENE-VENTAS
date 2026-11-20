@@ -24,7 +24,7 @@ class LicenseExpiredActivity : Activity() {
         setTextColor(if (primary) Color.WHITE else 0xFF24447C.toInt())
         background = GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT,
-            if (primary) intArrayOf(0xFF168B45.toInt(), 0xFF087332.toInt()) else intArrayOf(Color.WHITE, Color.WHITE)
+            if (primary) intArrayOf(0xFF426FC0.toInt(), 0xFF244987.toInt()) else intArrayOf(Color.WHITE, Color.WHITE)
         ).apply { cornerRadius = dp(14).toFloat(); if (!primary) setStroke(dp(1), 0xFFD5DEEF.toInt()) }
         setOnClickListener { click() }
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9); bottomMargin = dp(9) }
