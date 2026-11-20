@@ -123,22 +123,32 @@ class PayrollEmployeeActivity:FragmentActivity(){
   val cfg=EmployeePayroll.config(this,employeeId);val root=payPage("MI NÓMINA");val name=WorkerProfiles.all(this).firstOrNull{it.id==employeeId}?.name.orEmpty()
   root.addView(payText("TRABAJADOR: $name",16f,true))
   if(cfg==null){root.addView(payText("El patrón aún no configuró tu sueldo y días laborables."));payShow(root);return}
-  val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId);val abs=EmployeePayroll.absences(this,employeeId)
-  val dayRate=cfg.weeklySalaryCents/cfg.workDays;val absenceDeduction=(dayRate*abs).coerceAtMost(cfg.weeklySalaryCents)
-  val earlyMinutes=EmployeePayroll.earlyExitMinutes(this,employeeId);val earlyDeduction=EmployeePayroll.earlyExitDeductionCents(this,employeeId).coerceAtMost((cfg.weeklySalaryCents-absenceDeduction).coerceAtLeast(0))
-  val adjusted=(cfg.weeklySalaryCents-absenceDeduction-earlyDeduction).coerceAtLeast(0)
-  val consumption=entries.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents}
-  val loans=entries.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
-  val net=(adjusted-consumption-loans).coerceAtLeast(0)
+  val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId)
+  val calculation=EmployeePayroll.calculateCurrentPeriod(this,employeeId)
+  val abs=calculation.absences
+  val absenceDeduction=calculation.absenceDeductionCents
+  val earlyMinutes=calculation.earlyExitMinutes
+  val earlyDeduction=calculation.earlyExitDeductionCents
+  val consumption=calculation.consumptionCents
+  val loans=calculation.loanCents
+  val net=calculation.netCents
   val work=cfg.workDaysOfWeek.sortedBy{if(it==Calendar.SUNDAY)0 else it}.joinToString(", "){dayName(it)}
   val rest=(Calendar.SUNDAY..Calendar.SATURDAY).filter{it !in cfg.workDaysOfWeek}.joinToString(", "){dayName(it)}
   root.addView(payText("SUELDO SEMANAL\n"+EmployeePayroll.money(cfg.weeklySalaryCents),22f,true))
   root.addView(payText("DÍAS LABORABLES: $work\nDESCANSOS: "+rest.ifBlank{"Ninguno"}+"\nDía de pago: "+dayName(cfg.payDay)))
-  root.addView(payText("Faltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos\nDescuento por salidas anticipadas: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
+  root.addView(payText("Sueldo base del período: "+EmployeePayroll.money(calculation.grossCents)+"\nFaltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos\nDescuento por salidas anticipadas: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
   root.addView(payText("TOTAL A RECIBIR\n"+EmployeePayroll.money(net),24f,true))
   root.addView(payText("HISTORIAL DEL PERIODO",17f,true))
   root.addView(payText("HISTORIAL COMPLETO",17f,true))
   EmployeePayroll.entries(this,employeeId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
+  root.addView(payText("ASISTENCIA DE LA SEMANA",17f,true))
+  EmployeePayroll.weekAttendance(this,employeeId).forEach{day->
+   val symbol=when(day.status){"WORKED","EARLY_EXIT"->"🟢";"NOT_WORKED"->"❌";"WORKING"->"🔁";else->"—"}
+   val status=when(day.status){"NO_RECORD"->"Aún no tenía registro";"EARLY_EXIT"->"Cierre anticipado";"WORKING"->"En curso";"WORKED"->"Jornada completada";"NOT_WORKED"->"Sin asistencia";else->""}
+   val times=listOf(day.started.takeIf{it.isNotBlank()}?.let{"Entrada: $it"},day.closed.takeIf{it.isNotBlank()}?.let{"Salida: $it"}).filterNotNull().joinToString(" · ")
+   val detail=listOf(status,times).filter{it.isNotBlank()}.joinToString(" · ")
+   root.addView(payText(day.day+" - ["+symbol+"]"+if(detail.isBlank()) "" else " · "+detail,13f,true))
+  }
   payShow(root)
  }
  private fun dayName(d:Int)=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado").getOrElse(d){"-"}
