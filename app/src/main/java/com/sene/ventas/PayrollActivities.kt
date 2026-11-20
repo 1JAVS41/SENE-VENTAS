@@ -249,7 +249,7 @@ class PayrollAdminActivity:FragmentActivity(){
    isFillViewport=true;isVerticalScrollBarEnabled=true;overScrollMode=android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
    addView(fields,android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
   }
-  lateinit var dialog:AlertDialog
+  lateinit var dialog:android.app.Dialog
   val shell=LinearLayout(this).apply{
    orientation=LinearLayout.VERTICAL;setPadding(18,12,18,12);setBackgroundColor(0xFFF4F7FD.toInt())
    addView(payText("Completa todos los datos obligatorios. Desliza esta sección para ver el formulario completo. El PIN es privado y nunca se incluye en los reportes.",13f))
