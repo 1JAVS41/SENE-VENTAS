@@ -992,33 +992,33 @@ class MainActivity:FragmentActivity(){
    .setTitle("JORNADA LABORAL TERMINADA")
    .setMessage("Tu jornada laboral ha terminado. ¿Deseas finalizar el turno o tienes pendientes aún?")
    .setCancelable(false)
-   .setPositiveButton("FINALIZAR TURNO",null)
-   .setNegativeButton("TERMINAR PENDIENTES",null)
-   .create()
-  overtimeDialog=dialog
-  dialog.setOnShowListener{
-   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
-    val active=Store.shift(this)?:run{dialog.dismiss();return@setOnClickListener}
+   .setPositiveButton("FINALIZAR TURNO"){_,_->
+    val active=Store.shift(this)
+    if(active==null){
+     overtimeDialog=null
+     msg("No se encontró el turno activo. No se realizó ningún cambio.")
+     return@setPositiveButton
+    }
     val now=System.currentTimeMillis()
-    val expected=active.optLong("expectedEndTs",active.optLong("startTs",0L)+active.optInt("workHours",configuredWorkHours(this))*3600000L)
-    val worked=now-active.optLong("startTs",0L)
-    val completed=active.optLong("startTs",0L)>0L&&worked>=expected-active.optLong("startTs",0L)
+    val start=active.optLong("startTs",0L)
+    val expected=active.optLong("expectedEndTs",start+active.optInt("workHours",configuredWorkHours(this))*3600000L)
+    val worked=now-start
+    val completed=start>0L&&worked>=expected-start
     active.put("closingType","SCHEDULED").put("closingBy","TRABAJADOR")
      .put("closingTs",now).put("closed",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
      .put("completedWorkday",completed).put("finishPending",true)
     Store.saveShift(this,active)
-    dialog.dismiss()
     reportDialog?.dismiss()
     sell.isEnabled=false;sell.alpha=0.45f
     if(::countdownView.isInitialized)countdownView.text="CIERRE DE TURNO EN PROCESO"
     sendReport(true)
    }
-   dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener{
+   .setNegativeButton("TERMINAR PENDIENTES"){_,_->
     val active=Store.shift(this)
     active?.put("overtimePromptAt",System.currentTimeMillis())?.let{Store.saveShift(this,it)}
-    dialog.dismiss()
    }
-  }
+   .create()
+  overtimeDialog=dialog
   dialog.setOnDismissListener{if(overtimeDialog===dialog)overtimeDialog=null}
   dialog.show()
  }
