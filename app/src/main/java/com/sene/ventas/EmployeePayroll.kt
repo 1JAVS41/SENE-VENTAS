@@ -59,7 +59,7 @@ object EmployeePayroll {
     fun calculateCurrentPeriod(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):PayrollCalculation {
         val cfg=config(c,employeeId) ?: return PayrollCalculation(0,0,0,0,0,0,0,0)
         val periodEnd=periodKey(ts,cfg.payDay)
-        val periodStart=displayDate(parseDate(periodEnd)-6L*24L*60L*60L*1000L)
+        val periodStart=displayDate(Calendar.getInstance().apply{timeInMillis=parseDate(periodEnd);add(Calendar.DAY_OF_YEAR,-6)}.timeInMillis)
         val effective=effectiveStartDate(c,employeeId)
         val payableStart=if(effective.isNotBlank()&&effective>periodStart)effective else periodStart
         val payableDays=scheduledDaysBetween(payableStart,periodEnd,cfg.workDaysOfWeek)
@@ -75,7 +75,7 @@ object EmployeePayroll {
         }
         val absenceDeduction=(cfg.weeklySalaryCents/cfg.workDays.coerceAtLeast(1)*absences).coerceAtMost(gross)
         val earlyRecords=records.filter{record->
-            record.date>=periodStart&&record.date<=today&&record.startedAt>0L&&record.closedAt>0L&&record.closureReason.isNotBlank()&&!record.completedWorkday
+            record.date>=periodStart&&record.date<=today&&record.startedAt>0L&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday
         }
         val missingMillis=earlyRecords.sumOf{record->(record.startedAt+cfg.dailyHours*3600000L-record.closedAt).coerceAtLeast(0L)}
         val earlyMinutes=(missingMillis+59999L)/60000L
