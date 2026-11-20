@@ -109,7 +109,7 @@ object EmployeePayroll {
             val key=displayDate(date.timeInMillis)
             val record=all[key]
             val status=when{
-                record!=null&&record.closedAt>0L&&record.closureReason.isNotBlank()&&!record.completedWorkday -> "EARLY_EXIT"
+                record!=null&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday -> "EARLY_EXIT"
                 record!=null&&record.startedAt>0L&&record.closedAt==0L -> "WORKING"
                 record!=null&&record.startedAt>0L&&record.closedAt>0L -> "WORKED"
                 key>today || date.get(Calendar.DAY_OF_WEEK) !in cfg.workDaysOfWeek -> "FUTURE"
@@ -210,31 +210,17 @@ object EmployeePayroll {
         if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source,completedWorkday=completedWorkday) else all.add(Attendance(employeeId,key,0L,ts,reason,source,completedWorkday))
         return saveAttendance(c,all)
     }
-    fun absences(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Int{
-        val cfg=config(c,employeeId)?:return 0
-        val start=periodStart(ts,cfg.payDay);val begin=maxOf(start.timeInMillis,cfg.createdAt)
-        val cal=Calendar.getInstance().apply{timeInMillis=begin};cal.set(Calendar.HOUR_OF_DAY,0);cal.set(Calendar.MINUTE,0);cal.set(Calendar.SECOND,0);cal.set(Calendar.MILLISECOND,0)
-        val today=dateKey(ts);val attended=attendance(c).filter{it.employeeId==employeeId&&it.startedAt>0}.map{it.date}.toSet()
-        var count=0;var guard=0
-        while(dateKey(cal.timeInMillis)<today&&guard++<8){
-            if(cal.get(Calendar.DAY_OF_WEEK) in cfg.workDaysOfWeek && dateKey(cal.timeInMillis) !in attended)count++
-            cal.add(Calendar.DAY_OF_YEAR,1)
-        }
-        return count
-    }
-    fun earlyExitMinutes(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Long{
-        val cfg=config(c,employeeId)?:return 0L
-        val first=periodKey(ts,cfg.payDay);val last=dateKey(ts)
-        val required=cfg.dailyHours*3600000L
-        return attendance(c).filter{it.employeeId==employeeId&&it.date>=first&&it.date<=last&&it.startedAt>0L&&it.closedAt>0L}
-            .sumOf{record->((required-(record.closedAt-record.startedAt)).coerceAtLeast(0L)+59999L)/60000L}
-    }
-    fun earlyExitDeductionCents(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Long{
-        val cfg=config(c,employeeId)?:return 0L
-        val minutes=earlyExitMinutes(c,employeeId,ts)
-        val hourly=cfg.weeklySalaryCents.toDouble()/cfg.workDays.toDouble()/cfg.dailyHours.toDouble()
-        return kotlin.math.round(hourly*minutes/60.0).toLong().coerceAtLeast(0L)
-    }
+    // Todos los resúmenes y límites usan el mismo cálculo efectivo de nómina.
+    // Así no se descuentan días anteriores al primer turno ni cierres administrativos.
+    fun absences(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Int =
+        calculateCurrentPeriod(c,employeeId,ts).absences
+
+    fun earlyExitMinutes(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Long =
+        calculateCurrentPeriod(c,employeeId,ts).earlyExitMinutes
+
+    fun earlyExitDeductionCents(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Long =
+        calculateCurrentPeriod(c,employeeId,ts).earlyExitDeductionCents
+
     fun entries(c:Context,employeeId:String?=null):List<Entry>{
         val raw=prefs(c).getString(ENTRIES,"[]")?: "[]"
         return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue
@@ -251,8 +237,8 @@ object EmployeePayroll {
     }
     fun capacity(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Capacity{
         val cfg=config(c,employeeId)?:return Capacity(0,0,0,0)
-        val absent=absences(c,employeeId,ts);val rate=cfg.weeklySalaryCents/cfg.workDays
-        val deduction=(rate*absent).coerceAtMost(cfg.weeklySalaryCents);val early=earlyExitDeductionCents(c,employeeId,ts).coerceAtMost((cfg.weeklySalaryCents-deduction).coerceAtLeast(0));val adjusted=(cfg.weeklySalaryCents-deduction-early).coerceAtLeast(0)
+        val calculation=calculateCurrentPeriod(c,employeeId,ts)
+        val adjusted=(calculation.grossCents-calculation.absenceDeductionCents-calculation.earlyExitDeductionCents).coerceAtLeast(0L)
         val limit=adjusted/2;val key=periodKey(ts,cfg.payDay)
         val committed=entries(c,employeeId).filter{it.periodKey==key&&!it.settled&&(it.type==TYPE_LOAN||it.type==TYPE_CONSUMPTION)}.sumOf{it.amountCents}
         return Capacity(adjusted,limit,committed,(limit-committed).coerceAtLeast(0))
