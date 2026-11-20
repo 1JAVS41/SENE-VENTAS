@@ -98,12 +98,12 @@ private fun Activity.page(title:String,logoAction:(()->Unit)?=null):LinearLayout
  val v=LinearLayout(this).apply {
   orientation=LinearLayout.VERTICAL
   setPadding(dp(18),dp(18),dp(18),dp(30))
-  setBackgroundColor(0xFFF4F5FA.toInt())
+  setBackgroundColor(0xFFF4F7FD.toInt())
  }
  val top=LinearLayout(this).apply{
   orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
   setPadding(dp(16),dp(16),dp(16),dp(16))
-  background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(0xFF111A35.toInt(),0xFF263B70.toInt())).apply{cornerRadius=dp(22).toFloat()}
+  background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(0xFF101B38.toInt(),0xFF31569A.toInt())).apply{cornerRadius=dp(22).toFloat()}
   elevation=dp(4).toFloat()
  }
  val logoFrame=FrameLayout(this).apply{background=rounded(0xFF344A82.toInt(),17);setPadding(dp(6),dp(6),dp(6),dp(6))}
@@ -116,7 +116,7 @@ private fun Activity.page(title:String,logoAction:(()->Unit)?=null):LinearLayout
  brandColumn.addView(TextView(this).apply{text="GESTIÓN INTELIGENTE";textSize=10f;letterSpacing=.16f;setTextColor(0xFFB9C9F8.toInt());setPadding(0,dp(5),0,0)})
  top.addView(brandColumn,LinearLayout.LayoutParams(0,-2,1f))
  v.addView(top,LinearLayout.LayoutParams(-1,-2))
- val accent=View(this).apply{background=rounded(0xFFFFB547.toInt(),3)}
+ val accent=View(this).apply{background=rounded(0xFF72A7F7.toInt(),3)}
  val accentParams=LinearLayout.LayoutParams(dp(42),dp(5));accentParams.topMargin=dp(23);accentParams.bottomMargin=dp(10);v.addView(accent,accentParams)
  v.addView(TextView(this).apply{text=title;textSize=27f;setTextColor(0xFF17213D.toInt());typeface=Typeface.create("sans-serif",Typeface.BOLD);setPadding(0,0,0,dp(3))})
  v.addView(TextView(this).apply{text="Todo bajo control.";textSize=13f;setTextColor(0xFF7A8298.toInt());setPadding(0,0,0,dp(17))})
@@ -149,11 +149,11 @@ private fun Activity.powerButton(s:String,f:()->Unit)=Button(this).apply{
  text=s;textSize=16f;typeface=Typeface.create("sans-serif-black",Typeface.BOLD);isAllCaps=false;letterSpacing=.035f
  minHeight=dp(68);setPadding(dp(18),dp(14),dp(18),dp(14));setTextColor(0xFFFFFFFF.toInt())
  background=android.graphics.drawable.LayerDrawable(arrayOf(
-  GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xFF07152F.toInt(),0xFF07152F.toInt())).apply{cornerRadius=dp(18).toFloat()},
-  GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xFFFFD66B.toInt(),0xFFFF9D24.toInt(),0xFFB94D13.toInt())).apply{cornerRadius=dp(16).toFloat()}
+  GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xFF14264B.toInt(),0xFF14264B.toInt())).apply{cornerRadius=dp(18).toFloat()},
+  GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xFF77B7FF.toInt(),0xFF3979D8.toInt(),0xFF2453A8.toInt())).apply{cornerRadius=dp(16).toFloat()}
  )).apply{setLayerInset(1,dp(2),dp(1),dp(2),dp(6))}
  elevation=dp(10).toFloat()
- setShadowLayer(dp(2).toFloat(),0f,dp(3).toFloat(),0xFF152443.toInt())
+ setShadowLayer(dp(2).toFloat(),0f,dp(3).toFloat(),0xFF254B86.toInt())
  val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(10);p.bottomMargin=dp(10);layoutParams=p
  setOnClickListener{f()}
 }
