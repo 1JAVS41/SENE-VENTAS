@@ -2005,7 +2005,7 @@ class ScanActivity:Activity(){
   root.addView(status,LinearLayout.LayoutParams(-1,-2))
   val back=Button(this).apply{
    text="VOLVER";textSize=15f;isAllCaps=false;typeface=Typeface.create("sans-serif",Typeface.BOLD);letterSpacing=.05f
-   setTextColor(-1);background=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFFFFB547.toInt(),0xFFE68C36.toInt())).apply{cornerRadius=dp(15).toFloat()}
+   setTextColor(-1);background=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF435FAD.toInt(),0xFF283D78.toInt())).apply{cornerRadius=dp(15).toFloat()}
    setOnClickListener{finishWithResults()}
   }
   val backParams=LinearLayout.LayoutParams(-1,dp(54));backParams.topMargin=dp(12)
