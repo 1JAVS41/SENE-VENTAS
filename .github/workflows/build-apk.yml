@@ -1,9 +1,9 @@
 name: Compilar APK SENE VENTAS
 on:
   push:
-    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge]
+    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge, work/shared-inventory-sene, work/worker-onboarding-payroll-v2]
   pull_request:
-    branches: [main, sene-ventas-rebuild]
+    branches: [main, sene-ventas-rebuild, work/shared-inventory-sene]
   workflow_dispatch:
 permissions:
   contents: read

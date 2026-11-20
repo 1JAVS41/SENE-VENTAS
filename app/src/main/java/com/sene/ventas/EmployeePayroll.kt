@@ -30,6 +30,99 @@ object EmployeePayroll {
     )
     data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false)
 
+    data class WeeklyDay(val day:String,val status:String,val started:String="",val closed:String="")
+    data class PayrollCalculation(
+        val grossCents:Long,val absences:Int,val absenceDeductionCents:Long,
+        val earlyExitMinutes:Long,val earlyExitDeductionCents:Long,
+        val consumptionCents:Long,val loanCents:Long,val netCents:Long
+    )
+
+    private fun displayDate(ts:Long)=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date(ts))
+    private fun effectiveStartDate(c:Context,employeeId:String):String {
+        val profile=WorkerProfiles.all(c).firstOrNull{it.id==employeeId} ?: return ""
+        val start=maxOf(profile.createdAt,profile.firstShiftTs)
+        return if(start>0L)displayDate(start) else ""
+    }
+    private fun scheduledDaysBetween(start:String,end:String,scheduled:Set<Int>):Int {
+        if(start.isBlank()||end.isBlank()||start>end||scheduled.isEmpty())return 0
+        val cal=Calendar.getInstance().apply{timeInMillis=parseDate(start)}
+        val last=parseDate(end);var count=0;var guard=0
+        while(cal.timeInMillis<=last&&guard++<370){
+            if(cal.get(Calendar.DAY_OF_WEEK) in scheduled)count++
+            cal.add(Calendar.DAY_OF_YEAR,1)
+        }
+        return count
+    }
+
+    /** Cálculo equivalente al de SENE ADMIN: prorratea el primer período,
+     * excluye días anteriores al registro/primer turno y descuenta cierres anticipados justificados. */
+    fun calculateCurrentPeriod(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):PayrollCalculation {
+        val cfg=config(c,employeeId) ?: return PayrollCalculation(0,0,0,0,0,0,0,0)
+        val periodEnd=periodKey(ts,cfg.payDay)
+        val periodStart=displayDate(Calendar.getInstance().apply{timeInMillis=parseDate(periodEnd);add(Calendar.DAY_OF_YEAR,-6)}.timeInMillis)
+        val effective=effectiveStartDate(c,employeeId)
+        val payableStart=if(effective.isNotBlank()&&effective>periodStart)effective else periodStart
+        val payableDays=scheduledDaysBetween(payableStart,periodEnd,cfg.workDaysOfWeek)
+        val gross=if(cfg.workDays>0)(cfg.weeklySalaryCents*payableDays/cfg.workDays).coerceAtMost(cfg.weeklySalaryCents) else 0L
+        val today=displayDate(ts)
+        val records=attendance(c).filter{it.employeeId==employeeId}
+        val attended=records.filter{it.startedAt>0L}.map{it.date}.toSet()
+        val startCal=Calendar.getInstance().apply{timeInMillis=parseDate(payableStart)}
+        var absences=0;var guard=0
+        while(displayDate(startCal.timeInMillis)<today&&displayDate(startCal.timeInMillis)<=periodEnd&&guard++<370){
+            if(startCal.get(Calendar.DAY_OF_WEEK) in cfg.workDaysOfWeek && displayDate(startCal.timeInMillis) !in attended)absences++
+            startCal.add(Calendar.DAY_OF_YEAR,1)
+        }
+        val absenceDeduction=(cfg.weeklySalaryCents/cfg.workDays.coerceAtLeast(1)*absences).coerceAtMost(gross)
+        val earlyRecords=records.filter{record->
+            record.date>=periodStart&&record.date<=today&&record.startedAt>0L&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday
+        }
+        val earlyMissing=earlyRecords.map{record->(record.startedAt+cfg.dailyHours*3600000L-record.closedAt).coerceAtLeast(0L)}
+            .filter{it>=60000L}
+        val earlyMinutes=earlyMissing.sumOf{(it+59999L)/60000L}
+        val earlyAmount=if(cfg.workDays>0&&cfg.dailyHours>0){
+            earlyMissing.sumOf{missing->(cfg.weeklySalaryCents.toDouble()/cfg.workDays.toDouble()/cfg.dailyHours.toDouble()*(missing/3600000.0)).toLong().coerceAtLeast(0L)}
+        }else 0L
+        val earlyDeduction=earlyAmount.coerceAtMost((gross-absenceDeduction).coerceAtLeast(0L))
+        val pending=entriesForCurrentPeriod(c,employeeId,ts)
+        val consumption=pending.filter{it.type==TYPE_CONSUMPTION}.sumOf{it.amountCents}
+        val loans=pending.filter{it.type==TYPE_LOAN}.sumOf{it.amountCents}
+        val net=(gross-absenceDeduction-earlyDeduction-consumption-loans).coerceAtLeast(0L)
+        return PayrollCalculation(gross,absences,absenceDeduction,earlyMinutes,earlyDeduction,consumption,loans,net)
+    }
+
+    /** Semana calendario de lunes a domingo, con los mismos estados que muestra SENE ADMIN. */
+    fun weekAttendance(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):List<WeeklyDay> {
+        val cfg=config(c,employeeId) ?: return emptyList()
+        val effective=effectiveStartDate(c,employeeId)
+        val monday=Calendar.getInstance().apply{
+            timeInMillis=ts
+            val delta=(get(Calendar.DAY_OF_WEEK)-Calendar.MONDAY+7)%7
+            add(Calendar.DAY_OF_YEAR,-delta)
+            set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)
+        }
+        val today=displayDate(ts)
+        val names=listOf("LUNES","MARTES","MIÉRCOLES","JUEVES","VIERNES","SÁBADO","DOMINGO")
+        val all=attendance(c).filter{it.employeeId==employeeId}.associateBy{it.date}
+        return (0..6).map{index->
+            val date=Calendar.getInstance().apply{timeInMillis=monday.timeInMillis;add(Calendar.DAY_OF_YEAR,index)}
+            val key=displayDate(date.timeInMillis)
+            val record=all[key]
+            val status=when{
+                record!=null&&record.closedAt>0L&&record.closureReason.isNotBlank()&&!record.completedWorkday -> "EARLY_EXIT"
+                record!=null&&record.startedAt>0L&&record.closedAt==0L -> "WORKING"
+                record!=null&&record.startedAt>0L&&record.closedAt>0L -> "WORKED"
+                key>today || date.get(Calendar.DAY_OF_WEEK) !in cfg.workDaysOfWeek -> "FUTURE"
+                effective.isNotBlank()&&key<effective -> "NO_RECORD"
+                else -> "NOT_WORKED"
+            }
+            val timeFormat=SimpleDateFormat("HH:mm",Locale("es","MX"))
+            WeeklyDay(names[index],status,
+                record?.startedAt?.takeIf{it>0L}?.let{timeFormat.format(Date(it))}.orEmpty(),
+                record?.closedAt?.takeIf{it>0L}?.let{timeFormat.format(Date(it))}.orEmpty())
+        }
+    }
+
     private fun prefs(c:Context)=c.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
     private fun activeId(c:Context):String=Store.shift(c)?.optString("employeeId").orEmpty()
     private fun dateKey(ts:Long):String=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date(ts))

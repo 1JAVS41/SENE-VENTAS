@@ -73,7 +73,8 @@ class PayrollRequestActivity:FragmentActivity(){
      if(entry==null){Toast.makeText(this,"No se pudo registrar. Revisa el límite.",Toast.LENGTH_LONG).show();return@setPositiveButton}
      val amount=found.optDouble("price")*q;found.put("stock",found.optInt("stock")-q);Store.saveProducts(this,products)
      Store.addMove(this,JSONObject().put("type","EMPLOYEE_CONSUMPTION").put("ts",System.currentTimeMillis()).put("time",stampPayroll()).put("amount",amount).put("worker",workerName).put("employeeId",workerId).put("text","CONSUMO DE EMPLEADO: $workerName | "+found.optString("name")+" x$q | "+Store.money(amount)+" | Descuento de nómina"))
-     Toast.makeText(this,"Consumo registrado. No se agregó a caja.",Toast.LENGTH_LONG).show();draw()
+     val sent=SeneOrderSender.send(this,workerId,workerName,"CONSUMO",found.optString("name")+" x$q",cents,entry.id)
+     Toast.makeText(this,if(sent)"Consumo registrado. WhatsApp se abrió con la orden preparada; pulsa ENVIAR para entregarla al patrón." else "Consumo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
     }.setNegativeButton("VOLVER",null).show()
    d.dismiss()
   }};d.show()
@@ -93,7 +94,8 @@ class PayrollRequestActivity:FragmentActivity(){
      val entry=EmployeePayroll.addRequest(this,EmployeePayroll.TYPE_LOAN,cents,reason.text.toString(),employeeId=workerId)
      if(entry==null){Toast.makeText(this,"No se pudo registrar el préstamo",Toast.LENGTH_LONG).show();return@setPositiveButton}
      Store.addMove(this,JSONObject().put("type","LOAN_DISBURSEMENT").put("ts",System.currentTimeMillis()).put("time",stampPayroll()).put("amount",value).put("worker",workerName).put("employeeId",workerId).put("text","PRÉSTAMO ENTREGADO A $workerName | "+reason.text+" | "+Store.money(value)+" | Descuento de nómina"))
-     Toast.makeText(this,"Préstamo registrado. Caja reducida en "+Store.money(value),Toast.LENGTH_LONG).show();draw()
+     val sent=SeneOrderSender.send(this,workerId,workerName,"PRESTAMO",reason.text.toString(),cents,entry.id)
+     Toast.makeText(this,if(sent)"Préstamo registrado. WhatsApp se abrió con la orden preparada; pulsa ENVIAR para entregarla al patrón." else "Préstamo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
     }.setNegativeButton("CANCELAR",null).show()
    d.dismiss()
   }};d.show()
@@ -121,22 +123,32 @@ class PayrollEmployeeActivity:FragmentActivity(){
   val cfg=EmployeePayroll.config(this,employeeId);val root=payPage("MI NÓMINA");val name=WorkerProfiles.all(this).firstOrNull{it.id==employeeId}?.name.orEmpty()
   root.addView(payText("TRABAJADOR: $name",16f,true))
   if(cfg==null){root.addView(payText("El patrón aún no configuró tu sueldo y días laborables."));payShow(root);return}
-  val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId);val abs=EmployeePayroll.absences(this,employeeId)
-  val dayRate=cfg.weeklySalaryCents/cfg.workDays;val absenceDeduction=(dayRate*abs).coerceAtMost(cfg.weeklySalaryCents)
-  val earlyMinutes=EmployeePayroll.earlyExitMinutes(this,employeeId);val earlyDeduction=EmployeePayroll.earlyExitDeductionCents(this,employeeId).coerceAtMost((cfg.weeklySalaryCents-absenceDeduction).coerceAtLeast(0))
-  val adjusted=(cfg.weeklySalaryCents-absenceDeduction-earlyDeduction).coerceAtLeast(0)
-  val consumption=entries.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents}
-  val loans=entries.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
-  val net=(adjusted-consumption-loans).coerceAtLeast(0)
+  val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId)
+  val calculation=EmployeePayroll.calculateCurrentPeriod(this,employeeId)
+  val abs=calculation.absences
+  val absenceDeduction=calculation.absenceDeductionCents
+  val earlyMinutes=calculation.earlyExitMinutes
+  val earlyDeduction=calculation.earlyExitDeductionCents
+  val consumption=calculation.consumptionCents
+  val loans=calculation.loanCents
+  val net=calculation.netCents
   val work=cfg.workDaysOfWeek.sortedBy{if(it==Calendar.SUNDAY)0 else it}.joinToString(", "){dayName(it)}
   val rest=(Calendar.SUNDAY..Calendar.SATURDAY).filter{it !in cfg.workDaysOfWeek}.joinToString(", "){dayName(it)}
   root.addView(payText("SUELDO SEMANAL\n"+EmployeePayroll.money(cfg.weeklySalaryCents),22f,true))
   root.addView(payText("DÍAS LABORABLES: $work\nDESCANSOS: "+rest.ifBlank{"Ninguno"}+"\nDía de pago: "+dayName(cfg.payDay)))
-  root.addView(payText("Faltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos\nDescuento por salidas anticipadas: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
+  root.addView(payText("Sueldo base del período: "+EmployeePayroll.money(calculation.grossCents)+"\nFaltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos\nDescuento por salidas anticipadas: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
   root.addView(payText("TOTAL A RECIBIR\n"+EmployeePayroll.money(net),24f,true))
   root.addView(payText("HISTORIAL DEL PERIODO",17f,true))
   root.addView(payText("HISTORIAL COMPLETO",17f,true))
   EmployeePayroll.entries(this,employeeId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
+  root.addView(payText("ASISTENCIA DE LA SEMANA",17f,true))
+  EmployeePayroll.weekAttendance(this,employeeId).forEach{day->
+   val symbol=when(day.status){"WORKED","EARLY_EXIT"->"🟢";"NOT_WORKED"->"❌";"WORKING"->"🔁";else->"—"}
+   val status=when(day.status){"NO_RECORD"->"Aún no tenía registro";"EARLY_EXIT"->"Cierre anticipado";"WORKING"->"En curso";"WORKED"->"Jornada completada";"NOT_WORKED"->"Sin asistencia";else->""}
+   val times=listOf(day.started.takeIf{it.isNotBlank()}?.let{"Entrada: $it"},day.closed.takeIf{it.isNotBlank()}?.let{"Salida: $it"}).filterNotNull().joinToString(" · ")
+   val detail=listOf(status,times).filter{it.isNotBlank()}.joinToString(" · ")
+   root.addView(payText(day.day+" - ["+symbol+"]"+if(detail.isBlank()) "" else " · "+detail,13f,true))
+  }
   payShow(root)
  }
  private fun dayName(d:Int)=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado").getOrElse(d){"-"}
@@ -170,6 +182,7 @@ class PayrollAdminActivity:FragmentActivity(){
     root.addView(payText("Aún no hay perfiles. Registra aquí al primer trabajador y entrégale su nombre y PIN de acceso."))
     root.addView(payButton("VOLVER A SOY PATRÓN"){finish()})
     showWorkersScreen(root)
+    root.post { addWorkerProfile() }
     return
    }
    root.addView(payText("EMPLEADOS REGISTRADOS",17f,true))
@@ -204,10 +217,15 @@ class PayrollAdminActivity:FragmentActivity(){
  private fun addWorkerProfile(){
   val name=payInput("Nombre completo del trabajador")
   val phone=payInput("Número de celular (opcional)",true)
-  val pin=payInput("Crea un PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
-  val confirm=payInput("Confirma el PIN de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
-  val box=LinearLayout(this).apply{orientation=1;setPadding(20,8,20,8);addView(name);addView(phone);addView(pin);addView(confirm)}
-  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR").setMessage("Crea el perfil y define el PIN que le entregarás para iniciar turno.").setView(box).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
+  val pin=payInput("PIN personal de 4 dígitos",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val confirm=payInput("Confirma el PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val box=LinearLayout(this).apply{
+   orientation=1;setPadding(20,8,20,8)
+   addView(name);addView(phone);addView(pin);addView(confirm)
+  }
+  val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR")
+   .setMessage("Registra el nombre, celular opcional y PIN de acceso. Después podrás configurar sus horas, días laborales, sueldo semanal y día de pago desde su perfil.")
+   .setView(ScrollView(this).apply{addView(box)}).setPositiveButton("GUARDAR",null).setNegativeButton("CANCELAR",null).create()
   dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
    val code=pin.text.toString()
    if(name.text.isBlank()){name.error="Escribe el nombre";return@setOnClickListener}
@@ -216,7 +234,11 @@ class PayrollAdminActivity:FragmentActivity(){
    val profile=WorkerProfiles.create(this,name.text.toString(),phone.text.toString(),code)
    if(profile==null){name.error="Ese nombre ya existe o no se pudo guardar";return@setOnClickListener}
    dialog.dismiss()
-   AlertDialog.Builder(this).setTitle("PERFIL CREADO").setMessage("Entrega estos datos al trabajador:\n\nNOMBRE: "+profile.name+"\nPIN DE ACCESO: "+code+"\nTELÉFONO: "+profile.phone.ifBlank{"No registrado"}+"\n\nEl PIN no volverá a mostrarse después de cerrar este aviso.").setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
+   AlertDialog.Builder(this).setTitle("DATOS PARA TU TRABAJADOR")
+    .setMessage("PERFIL AGREGADO\\n\\nNOMBRE: "+profile.name+"\\nCELULAR: "+profile.phone.ifBlank{"No indicado"}+
+     "\\nPIN PARA INICIAR TURNO: "+code+
+     "\\n\\nEntrega estos datos únicamente a tu trabajador. Guarda el PIN; por seguridad no se podrá volver a consultar.\\n\\nAhora selecciona su nombre en MIS TRABAJADORES para configurar horas, días laborales, sueldo semanal y día de pago.")
+    .setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
   }}
   dialog.show()
  }

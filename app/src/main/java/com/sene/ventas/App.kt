@@ -300,15 +300,17 @@ private object InventoryArchive {
   val savedTree=activity.getSharedPreferences("sene_ventas_local",0).getString("report_tree_uri",null)?.let{Uri.parse(it)}
   val number=nextNumber(activity,savedTree,employeeId,workerName)
   val target=java.io.File(folder,"inventario-$number.txt")
-  writeInventory(target.outputStream(),products)
+  writeInventory(activity,target.outputStream(),products)
   if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el inventario local")
   if(employeeId.isNullOrBlank())activity.getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).putString("inventory_source_file",target.name).putString("inventory_source_updated",stamp()).apply()
   return target
  }
- private fun writeInventory(stream:java.io.OutputStream,products:JSONArray){
-  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(stamp()).append("\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+ private fun writeInventory(activity:Activity,stream:java.io.OutputStream,products:JSONArray){
+  val updated=stamp()
+  val out=StringBuilder("INVENTARIO_SENE_V1\nActualizado: ").append(updated).append("\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
   for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;out.append("\n").append(p.optString("code")).append(" | ").append(p.optString("name")).append(" | ").append(p.optDouble("price")).append(" | ").append(p.optInt("stock")).append(" | ").append(p.optString("aisle")).append(" | ").append(p.optString("shelf"))}
-  stream.use{it.write(out.toString().toByteArray(Charsets.UTF_8))}
+  val encrypted=SeneSharedFiles.encode("INVENTARIO_SENE",ReportCrypto.ownerKey(activity),out.toString().toByteArray(Charsets.UTF_8),updated)
+  stream.use{it.write(encrypted)}
  }
  fun save(activity:Activity,products:JSONArray,employeeId:String?=null,workerName:String=""):Boolean {
   val local=saveLocal(activity,products,employeeId,workerName)
@@ -349,7 +351,15 @@ private object InventoryReader {
    value
   }
   val raw=resolver.openInputStream(uri)?.use{it.readBytes()}?:throw java.io.IOException("No se pudo abrir el archivo seleccionado")
-  val decoded=if(InventoryCrypto.isEncrypted(raw))InventoryCrypto.decrypt(raw) else raw
+  val decoded=when {
+   SeneSharedFiles.isSharedFile(raw) -> {
+    val shared=SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity))
+    if(shared.category!="INVENTARIO_SENE"&&shared.category!="INVENTARIO_MAESTRO")throw java.io.IOException("El archivo compartido no es un inventario")
+    shared.payload
+   }
+   InventoryCrypto.isEncrypted(raw) -> InventoryCrypto.decrypt(raw)
+   else -> raw
+  }
   // Compatibilidad con TXT de inventarios creados por versiones anteriores.
   // No se exige una frase fija en el encabezado; se valida la tabla real.
   val content=when {
@@ -422,22 +432,35 @@ private object InventoryReader {
    ?:throw java.io.IOException("No se encontró un inventario válido en INVENTARIO SENE")
  }
  fun latestMaster(activity:Activity,tree:Uri?):InventorySnapshot? {
-  val candidates=mutableListOf<InventorySnapshot>()
+  val localCandidates=mutableListOf<InventorySnapshot>()
   val local=java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
   local.listFiles()?.filter{it.isFile&&it.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}?.forEach{file->
    try{
-    val content=file.readText(Charsets.UTF_8);val products=JSONArray()
+    val raw=file.readBytes()
+    val decoded=when{
+     SeneSharedFiles.isSharedFile(raw)->SeneSharedFiles.decode(raw,ReportCrypto.ownerKey(activity)).payload
+     InventoryCrypto.isEncrypted(raw)->InventoryCrypto.decrypt(raw)
+     else->raw
+    }
+    val content=String(decoded,Charsets.UTF_8)
+    val products=JSONArray()
     content.lineSequence().map{it.trim()}.filter{it.isNotBlank()}.forEach{line->
      if(line.startsWith("Actualizado:",true)||line.startsWith("Código",true)||line.equals("INVENTARIO_SENE_V1",true))return@forEach
      val parts=line.split("|").map{it.trim()};if(parts.size<4)return@forEach
      val price=parseAmount(parts[2]);val stock=Regex("-?\\d+").find(parts[3])?.value?.toIntOrNull()
      if(parts[0].isNotBlank()&&parts[1].isNotBlank()&&price!=null&&stock!=null)products.put(JSONObject().put("code",parts[0]).put("name",parts[1]).put("price",price).put("stock",stock).put("aisle",parts.getOrElse(4){""}).put("shelf",parts.getOrElse(5){""}))
     }
-    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";candidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
+    if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";localCandidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
    }catch(_:Exception){}
   }
-  if(tree!=null)try{candidates.addAll(listSnapshots(activity,tree).filter{!it.folder.contains("TRABAJADORES",true)&&it.file.matches(Regex("(?i)^inventario-\\d+\\.txt$"))})}catch(_:Exception){}
-  return candidates.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
+  if(tree!=null)try{
+   val snapshots=listSnapshots(activity,tree)
+   val master=snapshots.filter{it.folder.contains("INVENTARIO-MAESTRO",true)}
+   if(master.isNotEmpty())return master.maxByOrNull{it.updated}
+   val shared=snapshots.filter{!it.folder.contains("TRABAJADORES",true)}
+   if(shared.isNotEmpty())return shared.maxByOrNull{it.updated}
+  }catch(_:Exception){}
+  return localCandidates.maxByOrNull{it.updated}
  }
  fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
   val key=WorkerArchive.profileKey(employeeId,workerName)
@@ -510,10 +533,14 @@ class InicioTurnoActivity:FragmentActivity(){
  private var pendingWorkerId=""
  private var pendingCash=""
  private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
-  // La clave debe quedar configurada antes de registrar el turno o preparar reportes.
-  ReportKeySetup.ensureConfigured(this){
-   continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
+  // El trabajador nunca debe recibir el diálogo de clave del propietario.
+  if(!ReportCrypto.hasKey(this)){
+   AlertDialog.Builder(this).setTitle("CONFIGURACIÓN DEL PATRÓN PENDIENTE")
+    .setMessage("El patrón debe abrir SOY PATRÓN y configurar la clave compartida antes de iniciar turnos.")
+    .setPositiveButton("ENTENDIDO",null).show()
+   return
   }
+  continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
  }
  private fun continueStartShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
   pendingWorkerId=workerId
@@ -541,7 +568,7 @@ class InicioTurnoActivity:FragmentActivity(){
    // permiso de carpeta, el respaldo se guarda en el espacio privado de SENE.
    val profileName=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?.name?:worker
    val profileKey=WorkerArchive.profileKey(workerId,profileName)
-   ArchiveRetention.cleanupIfDue(this,savedTree)
+   ArchiveRetention.cleanupIfDue(this,savedTree,ReportCrypto.ownerKey(this))
    // Todos los perfiles comienzan siempre desde el inventario maestro más reciente.
    // Las copias e historiales individuales permanecen dentro de su carpeta de perfil.
    val snapshot=try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}
@@ -556,13 +583,17 @@ class InicioTurnoActivity:FragmentActivity(){
    // Se crea una copia inicial para el perfil, sin convertirla en la fuente maestra.
    InventoryArchive.save(this,products,workerId,profileName)
    val now=System.currentTimeMillis()
+   val profileRecord=WorkerProfiles.markFirstShift(this,workerId,now)?:WorkerProfiles.all(this).firstOrNull{it.id==workerId}
+   val firstShiftTs=profileRecord?.firstShiftTs?.takeIf{it>0L}?:now
+   val profileCreated=profileRecord?.createdAt?.takeIf{it>0L}?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible en perfil anterior"
+   val firstShiftStamp=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(firstShiftTs))
    val employeeConfig=EmployeePayroll.config(this,workerId)
    val hours=employeeConfig?.dailyHours?:8
    val dayNames=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
    val workDays=employeeConfig?.workDaysOfWeek?.sortedBy{if(it==Calendar.SUNDAY)0 else it}?.joinToString(", "){dayNames.getOrElse(it){"-"}}?: "Pendiente de configurar"
    val payDayName=employeeConfig?.let{dayNames.getOrElse(it.payDay){"-"}}?: "Pendiente de configurar"
    val shift=JSONObject().put("shiftId",UUID.randomUUID().toString()).put("reportCount",0).put("employeeId",workerId).put("worker",worker).put("phone",phone).put("cash",parseAmount(cash)?:0.0).put("started",stamp()).put("startTs",now).put("workHours",hours).put("expectedEndTs",now+hours*3600000L).put("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now+hours*3600000L))).put("lastReport",now).put("workDaysOfWeek",JSONArray().apply{employeeConfig?.workDaysOfWeek?.sorted()?.forEach{put(it)}}).put("weeklySalaryCents",employeeConfig?.weeklySalaryCents?:0L).put("payDay",employeeConfig?.payDay?:0)
-   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+   val report=StringBuilder("SENE-VENTAS - INICIO DE TURNO\nFecha y hora: ").append(stamp()).append("\nFECHA Y HORA DE CREACIÓN DEL PERFIL: ").append(profileCreated).append("\nFECHA Y HORA DEL PRIMER INICIO DE TURNO: ").append(firstShiftStamp).append("\nHORA DE ENTRADA: ").append(stamp()).append("\nHORA DE SALIDA: Por definir").append("\nTrabajador: ").append(worker).append("\nNúmero del trabajador: ").append(phone).append("\nHoras de jornada: ").append(hours).append("\nDías laborales: ").append(workDays).append("\nSueldo semanal: ").append(employeeConfig?.let{EmployeePayroll.money(it.weeklySalaryCents)}?: "Pendiente de configurar").append("\nDía de pago: ").append(payDayName).append("\nCaja inicial: ").append(Store.money(shift.optDouble("cash"))).append("\nInventario SENE: carpeta ").append(latest).append("\nArchivo de inventario: ").append(newest).append("\nÚltima actualización del inventario: ").append(updated).append("\n\nINVENTARIO_SENE_V1\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
    for(i in 0 until products.length()){val item=products.optJSONObject(i)?:continue;report.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock")).append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))}
    val body=report.toString()+REPORT_BACKUP_NOTE
    if(savedTree!=null) saveTextBackup(this,savedTree,"SENE-VENTAS-INICIO",body,workerId,worker)
@@ -666,20 +697,31 @@ class MainActivity:FragmentActivity(){
  private var pendingShareUri:Uri?=null
  private var pendingFinalShare=false
  private var confirmingReport=false
+ @Volatile private var reportProcessing=false
  private var refreshAfterPatron=false
  private var overtimeDialog:AlertDialog?=null
  private val lock=object:Runnable{override fun run(){
   if(::sell.isInitialized){
-   updateReportCountdown()
-   if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}
-   checkScheduledWorkdayEnd()
+   val active=Store.shift(this@MainActivity)
+   if(active?.optBoolean("finishPending",false)==true){
+    sell.isEnabled=false;sell.alpha=0.45f
+    if(::countdownView.isInitialized)countdownView.text="CIERRE DE TURNO EN PROCESO"
+   }else{
+    checkScheduledWorkdayEnd()
+    if(overtimeDialog?.isShowing!=true){
+     updateReportCountdown()
+     if(due())showReportAlert() else {sell.isEnabled=true;sell.alpha=1f}
+    }else{
+     sell.isEnabled=false;sell.alpha=0.45f
+    }
+   }
   }
   h.postDelayed(this,1000)
  }}
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(10800000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=10800000}
  override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();if(intent.getBooleanExtra("admin_force_close",false))h.post{requestAdminForceClose()}}}
- override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized){if(due())h.post{showReportAlert()};h.post{checkScheduledWorkdayEnd()}}}
+ override fun onResume(){super.onResume();if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized){val active=Store.shift(this);if(active?.optBoolean("finishPending",false)==true){sell.isEnabled=false;sell.alpha=0.45f}else{h.post{checkScheduledWorkdayEnd();if(overtimeDialog?.isShowing!=true&&due())showReportAlert()}}}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
  private fun refreshSalesInternetClock(){
   salesInternetText="Consultando…"
@@ -699,7 +741,15 @@ class MainActivity:FragmentActivity(){
    }
   }.start()
  }
- private fun showReportAlert(){if(reportDialog?.isShowing==true)return;reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}}
+ private fun showReportAlert(){
+  if(reportDialog?.isShowing==true)return
+  val active=Store.shift(this)?:return
+  // Un solo aviso por ciclo: no repetir mientras el trabajador no confirme el envío.
+  if(active.optBoolean("reportReminderShown",false))return
+  active.put("reportReminderShown",true)
+  Store.saveShift(this,active)
+  reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}
+ }
  private var selectedPrinterAddress:String?=null
  private var printerSocket:BluetoothSocket?=null
  private val printerSppUuid=UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
@@ -953,6 +1003,9 @@ class MainActivity:FragmentActivity(){
      .put("completedWorkday",completed).put("finishPending",true)
     Store.saveShift(this,active)
     dialog.dismiss()
+    reportDialog?.dismiss()
+    sell.isEnabled=false;sell.alpha=0.45f
+    if(::countdownView.isInitialized)countdownView.text="CIERRE DE TURNO EN PROCESO"
     sendReport(true)
    }
    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener{
@@ -977,7 +1030,7 @@ class MainActivity:FragmentActivity(){
  }
  private fun requestEarlyProfileChange(){
   val shift=Store.shift(this)?:return
-  val reason=input("Especifica el motivo obligatorio",true)
+  val reason=input("Especifica el motivo obligatorio",false).apply{inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES}
   val dialog=AlertDialog.Builder(this).setTitle("CAMBIAR DE PERFIL")
    .setMessage("Al continuar se cerrará tu turno actual, se generará tu reporte y se avisará al patrón por WhatsApp. Este cierre se reflejará en tu nómina.")
    .setView(reason).setPositiveButton("CONTINUAR",null).setNegativeButton("CANCELAR",null).create()
@@ -1292,7 +1345,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    AlertDialog.Builder(this).setTitle("Elegir carpeta para reportes")
     .setMessage("La primera vez, elige dónde guardar los reportes. Recomendamos crear una carpeta llamada “Inventario SENE” y seleccionarla. SENE-VENTAS organizará automáticamente los documentos en carpetas por fecha.")
     .setPositiveButton("ELEGIR CARPETA"){_,_->val pick=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)};startActivityForResult(pick,TREE_REPORT_REQUEST)}
-    .setNegativeButton("Cancelar",null).show()
+    .setNegativeButton("Cancelar"){_,_->if(final){Store.shift(this)?.let{active->active.put("finishPending",false);active.remove("closingType");active.remove("closingBy");active.remove("closingTs");active.remove("closed");active.remove("completedWorkday");Store.saveShift(this,active)};pendingFinalReport=false;h.post{if(::sell.isInitialized){sell.isEnabled=true;sell.alpha=1f};updateReportCountdown()}}}.show()
    return
   }
   completeReport(final,Uri.parse(saved))
@@ -1308,8 +1361,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(e:Exception){msg("No se pudo abrir el selector para guardar el reporte TXT")}
  }
  private fun completeReport(final:Boolean,tree:Uri){
-  val s=Store.shift(this)?:return
-  try{
+  if(reportProcessing)return
+  reportProcessing=true
+  if(final){sell.isEnabled=false;sell.alpha=0.45f;if(::countdownView.isInitialized)countdownView.text="PREPARANDO REPORTE…"}
+  Thread{
+   val s=Store.shift(this@MainActivity)
+   if(s==null){runOnUiThread{reportProcessing=false};return@Thread}
+   try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
    // Publicar el stock compartido como nuevo inventario maestro y conservar la copia individual.
    val currentProducts=Store.products(this)
@@ -1322,7 +1380,43 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     "ADMIN_FORCED"->"CIERRE ADMINISTRATIVO FORZADO\nTRABAJADOR: "+s.optString("worker")+"\nMOTIVO: "+s.optString("closingReason")+"\nHORA DE CIERRE: "+s.optString("closed")+"\nREALIZADO POR: PATRÓN\n"
     else->""
    }
-   val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+REPORT_BACKUP_NOTE
+   val employeeId=s.optString("employeeId")
+   val payrollConfig=EmployeePayroll.config(this,employeeId)
+   val payrollSummary=if(final && payrollConfig!=null){
+    val period=EmployeePayroll.periodKey(System.currentTimeMillis(),payrollConfig.payDay)
+    val attended=EmployeePayroll.attendance(this).filter{it.employeeId==employeeId&&it.date>=period&&it.date<=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())&&it.startedAt>0L}
+    val workedDays=attended.map{it.date}.distinct().size
+    val absences=EmployeePayroll.absences(this,employeeId)
+    val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId)
+    val loans=entries.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
+    val consumption=entries.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents}
+    "\n\nDESGLOSE PARA NÓMINA SENE ADMIN\nPERÍODO DESDE: "+period+
+     "\nDÍAS LABORABLES POR SEMANA: "+payrollConfig.workDays+
+     "\nDÍAS TRABAJADOS REGISTRADOS: "+workedDays+
+     "\nFALTAS REGISTRADAS HASTA EL CIERRE: "+absences+
+     "\nSUELDO SEMANAL: "+EmployeePayroll.money(payrollConfig.weeklySalaryCents)+
+     "\nDÍA DE PAGO: "+listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado").getOrElse(payrollConfig.payDay){"-"}+
+     "\nPRÉSTAMOS PENDIENTES: "+EmployeePayroll.money(loans)+
+     "\nCONSUMOS PENDIENTES: "+EmployeePayroll.money(consumption)+
+     "\nTIPO DE CIERRE: "+s.optString("closingType","CIERRE NORMAL")+
+     "\nQUIÉN CERRÓ: "+s.optString("closingBy","TRABAJADOR")+
+     "\nHORA DE ENTRADA: "+s.optString("started","No indicada")+
+     "\nHORA DE SALIDA: "+s.optString("closed","No indicada")+
+     "\nMOTIVO DE CIERRE: "+s.optString("closingReason","No aplica")
+   }else ""
+   val inventoryBlock=if(final){
+    val inventory=StringBuilder("\n\nINVENTARIO AL FINALIZAR TURNO\nCódigo | Producto | Precio | Existencia | Pasillo | Estante")
+    for(i in 0 until currentProducts.length()){
+     val item=currentProducts.optJSONObject(i)?:continue
+     inventory.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name"))
+      .append(" | ").append(Store.money(item.optDouble("price"))).append(" | ").append(item.optInt("stock"))
+      .append(" | ").append(item.optString("aisle")).append(" | ").append(item.optString("shelf"))
+    }
+    inventory.toString()
+   }else ""
+   val damagedItems=try{JSONArray(getSharedPreferences("sene_ventas_local",0).getString("damaged_products","[]")?:"[]")}catch(_:Exception){JSONArray()}
+   val damagedBlock=if(damagedItems.length()>0){val out=StringBuilder("\n\nPRODUCTOS_DANADOS_SENE_V1\nCODIGO | PRODUCTO | CANTIDAD | FECHA | MOTIVO | TRABAJADOR");for(i in 0 until damagedItems.length()){val item=damagedItems.optJSONObject(i)?:continue;out.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optInt("qty",1)).append(" | ").append(item.optString("time")).append(" | ").append(item.optString("reason").replace("|","/")).append(" | ").append(item.optString("worker",s.optString("worker")))};out.toString()}else ""
+   val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+payrollSummary+inventoryBlock+damagedBlock+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
    pendingShareUri=dailyUri
@@ -1338,8 +1432,18 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    encryptedFile.writeText(pendingReportText?:throw java.io.IOException("No se generó el reporte cifrado"),Charsets.UTF_8)
    if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
    pendingFinalShare=final
-   launchPendingReportShare()
-  }catch(e:Exception){msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))}
+   runOnUiThread{
+    reportProcessing=false
+    if(!isFinishing&&!isDestroyed)launchPendingReportShare()
+   }
+  }catch(e:Exception){
+   runOnUiThread{
+    reportProcessing=false
+    if(final)Store.shift(this@MainActivity)?.let{active->active.put("finishPending",false);Store.saveShift(this@MainActivity,active)}
+    if(!isFinishing&&!isDestroyed)msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))
+   }
+  }
+  }.start()
  }
  private fun launchPendingReportShare(){
   val body=pendingReportText?:return
@@ -1356,7 +1460,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
     val shift=Store.shift(this)
     if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"),active.optBoolean("completedWorkday",false))}};Store.saveShift(this,null);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
-    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
+    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportReminderShown",false).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
    }
    .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
    .show()
@@ -1377,7 +1481,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val time=SimpleDateFormat("HH-mm-ss",Locale.US).format(Date())
   val name="SENE-VENTAS-$date-$time.txt"
   val target=DocumentsContract.createDocument(resolver,folder,"text/plain",name)?:throw java.io.IOException("No se pudo crear el TXT")
-  resolver.openOutputStream(target,"w")?.use{out->source.inputStream().use{it.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el TXT")
+  resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(this,source.readBytes()))}?:throw java.io.IOException("No se pudo escribir el TXT")
   return target
  }
  private fun stock(){
@@ -1397,7 +1501,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   panel.addView(TextView(this).apply{text="PRODUCTOS: "+total+"     •     STOCK BAJO: "+low;textSize=13f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF314B7C.toInt());setPadding(dp(5),dp(5),dp(5),dp(10))},0)
   AlertDialog.Builder(this).setTitle("INVENTARIO · EXISTENCIAS").setView(scroll).setPositiveButton("CERRAR",null).show()
  }
- override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){val scanned=codes.last();when{scanningTicketCorrection->{scanningTicketCorrection=false;handleTicketCorrectionScan(scanned)};correctionStage>0->handleCorrectionProductScan(scanned);else->reviewScannedCodes(codes)}};return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
+ override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==TREE_REPORT_REQUEST&&c!=RESULT_OK){if(pendingFinalReport){pendingFinalReport=false;Store.shift(this)?.let{active->active.put("finishPending",false);active.remove("closingType");active.remove("closingBy");active.remove("closingTs");active.remove("closed");active.remove("completedWorkday");Store.saveShift(this,active)};h.post{if(::sell.isInitialized){sell.isEnabled=true;sell.alpha=1f};updateReportCountdown()}};return};if(r==TREE_REPORT_REQUEST&&c==RESULT_OK){val tree=d?.data?:return;try{contentResolver.takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION);getSharedPreferences("sene_ventas_local",0).edit().putString("report_tree_uri",tree.toString()).apply();WorkerProfiles.all(this).forEach{WorkerArchive.ensureProfileFolders(this,it.id,it.name)};completeReport(pendingFinalReport,tree)}catch(e:Exception){msg("No se pudo guardar el acceso a la carpeta: "+(e.message?:"error"))};return};if(r==SAVE_REPORT_REQUEST&&c==RESULT_OK){val uri=d?.data?:return;try{val file=ReportFile.update(this);contentResolver.openOutputStream(uri)?.use{out->file.inputStream().use{it.copyTo(out)}};msg("Reporte TXT guardado en la ubicación que elegiste")}catch(e:Exception){msg("No se pudo guardar el TXT: "+(e.message?:"error"))};return};if(r==SCAN_REQUEST&&c==RESULT_OK){val codes=d?.getStringArrayListExtra(SCAN_CODES);if(!codes.isNullOrEmpty()){val scanned=codes.last();when{scanningTicketCorrection->{scanningTicketCorrection=false;handleTicketCorrectionScan(scanned)};correctionStage>0->handleCorrectionProductScan(scanned);else->reviewScannedCodes(codes)}};return};val x=IntentIntegrator.parseActivityResult(r,c,d);if(x?.contents!=null)addCode(x.contents)}
 }
 
 class AgregarInventarioActivity:Activity(){
@@ -1452,7 +1556,8 @@ class AgregarInventarioActivity:Activity(){
 
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
- override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){draw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{draw()}else draw()}}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){ensureOwnerKeyThenDraw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ensureOwnerKeyThenDraw()}else ensureOwnerKeyThenDraw()}}}
+ private fun ensureOwnerKeyThenDraw(){ReportKeySetup.ensureConfigured(this){draw()}}
  private fun adminTag(label:String,sub:String,accent:Int=0xFF365BA4.toInt(),action:()->Unit):View {
   val tag=LinearLayout(this).apply{
    orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
@@ -1491,6 +1596,23 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("CARGAR INVENTARIO DESDE TXT","Restaurar un inventario guardado"){chooseInventoryFolder()})
   v.addView(adminTag("VOLVER A VENTAS","Regresar a la pantalla principal",0xFF78849D.toInt()){finish()})
   display(v)
+  v.post { showFirstSetupGuideIfNeeded() }
+ }
+ private fun showFirstSetupGuideIfNeeded(){
+  val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
+  if(prefs.getBoolean("first_setup_guide_shown",false))return
+  val alreadyConfigured=prefs.getBoolean("first_inventory_created",false) ||
+   Store.products(this).length()>0 || WorkerProfiles.all(this).isNotEmpty()
+  if(alreadyConfigured){prefs.edit().putBoolean("first_setup_guide_shown",true).apply();return}
+  AlertDialog.Builder(this)
+   .setTitle("¡COMENCEMOS A ORGANIZAR TU NEGOCIO!")
+   .setMessage("Lo primero que debes hacer es crear todo tu inventario. Realiza estos pasos en orden:\n\n"+
+    "1. CREA TU INVENTARIO\nEscanea cada producto que tengas y agrega su descripción: nombre, precio, cantidad disponible y ubicación en el pasillo y estante que corresponda.\n\n"+
+    "2. DA DE ALTA A TUS TRABAJADORES\nCrea el perfil de cada trabajador con su nombre, número de celular, días que trabajará, horas por turno, sueldo y día de pago.\n\n"+
+    "Así tendrás tu negocio organizado antes de comenzar a trabajar con SENE VENTAS.")
+   .setCancelable(false)
+   .setPositiveButton("ENTENDIDO"){_,_->prefs.edit().putBoolean("first_setup_guide_shown",true).apply()}
+   .show()
  }
  private fun togglePatronBiometric(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
@@ -1863,20 +1985,22 @@ private fun saveReportToDownloads(activity:Activity,file:java.io.File):Uri? {
  }
  val uri=resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)?:return null
  try {
-  resolver.openOutputStream(uri,"w")?.use{out->file.inputStream().use{input->input.copyTo(out)}}?:throw java.io.IOException("No se pudo escribir el reporte")
+  resolver.openOutputStream(uri,"w")?.use{it.write(encryptedReportBackup(activity,file.readBytes()))}?:throw java.io.IOException("No se pudo escribir el reporte")
   val done=android.content.ContentValues().apply{put(android.provider.MediaStore.MediaColumns.IS_PENDING,0)}
   resolver.update(uri,done,null,null)
   return uri
  }catch(e:Exception){resolver.delete(uri,null,null);throw e}
 }
 
+private fun encryptedReportBackup(activity:Activity,body:ByteArray):ByteArray =
+ SeneSharedFiles.encode("REPORTES",ReportCrypto.ownerKey(activity),body,stamp())
 private const val REPORT_BACKUP_NOTE="\n\nGuarde este reporte en una carpeta segura. Será su respaldo de inventario hasta este momento."
 private fun saveTextBackupLocal(activity:Activity,prefix:String,body:String,employeeId:String="",workerName:String=""):java.io.File {
  val folder=if(employeeId.isNotBlank())WorkerArchive.localReportsFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"SENE VENTAS/INVENTARIO SENE")
  if(!folder.exists()&&!folder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta privada de respaldo SENE VENTAS")
  val date=SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS",Locale.US).format(Date())
  val target=java.io.File(folder,"$prefix-$date.txt")
- target.writeText(body,Charsets.UTF_8)
+ target.writeBytes(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))
  if(!target.exists()||target.length()==0L)throw java.io.IOException("No se pudo verificar el TXT de respaldo")
  return target
 }
@@ -1895,7 +2019,7 @@ private fun saveTextBackup(activity:Activity,tree:Uri,prefix:String,body:String,
  val folder=child(root,date)?:DocumentsContract.createDocument(resolver,root,DocumentsContract.Document.MIME_TYPE_DIR,date)?:throw java.io.IOException("No se pudo crear la carpeta de respaldo")
  val time=SimpleDateFormat("HH-mm-ss-SSS",Locale.US).format(Date())
  val target=DocumentsContract.createDocument(resolver,folder,"text/plain","$prefix-$date-$time.txt")?:throw java.io.IOException("No se pudo crear el TXT de respaldo")
- resolver.openOutputStream(target,"w")?.use{it.write(body.toByteArray(Charsets.UTF_8))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
+ resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
  return target
 }
 private fun openWhatsAppText(activity:Activity,body:String):Boolean {
@@ -1972,6 +2096,22 @@ object ReportFile {
    .append("\nEFECTIVO ESTIMADO: ").append(Store.money(shift.optDouble("cash")+total-providerTotal-loanTotal))
    .append("\n\nETIQUETA: GASTOS Y MOVIMIENTOS")
   for(i in 0 until moves.length()){val x=moves.optJSONObject(i)?:continue;if(x.optLong("ts",0L)>=shift.optLong("startTs",0L) && (x.optString("employeeId")==shift.optString("employeeId") || (x.optString("employeeId").isBlank() && shift.optString("employeeId").isBlank())))out.append("\n").append(x.optString("time")).append(" | ").append(x.optString("text"))}
+  // Incluir solicitudes de préstamo y consumo pendientes en cada reporte para que SENE ADMIN las organice sin separarlas.
+  val employeeId=shift.optString("employeeId")
+  if(employeeId.isNotBlank()){
+   val payrollEntries=EmployeePayroll.entriesForCurrentPeriod(c,employeeId)
+   out.append("\n\nETIQUETA: SOLICITUDES DE NÓMINA PENDIENTES")
+   if(payrollEntries.isEmpty())out.append("\nSin solicitudes pendientes en este período.")
+   for(entry in payrollEntries){
+    val kind=if(entry.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
+    out.append("\n").append(kind).append(" | ").append(EmployeePayroll.money(entry.amountCents))
+     .append("\nFECHA: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
+     .append("\nMOTIVO: ").append(entry.reason.ifBlank{"No indicado"})
+     .append("\nDESCRIPCIÓN: ").append(entry.description.ifBlank{"No indicada"})
+     .append("\nESTADO: ").append(if(entry.settled)"LIQUIDADO" else "PENDIENTE")
+   }
+  }
+
   out.append("\n\nETIQUETA: EXISTENCIAS ACTUALES")
   val products=data.optJSONArray("products") ?: org.json.JSONArray()
   for(i in 0 until products.length()){val x=products.optJSONObject(i)?:continue;out.append("\nPRODUCTO: ").append(x.optString("name")).append("\nCÓDIGO: ").append(x.optString("code")).append(" | PRECIO: ").append(Store.money(x.optDouble("price"))).append(" | STOCK: ").append(x.optInt("stock")).append("\nPASILLO: ").append(x.optString("aisle").ifBlank{"No indicado"}).append(" | ESTANTE: ").append(x.optString("shelf").ifBlank{"No indicado"})}
@@ -1998,8 +2138,13 @@ class WelcomeActivity:Activity(){
   setOnClickListener{click()}
  }
  private var checking=false
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);showWelcome()}
- override fun onResume(){super.onResume();if(!isFinishing)checkExistingSession()}
+ private var keySetupReady=false
+ override fun onCreate(savedInstanceState:Bundle?){
+  super.onCreate(savedInstanceState);showWelcome()
+  if(ReportCrypto.hasKey(this))keySetupReady=true
+  else ReportKeySetup.ensureConfigured(this){keySetupReady=true;checkExistingSession()}
+ }
+ override fun onResume(){super.onResume();if(keySetupReady&&!isFinishing)checkExistingSession()}
  private fun checkExistingSession(){
   if(checking)return
   checking=true
@@ -2034,6 +2179,7 @@ class WelcomeActivity:Activity(){
   card.addView(logo,LinearLayout.LayoutParams(dp(118),dp(118)).apply{bottomMargin=dp(14)})
   card.addView(TextView(this).apply{text="SENE / VENTAS";textSize=25f;gravity=Gravity.CENTER;typeface=Typeface.create("sans-serif-black",Typeface.BOLD);setTextColor(0xFF173C7B.toInt())})
   card.addView(TextView(this).apply{text="GESTIÓN INTELIGENTE";textSize=11f;letterSpacing=.16f;gravity=Gravity.CENTER;setTextColor(0xFF71809B.toInt());setPadding(0,dp(5),0,dp(24))})
+  card.addView(TextView(this).apply{text="Te recomendamos guardar tus claves y datos de acceso en una USB.";textSize=13f;gravity=Gravity.CENTER;setTextColor(0xFF526579.toInt());setPadding(dp(8),0,dp(8),dp(12))})
   card.addView(action("YA SOY CLIENTE SENE · INICIAR SESIÓN",true){startActivity(Intent(this,AccountLoginActivity::class.java))})
   card.addView(action("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))})
   root.addView(card,LinearLayout.LayoutParams(-1,-2))

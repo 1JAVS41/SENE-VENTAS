@@ -14,7 +14,7 @@ object WorkerProfiles {
     private const val PREFS = "sene_worker_profiles_v1"
     private const val KEY = "profiles"
 
-    data class Profile(val id:String,val name:String,val phone:String,val salt:String,val pinHash:String)
+    data class Profile(val id:String,val name:String,val phone:String,val salt:String,val pinHash:String,val createdAt:Long=0L,val firstShiftTs:Long=0L)
 
     private fun prefs(c:Context)=c.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
     @Synchronized fun all(c:Context):List<Profile>{
@@ -24,13 +24,13 @@ object WorkerProfiles {
             buildList { for(i in 0 until a.length()){
                 val x=a.optJSONObject(i)?:continue
                 val id=x.optString("id");val name=x.optString("name")
-                if(id.isNotBlank()&&name.isNotBlank())add(Profile(id,name,x.optString("phone"),x.optString("salt"),x.optString("pinHash")))
+                if(id.isNotBlank()&&name.isNotBlank())add(Profile(id,name,x.optString("phone"),x.optString("salt"),x.optString("pinHash"),x.optLong("createdAt",0L),x.optLong("firstShiftTs",0L)))
             }}
         } catch(_:Exception){emptyList()}
     }
     private fun save(c:Context,items:List<Profile>):Boolean{
         val a=JSONArray()
-        items.forEach{a.put(JSONObject().put("id",it.id).put("name",it.name).put("phone",it.phone).put("salt",it.salt).put("pinHash",it.pinHash))}
+        items.forEach{a.put(JSONObject().put("id",it.id).put("name",it.name).put("phone",it.phone).put("salt",it.salt).put("pinHash",it.pinHash).put("createdAt",it.createdAt).put("firstShiftTs",it.firstShiftTs))}
         return prefs(c).edit().putString(KEY,a.toString()).commit()
     }
     private fun digest(salt:String,pin:String):String{
@@ -45,8 +45,16 @@ object WorkerProfiles {
         val existing=all(c)
         if(existing.any{it.name.equals(clean,true)})return null
         val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}.joinToString(""){"%02x".format(it)}
-        val profile=Profile(UUID.randomUUID().toString(),clean,phone.filter{it.isDigit()},salt,digest(salt,pin))
+        val profile=Profile(UUID.randomUUID().toString(),clean,phone.filter{it.isDigit()},salt,digest(salt,pin),System.currentTimeMillis(),0L)
         return if(save(c,existing+profile)){try{WorkerArchive.ensureProfileFolders(c,profile.id,profile.name)}catch(_:Exception){};profile}else null
+    }
+    @Synchronized fun markFirstShift(c:Context,profileId:String,ts:Long):Profile?{
+        val items=all(c)
+        val current=items.firstOrNull{it.id==profileId}?:return null
+        if(current.firstShiftTs>0L)return current
+        val updated=current.copy(firstShiftTs=ts)
+        if(!save(c,items.map{if(it.id==profileId)updated else it}))return null
+        return updated
     }
     fun verify(profile:Profile,pin:String):Boolean=pin.length==4&&pin.all{it.isDigit()}&&digest(profile.salt,pin)==profile.pinHash
 }
