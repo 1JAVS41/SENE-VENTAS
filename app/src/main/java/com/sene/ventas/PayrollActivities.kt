@@ -300,10 +300,18 @@ class PayrollAdminActivity:FragmentActivity(){
      .setPositiveButton("ENTENDIDO"){_,_->draw()}.setCancelable(false).show()
    }
   }
-  dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR").setView(shell).setCancelable(true).create()
+  // Dialog personalizado con altura acotada: el ScrollView ocupa el espacio flexible
+  // y la barra de acciones queda fuera del scroll, siempre visible.
+  dialog=android.app.Dialog(this)
+  dialog.setContentView(shell,android.view.ViewGroup.LayoutParams(-1,-1))
+  dialog.setCancelable(true)
+  dialog.setCanceledOnTouchOutside(true)
   dialog.show()
-  dialog.window?.setLayout((resources.displayMetrics.widthPixels*0.96f).toInt(),(resources.displayMetrics.heightPixels*0.88f).toInt())
-  dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+  dialog.window?.apply{
+   setBackgroundDrawableResource(android.R.color.transparent)
+   setLayout((resources.displayMetrics.widthPixels*0.96f).toInt(),(resources.displayMetrics.heightPixels*0.88f).toInt())
+   setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+  }
  }
  private fun addEmployeeConfiguration(root:LinearLayout,profile:WorkerProfiles.Profile,old:EmployeePayroll.Config?,selectedId:String,manage:Boolean){
   val name=payInput("Nombre del empleado").apply{setText(profile.name);isEnabled=false}
