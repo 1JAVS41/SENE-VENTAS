@@ -239,12 +239,12 @@ class PayrollAdminActivity:FragmentActivity(){
    addView(box,android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
   }
   val screenHeight=resources.displayMetrics.heightPixels
-  scroll.layoutParams=android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,(screenHeight*0.58f).toInt())
+  scroll.layoutParams=android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,(screenHeight*0.43f).toInt())
   val dialog=AlertDialog.Builder(this).setTitle("AGREGAR TRABAJADOR")
    .setMessage("Completa todos los datos en esta pantalla. Desliza hacia arriba para ver el resto. El PIN es privado y nunca se incluye en los reportes.")
    .setView(scroll).setPositiveButton("GUARDAR PERFIL",null).setNegativeButton("CANCELAR",null).create()
   dialog.setOnShowListener{
-   dialog.window?.setLayout((resources.displayMetrics.widthPixels*0.94f).toInt(),(screenHeight*0.88f).toInt())
+   dialog.window?.setLayout((resources.displayMetrics.widthPixels*0.94f).toInt(),(screenHeight*0.90f).toInt())
    dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
    dialog.getButton(-1).setOnClickListener{
    val cleanName=name.text.toString().trim()
