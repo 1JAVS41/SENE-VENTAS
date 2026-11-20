@@ -162,7 +162,7 @@ private fun Activity.display(v:LinearLayout){
  WindowCompat.setDecorFitsSystemWindows(window,false)
  window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
  val sc=ScrollView(this)
- sc.setBackgroundColor(0xFFF4F5FA.toInt())
+ sc.setBackgroundColor(0xFFF4F7FD.toInt())
  sc.isFillViewport=true
  sc.isSmoothScrollingEnabled=true
  sc.isVerticalScrollBarEnabled=true
@@ -831,7 +831,7 @@ class MainActivity:FragmentActivity(){
   }.start()
  }
  private fun showPrinterSetup(){
-  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(12));setBackgroundColor(0xFFF4F7FD.toInt())}
   panel.addView(TextView(this).apply{text="IMPRESORAS BLUETOOTH COMPATIBLES";textSize=16f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1D315B.toInt());setPadding(0,dp(4),0,dp(8))})
   fun legend(label:String,detail:String,color:Int){
    val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(10),dp(12),dp(10));background=rounded(0xFFFFFFFF.toInt(),12,0xFFDCE3F0.toInt())}
@@ -1120,7 +1120,7 @@ class MainActivity:FragmentActivity(){
   dialog.show()
  }
  private fun showToolsMenu(){
-  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F6FB.toInt())}
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(12));setBackgroundColor(0xFFF4F7FD.toInt())}
   val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
   val dialog=AlertDialog.Builder(this).setTitle("HERRAMIENTAS SENE").setView(scroll).setNegativeButton("CERRAR",null).create()
   val items=listOf(
@@ -1305,7 +1305,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }
   offerSupplierInventory(c,null)
  }
- private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);ticketView.removeAllViews();var sum=0.0;if(ticket.isEmpty())ticketView.addView(TextView(this).apply{text="Ticket vacío";textSize=16f;setTextColor(0xFF66708A.toInt());setPadding(dp(8),dp(8),dp(8),dp(8))});for((c,q) in ticket.toMap()){var product:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){product=x;break}};val x=product?:continue;val sub=x.optDouble("price")*q;sum+=sub;val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(4),dp(6),dp(4),dp(6))};val name=TextView(this).apply{text=x.optString("name")+"\n"+Store.money(x.optDouble("price"))+" c/u";textSize=13f;setTextColor(0xFF263D70.toInt())};row.addView(name,LinearLayout.LayoutParams(0,-2,1f));val minus=Button(this).apply{text="−";textSize=18f;minWidth=dp(42);setOnClickListener{val n=(ticket[c]?:0)-1;if(n<=0)ticket.remove(c)else ticket[c]=n;refresh()}};row.addView(minus);row.addView(TextView(this).apply{text=q.toString();textSize=16f;gravity=Gravity.CENTER;setTextColor(0xFF17213D.toInt());setPadding(dp(8),0,dp(8),0)});val plus=Button(this).apply{text="+";textSize=18f;minWidth=dp(42);setOnClickListener{val current=ticket[c]?:0;val stock=x.optInt("stock");if(current>=stock)msg("No puedes agregar más unidades. Stock disponible: $stock")else{ticket[c]=current+1;refresh()}}};row.addView(plus);ticketView.addView(row);ticketView.addView(View(this).apply{setBackgroundColor(0xFFE7EAF1.toInt())},LinearLayout.LayoutParams(-1,dp(1)))};val entered=parseAmount(paid.text.toString());val diff=(entered?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff);if(::sell.isInitialized){val ready=entered!=null&&entered>=sum&&sum>0.0&&!due();sell.text="COBRAR";sell.background=if(ready)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF39F36B.toInt(),0xFF00C853.toInt())).apply{cornerRadius=dp(14).toFloat()}else GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFFE53935.toInt(),0xFFB71C1C.toInt())).apply{cornerRadius=dp(14).toFloat()};sell.setTextColor(0xFFFFFFFF.toInt());sell.isEnabled=!due();sell.alpha=if(due())0.45f else 1f};if(::paid.isInitialized&&entered!=null)paid.background=rounded(0xFFFFFFFF.toInt(),14,0xFFDCE2EF.toInt())}
+ private fun refresh(){if(!::ticketView.isInitialized)return;val p=Store.products(this);ticketView.removeAllViews();var sum=0.0;if(ticket.isEmpty())ticketView.addView(TextView(this).apply{text="Ticket vacío";textSize=16f;setTextColor(0xFF66708A.toInt());setPadding(dp(8),dp(8),dp(8),dp(8))});for((c,q) in ticket.toMap()){var product:JSONObject?=null;for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==c){product=x;break}};val x=product?:continue;val sub=x.optDouble("price")*q;sum+=sub;val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(4),dp(6),dp(4),dp(6))};val name=TextView(this).apply{text=x.optString("name")+"\n"+Store.money(x.optDouble("price"))+" c/u";textSize=13f;setTextColor(0xFF263D70.toInt())};row.addView(name,LinearLayout.LayoutParams(0,-2,1f));val minus=Button(this).apply{text="−";textSize=18f;minWidth=dp(42);setOnClickListener{val n=(ticket[c]?:0)-1;if(n<=0)ticket.remove(c)else ticket[c]=n;refresh()}};row.addView(minus);row.addView(TextView(this).apply{text=q.toString();textSize=16f;gravity=Gravity.CENTER;setTextColor(0xFF17213D.toInt());setPadding(dp(8),0,dp(8),0)});val plus=Button(this).apply{text="+";textSize=18f;minWidth=dp(42);setOnClickListener{val current=ticket[c]?:0;val stock=x.optInt("stock");if(current>=stock)msg("No puedes agregar más unidades. Stock disponible: $stock")else{ticket[c]=current+1;refresh()}}};row.addView(plus);ticketView.addView(row);ticketView.addView(View(this).apply{setBackgroundColor(0xFFE7EAF1.toInt())},LinearLayout.LayoutParams(-1,dp(1)))};val entered=parseAmount(paid.text.toString());val diff=(entered?:0.0)-sum;totalView.text="TOTAL: "+Store.money(sum)+"\n"+if(diff>=0)"Cambio a dar: "+Store.money(diff) else "Falta: "+Store.money(-diff);if(::sell.isInitialized){val ready=entered!=null&&entered>=sum&&sum>0.0&&!due();sell.text="COBRAR";sell.background=if(ready)GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF435FAD.toInt(),0xFF283D78.toInt())).apply{cornerRadius=dp(14).toFloat()}else GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFFE53935.toInt(),0xFFB71C1C.toInt())).apply{cornerRadius=dp(14).toFloat()};sell.setTextColor(0xFFFFFFFF.toInt());sell.isEnabled=!due();sell.alpha=if(due())0.45f else 1f};if(::paid.isInitialized&&entered!=null)paid.background=rounded(0xFFFFFFFF.toInt(),14,0xFFDCE2EF.toInt())}
  private fun sellTicket(){
   if(due()){showReportAlert();return}
   if(ticket.isEmpty()){msg("Ticket vacío. Escanea un producto.");return}
@@ -1528,7 +1528,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private fun stock(){
   val products=Store.products(this)
-  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(8),dp(14),dp(8));setBackgroundColor(0xFFF4F6FB.toInt())}
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(8),dp(14),dp(8));setBackgroundColor(0xFFF4F7FD.toInt())}
   val scroll=ScrollView(this).apply{isFillViewport=true;addView(panel)}
   var low=0;var total=0
   for(i in 0 until products.length()){
