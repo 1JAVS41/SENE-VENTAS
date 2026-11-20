@@ -192,7 +192,28 @@ object EmployeePayroll {
     private fun periodStart(ts:Long,payDay:Int):Calendar=Calendar.getInstance().apply{timeInMillis=parseDate(periodKey(ts,payDay))}
     fun attendance(c:Context):List<Attendance>{
         val raw=prefs(c).getString(ATTENDANCE,"[]")?: "[]"
-        return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt"),x.optString("closureReason"),x.optString("closureSource"),x.optBoolean("completedWorkday",false)))}}}catch(_:Exception){emptyList()}
+        return try{
+            val a=JSONArray(raw)
+            val parsed=buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt"),x.optString("closureReason"),x.optString("closureSource"),x.optBoolean("completedWorkday",false)))}}
+            // Migra registros antiguos que guardaron el inicio un día y el cierre al día siguiente.
+            // La asistencia pertenece al día en que comenzó el turno, no al día en que terminó.
+            val merged=parsed.toMutableList()
+            val endOnly=parsed.filter{it.startedAt==0L&&it.closedAt>0L}
+            endOnly.forEach{closing->
+                val previous=merged.indices.filter{idx->
+                    val candidate=merged[idx]
+                    candidate.employeeId==closing.employeeId&&candidate.startedAt>0L&&candidate.closedAt==0L&&
+                        candidate.date<closing.date&&candidate.startedAt<closing.closedAt&&
+                        runCatching{val cal=Calendar.getInstance().apply{timeInMillis=parseDate(candidate.date)};cal.add(Calendar.DAY_OF_YEAR,1);dateKey(cal.timeInMillis)==closing.date}.getOrDefault(false)
+                }.maxByOrNull{merged[it].startedAt}
+                if(previous!=null){
+                    val started=merged[previous]
+                    merged[previous]=started.copy(closedAt=closing.closedAt,closureReason=closing.closureReason,closureSource=closing.closureSource,completedWorkday=closing.completedWorkday)
+                    merged.removeAll{it.employeeId==closing.employeeId&&it.date==closing.date&&it.startedAt==0L&&it.closedAt==closing.closedAt}
+                }
+            }
+            merged
+        }catch(_:Exception){emptyList()}
     }
     private fun saveAttendance(c:Context,items:List<Attendance>):Boolean{
         val a=JSONArray();items.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("date",x.date).put("startedAt",x.startedAt).put("closedAt",x.closedAt).put("closureReason",x.closureReason).put("closureSource",x.closureSource).put("completedWorkday",x.completedWorkday))}
@@ -204,10 +225,14 @@ object EmployeePayroll {
         if(i>=0)all[i]=all[i].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="") else all.add(Attendance(employeeId,key,ts,0L))
         return saveAttendance(c,all)
     }
-    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false):Boolean{
+    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false,startedAt:Long=0L):Boolean{
         if(employeeId.isBlank())return false
-        val key=dateKey(ts);val all=attendance(c).toMutableList();val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source,completedWorkday=completedWorkday) else all.add(Attendance(employeeId,key,0L,ts,reason,source,completedWorkday))
+        val all=attendance(c).toMutableList()
+        val start=if(startedAt>0L)startedAt else all.filter{it.employeeId==employeeId&&it.startedAt>0L&&it.closedAt==0L&&it.startedAt<ts}.maxByOrNull{it.startedAt}?.startedAt?:0L
+        val key=dateKey(if(start>0L)start else ts)
+        val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
+        if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source,completedWorkday=completedWorkday)
+        else all.add(Attendance(employeeId,key,start,ts,reason,source,completedWorkday))
         return saveAttendance(c,all)
     }
     // Todos los resúmenes y límites usan el mismo cálculo efectivo de nómina.
