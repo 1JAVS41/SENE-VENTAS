@@ -137,7 +137,7 @@ object EmployeePayroll {
             val x=JSONObject(legacy);val profile=WorkerProfiles.all(c).firstOrNull{it.name.equals(x.optString("employee"),true)}
             val rest=x.optInt("restDay",Calendar.SUNDAY);val count=x.optInt("workDays",6)
             val days=listOf(Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY,Calendar.SUNDAY).filter{it!=rest}.take(count).toSet()
-            val cfg=Config(x.optString("employee"),x.optInt("dailyHours",8),x.optLong("weeklySalaryCents"),days.size,rest,x.optInt("payDay",Calendar.SATURDAY),days,profile?.id.orEmpty(),System.currentTimeMillis())
+            val cfg=Config(x.optString("employee"),x.optInt("dailyHours",0),x.optLong("weeklySalaryCents"),days.size,rest,x.optInt("payDay",0),days,profile?.id.orEmpty(),System.currentTimeMillis())
             listOf(cfg)
         }catch(_:Exception){emptyList()}
     }
@@ -146,9 +146,11 @@ object EmployeePayroll {
         val a=x.optJSONArray("workDaysOfWeek")?:JSONArray()
         val days=buildSet{for(i in 0 until a.length())a.optInt(i).takeIf{it in Calendar.SUNDAY..Calendar.SATURDAY}?.let{add(it)}}
         if(name.isBlank()||id.isBlank()||days.isEmpty())return null
-        return Config(name,x.optInt("dailyHours",8).coerceIn(1,24),x.optLong("weeklySalaryCents").coerceAtLeast(0),days.size,
+        val hours=x.optInt("dailyHours",0);val salary=x.optLong("weeklySalaryCents",0L);val payDay=x.optInt("payDay",0)
+        if(hours !in 1..24||salary<=0||payDay !in Calendar.SUNDAY..Calendar.SATURDAY)return null
+        return Config(name,hours,salary,days.size,
             (Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in days}?:Calendar.SUNDAY,
-            x.optInt("payDay",Calendar.SATURDAY),days,id,x.optLong("createdAt",System.currentTimeMillis()))
+            payDay,days,id,x.optLong("createdAt",System.currentTimeMillis()))
     }
     fun config(c:Context,employeeId:String?=null):Config?{
         val id=employeeId?.takeIf{it.isNotBlank()}?:activeId(c)
