@@ -41,12 +41,20 @@ object WorkerProfiles {
     }
     @Synchronized fun create(c:Context,name:String,phone:String,pin:String):Profile?{
         val clean=name.trim()
-        if(clean.isBlank()||pin.length!=4||pin.any{!it.isDigit()})return null
+        val cleanPhone=phone.filter{it.isDigit()}
+        if(clean.isBlank()||cleanPhone.length !in 10..15||pin.length!=4||pin.any{!it.isDigit()})return null
         val existing=all(c)
         if(existing.any{it.name.equals(clean,true)})return null
         val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}.joinToString(""){"%02x".format(it)}
-        val profile=Profile(UUID.randomUUID().toString(),clean,phone.filter{it.isDigit()},salt,digest(salt,pin),System.currentTimeMillis(),0L)
+        val profile=Profile(UUID.randomUUID().toString(),clean,cleanPhone,salt,digest(salt,pin),System.currentTimeMillis(),0L)
         return if(save(c,existing+profile)){try{WorkerArchive.ensureProfileFolders(c,profile.id,profile.name)}catch(_:Exception){};profile}else null
+    }
+    @Synchronized fun updatePhone(c:Context,profileId:String,phone:String):Boolean{
+        val cleanPhone=phone.filter{it.isDigit()}
+        if(cleanPhone.length !in 10..15)return false
+        val items=all(c)
+        if(items.none{it.id==profileId})return false
+        return save(c,items.map{if(it.id==profileId)it.copy(phone=cleanPhone) else it})
     }
     @Synchronized fun markFirstShift(c:Context,profileId:String,ts:Long):Profile?{
         val items=all(c)
