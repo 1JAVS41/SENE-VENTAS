@@ -251,23 +251,23 @@ class PayrollAdminActivity:FragmentActivity(){
   }
   lateinit var dialog:android.app.Dialog
   val shell=LinearLayout(this).apply{
-   orientation=LinearLayout.VERTICAL;setPadding(18,12,18,12);setBackgroundColor(0xFFF4F7FD.toInt())
+   orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(14),dp(18),dp(12));setBackgroundColor(0xFFEEF3FA.toInt())
    addView(payText("Completa todos los datos obligatorios. Desliza esta sección para ver el formulario completo. El PIN es privado y nunca se incluye en los reportes.",13f))
    addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
    val actions=LinearLayout(this@PayrollAdminActivity).apply{
     orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL
-    setPadding(0,10,0,4)
+    setPadding(0,dp(12),0,dp(4))
    }
    val cancel=Button(this@PayrollAdminActivity).apply{
-    text="CANCELAR";isAllCaps=false;textSize=14f;setTextColor(0xFF31456F.toInt())
+    text="CANCELAR";isAllCaps=false;textSize=14f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF244B84.toInt())
     background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=16f;setStroke(1,0xFFD5DEED.toInt())}
    }
    val save=Button(this@PayrollAdminActivity).apply{
     text="GUARDAR PERFIL";isAllCaps=false;textSize=14f;typeface=Typeface.DEFAULT_BOLD;setTextColor(-1)
     background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF4569B5.toInt(),0xFF263F7D.toInt())).apply{cornerRadius=16f}
    }
-   actions.addView(cancel,LinearLayout.LayoutParams(0,54,1f).apply{rightMargin=8})
-   actions.addView(save,LinearLayout.LayoutParams(0,54,1.35f).apply{leftMargin=8})
+   actions.addView(cancel,LinearLayout.LayoutParams(0,dp(54),1f).apply{rightMargin=dp(6)})
+   actions.addView(save,LinearLayout.LayoutParams(0,dp(54),1.35f).apply{leftMargin=dp(6)})
    addView(actions,LinearLayout.LayoutParams(-1,-2))
    cancel.setOnClickListener{dialog.dismiss()}
    save.setOnClickListener{
@@ -309,7 +309,7 @@ class PayrollAdminActivity:FragmentActivity(){
   dialog.show()
   dialog.window?.apply{
    setBackgroundDrawableResource(android.R.color.transparent)
-   setLayout((resources.displayMetrics.widthPixels*0.96f).toInt(),(resources.displayMetrics.heightPixels*0.88f).toInt())
+   setLayout((resources.displayMetrics.widthPixels*0.96f).toInt(),(resources.displayMetrics.heightPixels*0.84f).toInt())
    setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
   }
  }
