@@ -697,6 +697,7 @@ class MainActivity:FragmentActivity(){
  private var pendingShareUri:Uri?=null
  private var pendingFinalShare=false
  private var confirmingReport=false
+ @Volatile private var reportProcessing=false
  private var refreshAfterPatron=false
  private var overtimeDialog:AlertDialog?=null
  private val lock=object:Runnable{override fun run(){
@@ -1360,8 +1361,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   try{startActivityForResult(intent,SAVE_REPORT_REQUEST)}catch(e:Exception){msg("No se pudo abrir el selector para guardar el reporte TXT")}
  }
  private fun completeReport(final:Boolean,tree:Uri){
-  val s=Store.shift(this)?:return
-  try{
+  if(reportProcessing)return
+  reportProcessing=true
+  if(final){sell.isEnabled=false;sell.alpha=0.45f;if(::countdownView.isInitialized)countdownView.text="PREPARANDO REPORTE…"}
+  Thread{
+   val s=Store.shift(this@MainActivity)
+   if(s==null){runOnUiThread{reportProcessing=false};return@Thread}
+   try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
    // Publicar el stock compartido como nuevo inventario maestro y conservar la copia individual.
    val currentProducts=Store.products(this)
@@ -1426,11 +1432,18 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    encryptedFile.writeText(pendingReportText?:throw java.io.IOException("No se generó el reporte cifrado"),Charsets.UTF_8)
    if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
    pendingFinalShare=final
-   launchPendingReportShare()
+   runOnUiThread{
+    reportProcessing=false
+    if(!isFinishing&&!isDestroyed)launchPendingReportShare()
+   }
   }catch(e:Exception){
-   if(final)Store.shift(this)?.let{active->active.put("finishPending",false);Store.saveShift(this,active)}
-   msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))
+   runOnUiThread{
+    reportProcessing=false
+    if(final)Store.shift(this@MainActivity)?.let{active->active.put("finishPending",false);Store.saveShift(this@MainActivity,active)}
+    if(!isFinishing&&!isDestroyed)msg("No se pudo guardar el reporte. No se cerró el turno ni se reactivaron las ventas: "+(e.message?:"error"))
+   }
   }
+  }.start()
  }
  private fun launchPendingReportShare(){
   val body=pendingReportText?:return
