@@ -1,5 +1,7 @@
 package com.sene.ventas
 
+private fun FragmentActivity.payDp(value:Int)=(value*resources.displayMetrics.density+0.5f).toInt()
+
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Typeface
@@ -16,38 +18,38 @@ import java.util.Locale
 private fun FragmentActivity.payText(value:String,size:Float=16f,bold:Boolean=false)=TextView(this).apply{
  text=value;textSize=size;setTextColor(if(bold)0xFF17213D.toInt() else 0xFF66708A.toInt())
  typeface=Typeface.create("sans-serif",if(bold)Typeface.BOLD else Typeface.NORMAL)
- setPadding(18,15,18,15);setLineSpacing(2f,1f)
- background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=20f;setStroke(1,0xFFE2E8F3.toInt())}
- val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=5;p.bottomMargin=5;layoutParams=p
+ setPadding(payDp(16),payDp(15),payDp(16),payDp(15));setLineSpacing(payDp(2).toFloat(),1f)
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=payDp(18).toFloat();setStroke(payDp(1),0xFFD9E4F3.toInt())}
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=payDp(5);p.bottomMargin=payDp(5);layoutParams=p
 }
 private fun FragmentActivity.payInput(hintText:String,number:Boolean=false)=EditText(this).apply{
- hint=hintText;textSize=16f;setSingleLine(true);setPadding(18,15,18,15)
+ hint=hintText;textSize=16f;setSingleLine(true);setPadding(payDp(17),payDp(15),payDp(17),payDp(15))
  setTextColor(0xFF17213D.toInt());setHintTextColor(0xFF929BB0.toInt())
- background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=16f;setStroke(1,0xFFDCE2EF.toInt())}
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=payDp(16).toFloat();setStroke(payDp(1),0xFFD2DEEF.toInt())}
  if(number)inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
- val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=5;p.bottomMargin=7;layoutParams=p
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=payDp(6);p.bottomMargin=payDp(8);layoutParams=p
 }
 private fun FragmentActivity.payButton(label:String,action:()->Unit)=LinearLayout(this).apply{
- orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(18,16,18,16)
- background=android.graphics.drawable.GradientDrawable().apply{setColor(0xFFFFFFFF.toInt());cornerRadius=20f;setStroke(1,0xFFE0E7F2.toInt())}
- elevation=3f;isClickable=true;isFocusable=true
+ orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(payDp(18),payDp(17),payDp(18),payDp(17))
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(0xFFFFFFFF.toInt());cornerRadius=payDp(18).toFloat();setStroke(payDp(1),0xFFD8E4F3.toInt())}
+ elevation=payDp(2).toFloat();isClickable=true;isFocusable=true
  addView(TextView(this@payButton).apply{text=label;textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF1C315B.toInt())},LinearLayout.LayoutParams(0,-2,1f))
  addView(TextView(this@payButton).apply{text="›";textSize=27f;setTextColor(0xFF365BA4.toInt())})
- val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=6;p.bottomMargin=6;layoutParams=p
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=payDp(7);p.bottomMargin=payDp(7);layoutParams=p
  setOnClickListener{action()}
 }
 private fun FragmentActivity.payPage(title:String)=LinearLayout(this).apply{
- orientation=1;setPadding(18,18,18,28)
- background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,intArrayOf(0xFFF5F7FC.toInt(),0xFFEAF0FA.toInt()))
+ orientation=1;setPadding(payDp(18),payDp(18),payDp(18),payDp(30))
+ background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,intArrayOf(0xFFEEF4FC.toInt(),0xFFE5EEF9.toInt()))
  val header=LinearLayout(this@payPage).apply{
-  orientation=1;setPadding(20,20,20,20)
-  background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF111A35.toInt(),0xFF2C477F.toInt())).apply{cornerRadius=24f}
-  addView(TextView(this@payPage).apply{text="SENE / VENTAS";textSize=12f;letterSpacing=.12f;setTextColor(0xFFB9C9F8.toInt());typeface=Typeface.DEFAULT_BOLD})
-  addView(TextView(this@payPage).apply{text=title;textSize=23f;setTextColor(-1);typeface=Typeface.create("sans-serif",Typeface.BOLD);setPadding(0,7,0,0)})
+  orientation=1;setPadding(payDp(21),payDp(22),payDp(21),payDp(22))
+  background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF17427F.toInt(),0xFF2869B8.toInt(),0xFF4B91E1.toInt())).apply{cornerRadius=payDp(23).toFloat()}
+  addView(TextView(this@payPage).apply{text="SENE / VENTAS";textSize=12f;letterSpacing=.14f;setTextColor(0xFFDCEBFF.toInt());typeface=Typeface.DEFAULT_BOLD})
+  addView(TextView(this@payPage).apply{text=title;textSize=25f;setTextColor(-1);typeface=Typeface.create("sans-serif",Typeface.BOLD);setPadding(0,payDp(8),0,0)})
  }
  addView(header,LinearLayout.LayoutParams(-1,-2))
 }
-private fun FragmentActivity.payShow(root:LinearLayout){val scroll=ScrollView(this).apply{isFillViewport=true;clipToPadding=false;setPadding(0,0,0,24);addView(root)};setContentView(scroll)}
+private fun FragmentActivity.payShow(root:LinearLayout){val scroll=ScrollView(this).apply{isFillViewport=true;clipToPadding=false;setPadding(0,0,0,payDp(24));addView(root)};setContentView(scroll)}
 private fun moneyCents(value:Double)=kotlin.math.round(value*100.0).toLong()
 private fun stampPayroll()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 
