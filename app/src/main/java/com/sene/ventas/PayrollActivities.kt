@@ -1,7 +1,5 @@
 package com.sene.ventas
 
-private fun FragmentActivity.payDp(value:Int)=(value*resources.displayMetrics.density+0.5f).toInt()
-
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Typeface
@@ -14,6 +12,9 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+private fun FragmentActivity.payDp(value:Int)=(value*resources.displayMetrics.density+0.5f).toInt()
+
 
 private fun FragmentActivity.payText(value:String,size:Float=16f,bold:Boolean=false)=TextView(this).apply{
  text=value;textSize=size;setTextColor(if(bold)0xFF17213D.toInt() else 0xFF66708A.toInt())
