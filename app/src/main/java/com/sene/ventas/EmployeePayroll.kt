@@ -77,10 +77,11 @@ object EmployeePayroll {
         val earlyRecords=records.filter{record->
             record.date>=periodStart&&record.date<=today&&record.startedAt>0L&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday
         }
-        val missingMillis=earlyRecords.sumOf{record->(record.startedAt+cfg.dailyHours*3600000L-record.closedAt).coerceAtLeast(0L)}
-        val earlyMinutes=(missingMillis+59999L)/60000L
+        val earlyMissing=earlyRecords.map{record->(record.startedAt+cfg.dailyHours*3600000L-record.closedAt).coerceAtLeast(0L)}
+            .filter{it>=60000L}
+        val earlyMinutes=earlyMissing.sumOf{(it+59999L)/60000L}
         val earlyAmount=if(cfg.workDays>0&&cfg.dailyHours>0){
-            (cfg.weeklySalaryCents.toDouble()/cfg.workDays.toDouble()/cfg.dailyHours.toDouble()*(missingMillis/3600000.0)).toLong().coerceAtLeast(0L)
+            earlyMissing.sumOf{missing->(cfg.weeklySalaryCents.toDouble()/cfg.workDays.toDouble()/cfg.dailyHours.toDouble()*(missing/3600000.0)).toLong().coerceAtLeast(0L)}
         }else 0L
         val earlyDeduction=earlyAmount.coerceAtMost((gross-absenceDeduction).coerceAtLeast(0L))
         val pending=entriesForCurrentPeriod(c,employeeId,ts)
