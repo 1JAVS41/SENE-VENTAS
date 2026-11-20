@@ -196,6 +196,20 @@ private fun Activity.display(v:LinearLayout){
  sc.viewTreeObserver.addOnGlobalLayoutListener{sc.post{revealFocused()}}
 }
 private fun Activity.msg(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
+private fun Activity.showWorkProgress(title:String,detail:String):Pair<AlertDialog,(String)->Unit>{
+ val content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(10),dp(22),dp(18))}
+ val message=TextView(this).apply{text=detail;textSize=14f;setTextColor(0xFF586581.toInt());setPadding(0,0,0,dp(14))}
+ val bar=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{
+  isIndeterminate=true
+  progressTintList=android.content.res.ColorStateList.valueOf(0xFF3156A5.toInt())
+  indeterminateTintList=android.content.res.ColorStateList.valueOf(0xFF3156A5.toInt())
+ }
+ content.addView(message);content.addView(bar,LinearLayout.LayoutParams(-1,dp(9)))
+ val dialog=AlertDialog.Builder(this).setTitle(title).setView(content).setCancelable(false).create()
+ dialog.show()
+ return dialog to {next->if(!isFinishing&&!isDestroyed&&dialog.isShowing)message.text=next}
+}
+
 private fun Activity.forceDefaultPinChange(onSaved:()->Unit){
  val next=input("Crea tu nuevo PIN privado",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
  val confirm=input("Confirma tu nuevo PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
@@ -1369,16 +1383,19 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   if(reportProcessing)return
   reportProcessing=true
   if(final){sell.isEnabled=false;sell.alpha=0.45f;if(::countdownView.isInitialized)countdownView.text="PREPARANDO REPORTE…"}
+  val (workDialog,updateWork)=showWorkProgress(if(final)"Finalizando turno" else "Preparando reporte","Organizando ventas, inventario y respaldos…")
   Thread{
    val s=Store.shift(this@MainActivity)
-   if(s==null){runOnUiThread{reportProcessing=false};return@Thread}
+   if(s==null){runOnUiThread{reportProcessing=false;workDialog.dismiss()};return@Thread}
    try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
+   runOnUiThread{updateWork("Actualizando inventario maestro y respaldos…")}
    // Publicar el stock compartido como nuevo inventario maestro y conservar la copia individual.
    val currentProducts=Store.products(this)
    Store.publishMasterProducts(this,currentProducts)
    InventoryArchive.save(this,currentProducts)
    InventoryArchive.save(this,currentProducts,s.optString("employeeId").takeIf{it.isNotBlank()},s.optString("worker"))
+   runOnUiThread{updateWork("Preparando resumen de ventas y nómina…")}
    val file=ReportFile.update(this)
    val closureNote=when(s.optString("closingType")){
     "EARLY_EXIT"->"🗣 CIERRE ANTISIPADO 💢\nTRABAJADOR: "+s.optString("worker")+"\nMOTIVO: "+s.optString("closingReason")+"\nHORA DE CIERRE: "+s.optString("closed")+"\n"
@@ -1423,6 +1440,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val damagedBlock=if(damagedItems.length()>0){val out=StringBuilder("\n\nPRODUCTOS_DANADOS_SENE_V1\nCODIGO | PRODUCTO | CANTIDAD | FECHA | MOTIVO | TRABAJADOR");for(i in 0 until damagedItems.length()){val item=damagedItems.optJSONObject(i)?:continue;out.append("\n").append(item.optString("code")).append(" | ").append(item.optString("name")).append(" | ").append(item.optInt("qty",1)).append(" | ").append(item.optString("time")).append(" | ").append(item.optString("reason").replace("|","/")).append(" | ").append(item.optString("worker",s.optString("worker")))};out.toString()}else ""
    val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+payrollSummary+inventoryBlock+damagedBlock+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
+   runOnUiThread{updateWork("Guardando reporte seguro en el teléfono…")}
    val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
    pendingShareUri=dailyUri
    val stableShiftId=s.optString("shiftId").ifBlank { UUID.randomUUID().toString().also { s.put("shiftId",it); Store.saveShift(this,s) } }
@@ -1438,6 +1456,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
    pendingFinalShare=final
    runOnUiThread{
+    workDialog.dismiss()
     reportProcessing=false
     if(!isFinishing&&!isDestroyed)launchPendingReportShare()
    }
