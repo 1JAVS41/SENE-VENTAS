@@ -621,8 +621,8 @@ class InicioTurnoActivity:FragmentActivity(){
     val profileRecord=WorkerProfiles.markFirstShift(this,workerId,now)?:WorkerProfiles.all(this).firstOrNull{it.id==workerId}
     val firstShiftTs=profileRecord?.firstShiftTs?.takeIf{it>0L}?:now
     val profileCreated=profileRecord?.createdAt?.takeIf{it>0L}?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible en perfil anterior"
-    val employeeConfig=EmployeePayroll.config(this,workerId)
-    val hours=employeeConfig?.dailyHours?:throw java.io.IOException("Faltan las horas de jornada del trabajador")
+    val employeeConfig=EmployeePayroll.config(this,workerId)?:throw java.io.IOException("Faltan las horas de jornada del trabajador")
+    val hours=employeeConfig.dailyHours
     val dayNames=listOf("","Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado")
     val workDays=employeeConfig.workDaysOfWeek.sortedBy{if(it==Calendar.SUNDAY)0 else it}.joinToString(", "){dayNames.getOrElse(it){"-"}}
     val payDayName=dayNames.getOrElse(employeeConfig.payDay){"-"}
