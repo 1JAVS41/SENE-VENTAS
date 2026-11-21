@@ -1503,7 +1503,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val payrollConfig=EmployeePayroll.config(this,employeeId)
    val payrollSummary=if(final && payrollConfig!=null){
     val period=EmployeePayroll.periodKey(System.currentTimeMillis(),payrollConfig.payDay)
-    val attended=EmployeePayroll.attendance(this).filter{it.employeeId==employeeId&&it.date>=period&&it.date<=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())&&it.startedAt>0L}
+    val attended=EmployeePayroll.attendance(this).filter{it.employeeId==employeeId&&it.date>=period&&it.date<=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())&&it.startedAt>0L&&!it.closureSource.equals("PATRÓN",true)&&!it.closureSource.equals("ADMIN_FORCED",true)&&!it.closureSource.equals("ADMINISTRATIVE",true)}
     val workedDays=attended.map{it.date}.distinct().size
     val absences=EmployeePayroll.absences(this,employeeId)
     val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId)
