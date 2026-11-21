@@ -110,6 +110,8 @@ object EmployeePayroll {
             val status=when{
                 record!=null&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday -> "EARLY_EXIT"
                 record!=null&&record.startedAt>0L&&record.closedAt==0L -> "WORKING"
+                record!=null&&record.startedAt>0L&&record.closedAt>0L&&
+                    (record.closureSource.equals("PATRÓN",true)||record.closureSource.equals("ADMIN_FORCED",true)||record.closureSource.equals("ADMINISTRATIVE",true)) -> "ADMIN_CLOSED"
                 record!=null&&record.startedAt>0L&&record.closedAt>0L -> "WORKED"
                 key>=today -> "FUTURE"
                 date.get(Calendar.DAY_OF_WEEK) !in cfg.workDaysOfWeek -> "FUTURE"
