@@ -1226,34 +1226,86 @@ class MainActivity:FragmentActivity(){
  }
  private fun draw(){
   val v=page("VENTAS"){showToolsMenu()}
+  fun section(label:String,detail:String=""){
+   val title=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(2),dp(13),dp(2),dp(6))}
+   addView(TextView(this).apply{text=label;textSize=13f;letterSpacing=.09f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF284B7B.toInt())})
+   if(detail.isNotBlank())addView(TextView(this).apply{text=detail;textSize=11f;setTextColor(0xFF7888A1.toInt());setPadding(0,dp(3),0,0)})
+   v.addView(title)
+  }
   val sales=Store.sales(this);var sum=0.0;var count=0
   for(i in 0 until sales.length()){val x=sales.optJSONObject(i)?:continue;if(x.optString("time").startsWith(day())){sum+=x.optDouble("subtotal");count++}}
-  v.addView(txt("HOY  ·  $count ventas     "+Store.money(sum),14f).apply{gravity=Gravity.CENTER})
-  val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))};v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
-  v.addView(button("ESCANEAR PRODUCTO"){openScanner()})
-  code=input("Código de barras");v.addView(code)
-  v.addView(button("AGREGAR AL TICKET",false){addCode(code.text.toString());code.setText("")})
-  ticketView=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));background=rounded(0xFFFFFFFF.toInt(),14,0xFFE2E6F0.toInt())};v.addView(ticketView)
-  paid=input("¿Con cuánto te pagan?",true);v.addView(paid)
-  totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f);v.addView(totalView)
-  paid.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){};override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()};override fun afterTextChanged(s:android.text.Editable?) {}})
-  sell=button("COBRAR",false){if(parseAmount(paid.text.toString())==null){paid.requestFocus();paid.background=rounded(0xFFFFF1F0.toInt(),14,0xFFE53935.toInt());paid.error="Introduce con cuánto te pagan";msg("Introduce con cuánto te pagan para continuar");return@button};sellTicket()};v.addView(sell)
+  val summary=LinearLayout(this).apply{
+   orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+   setPadding(dp(17),dp(15),dp(17),dp(15))
+   background=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xFF173A78.toInt(),0xFF3478D4.toInt())).apply{cornerRadius=dp(20).toFloat()}
+   elevation=dp(3).toFloat()
+  }
+  val metric=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+  metric.addView(TextView(this).apply{text="VENTAS DE HOY";textSize=10f;letterSpacing=.12f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFFD7E7FF.toInt())})
+  metric.addView(TextView(this).apply{text=Store.money(sum);textSize=25f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(-1);setPadding(0,dp(3),0,0)})
+  summary.addView(metric,LinearLayout.LayoutParams(0,-2,1f))
+  summary.addView(TextView(this).apply{text="$count\nVENTAS";gravity=Gravity.CENTER;textSize=12f;typeface=Typeface.DEFAULT_BOLD;setTextColor(-1);setPadding(dp(13),dp(8),dp(13),dp(8));background=rounded(0x332FFFFFF,14)})
+  v.addView(summary,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(7)})
+  val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))}
+  v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
+  section("1  ·  AGREGAR PRODUCTOS","Escanea el código o escríbelo manualmente.")
+  val scanPanel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(13),dp(11),dp(13),dp(11));background=rounded(-1,20,0xFFDCE6F3.toInt())}
+  scanPanel.addView(button("ESCANEAR PRODUCTO"){openScanner()})
+  code=input("Código de barras");scanPanel.addView(code)
+  scanPanel.addView(button("AGREGAR AL TICKET",false){addCode(code.text.toString());code.setText("")})
+  v.addView(scanPanel)
+  section("2  ·  TICKET DE VENTA","Verifica los artículos y cantidades antes de cobrar.")
+  ticketView=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(12),dp(14),dp(12))
+   background=rounded(0xFFFFFFFF.toInt(),20,0xFFDCE6F3.toInt());elevation=dp(1).toFloat()
+  }
+  v.addView(ticketView)
+  section("3  ·  COBRO","Introduce el importe recibido para calcular el cambio.")
+  val checkout=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(13),dp(11),dp(13),dp(11));background=rounded(-1,20,0xFFDCE6F3.toInt())}
+  paid=input("¿Con cuánto te pagan?",true);checkout.addView(paid)
+  totalView=txt("TOTAL: $0.00\nCambio: $0.00 | Falta: $0.00",22f).apply{
+   gravity=Gravity.CENTER;textAlignment=View.TEXT_ALIGNMENT_CENTER
+   setTextColor(0xFF173A78.toInt());background=rounded(0xFFEAF2FD.toInt(),17)
+  }
+  checkout.addView(totalView)
+  paid.addTextChangedListener(object:android.text.TextWatcher{
+   override fun beforeTextChanged(s:CharSequence?,a:Int,c:Int,d:Int){}
+   override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int){refresh()}
+   override fun afterTextChanged(s:android.text.Editable?){}
+  })
+  sell=button("COBRAR",true){
+   if(parseAmount(paid.text.toString())==null){
+    paid.requestFocus();paid.background=rounded(0xFFFFF1F0.toInt(),14,0xFFE53935.toInt())
+    paid.error="Introduce con cuánto te pagan";msg("Introduce con cuánto te pagan para continuar");return@button
+   }
+   sellTicket()
+  }
+  checkout.addView(sell)
+  v.addView(checkout)
   v.addView(button("CORRECCIÓN DE VENTA",false){beginTicketCorrection()})
   Protection.addBlindButton(this,v)
-  countdownView=txt("",13f).apply{gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(9),dp(8),dp(9))};v.addView(countdownView)
+  countdownView=txt("",13f).apply{
+   gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD);setPadding(dp(8),dp(12),dp(8),dp(12))
+  }
+  v.addView(countdownView)
   Store.shift(this)?.let{shift->
-   val start=shift.optLong("startTs",0L);val end=shift.optLong("expectedEndTs",start+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
-   val info=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(12),dp(15),dp(12));background=rounded(0xFFF7F9FE.toInt(),15,0xFFDCE5F2.toInt())}
-   info.addView(TextView(this).apply{text="COMENZASTE TU TURNO A";textSize=11f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF71809A.toInt())})
-   info.addView(TextView(this).apply{text=shift.optString("started","—");textSize=17f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF24569A.toInt());setPadding(0,dp(3),0,dp(10))})
-   info.addView(TextView(this).apply{text="DEBERÍAS SALIR A";textSize=11f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF71809A.toInt())})
-   info.addView(TextView(this).apply{text=shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end)));textSize=17f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF16804A.toInt());setPadding(0,dp(3),0,0)})
-   v.addView(info)
+   val start=shift.optLong("startTs",0L)
+   val end=shift.optLong("expectedEndTs",start+shift.optInt("workHours",configuredWorkHours(this))*3600000L)
+   val info=LinearLayout(this).apply{
+    orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(14),dp(16),dp(14))
+    background=rounded(0xFFFFFFFF.toInt(),19,0xFFDCE6F3.toInt());elevation=dp(1).toFloat()
+   }
+   info.addView(TextView(this).apply{text="TU JORNADA ACTIVA";textSize=11f;letterSpacing=.1f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF71809A.toInt())})
+   info.addView(TextView(this).apply{text=shift.optString("worker","Trabajador");textSize=17f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF1D3E6E.toInt());setPadding(0,dp(4),0,dp(9))})
+   info.addView(TextView(this).apply{text="ENTRADA  ·  "+shift.optString("started","—");textSize=13f;setTextColor(0xFF526987.toInt())})
+   info.addView(TextView(this).apply{text="SALIDA PROGRAMADA  ·  "+shift.optString("expectedEnd",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(end)));textSize=13f;setTextColor(0xFF16804A.toInt());setPadding(0,dp(5),0,0)})
+   v.addView(info,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(12)})
   }
   v.addView(powerButton("FINALIZAR TURNO"){requestFinishWorkday()})
-  v.addView(button("MI TURNO",false){showMyTurnMenu()})
+  v.addView(button("MI TURNO  ·  NÓMINA Y JORNADA",false){showMyTurnMenu()})
   display(v);refresh();updateReportCountdown();sell.isEnabled=!due();installSeneAdvisor()
  }
+
 private fun reviewScannedCodes(codes:ArrayList<String>){
   if(codes.isEmpty()){msg("No se escanearon productos");return}
   val products=Store.products(this)
