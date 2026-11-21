@@ -55,7 +55,7 @@ private const val GREEN=0xFF168B45.toInt()
 private const val DEFAULT_PIN="2910"
 private const val PATRON_PREFS="sene_patron_security"
 private fun currentPatronPin(c:Context)=c.getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).getString("pin",DEFAULT_PIN)?:DEFAULT_PIN
-private fun configuredWorkHours(c:Context):Int { val employeeId=Store.shift(c)?.optString("employeeId").orEmpty(); return EmployeePayroll.config(c,employeeId)?.dailyHours?.takeIf{it in 1..24}?:0 }
+private fun configuredWorkHours(c:Context):Int { val employeeId=Store.shift(c)?.optString("employeeId").orEmpty(); if(employeeId.isBlank())return 0; return EmployeePayroll.config(c,employeeId)?.dailyHours?.takeIf{it in 1..24}?:0 }
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 private fun parseAmount(raw:String):Double? {
  val value=raw.trim().replace("$","").replace(" ","").replace("\u00A0","")
