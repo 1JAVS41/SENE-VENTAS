@@ -1228,8 +1228,8 @@ class MainActivity:FragmentActivity(){
   val v=page("VENTAS"){showToolsMenu()}
   fun section(label:String,detail:String=""){
    val title=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(2),dp(13),dp(2),dp(6))}
-   addView(TextView(this).apply{text=label;textSize=13f;letterSpacing=.09f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF284B7B.toInt())})
-   if(detail.isNotBlank())addView(TextView(this).apply{text=detail;textSize=11f;setTextColor(0xFF7888A1.toInt());setPadding(0,dp(3),0,0)})
+   title.addView(TextView(this).apply{text=label;textSize=13f;letterSpacing=.09f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF284B7B.toInt())})
+   if(detail.isNotBlank())title.addView(TextView(this).apply{text=detail;textSize=11f;setTextColor(0xFF7888A1.toInt());setPadding(0,dp(3),0,0)})
    v.addView(title)
   }
   val sales=Store.sales(this);var sum=0.0;var count=0
