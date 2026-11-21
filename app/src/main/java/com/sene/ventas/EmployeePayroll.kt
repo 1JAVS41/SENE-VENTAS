@@ -172,7 +172,7 @@ object EmployeePayroll {
                     if(oldProfile==null||oldProfile.id==id) emptyList() else {
                         val rest=x.optInt("restDay",Calendar.SUNDAY);val count=x.optInt("workDays",6)
                         val oldDays=listOf(Calendar.MONDAY,Calendar.TUESDAY,Calendar.WEDNESDAY,Calendar.THURSDAY,Calendar.FRIDAY,Calendar.SATURDAY,Calendar.SUNDAY).filter{it!=rest}.take(count).toSet()
-                        listOf(Config(oldProfile.name,x.optInt("dailyHours",8),x.optLong("weeklySalaryCents"),oldDays.size,rest,x.optInt("payDay",Calendar.SATURDAY),oldDays,oldProfile.id,System.currentTimeMillis()))
+                        listOf(Config(oldProfile.name,x.optInt("dailyHours",0),x.optLong("weeklySalaryCents"),oldDays.size,rest,x.optInt("payDay",Calendar.SATURDAY),oldDays,oldProfile.id,System.currentTimeMillis()))
                     }
                 }
             }catch(_:Exception){emptyList()}
