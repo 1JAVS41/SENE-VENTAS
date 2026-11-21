@@ -95,29 +95,29 @@ object EmployeePayroll {
     fun weekAttendance(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):List<WeeklyDay> {
         val cfg=config(c,employeeId) ?: return emptyList()
         val effective=effectiveStartDate(c,employeeId)
-        val monday=Calendar.getInstance().apply{
-            timeInMillis=ts
-            val delta=(get(Calendar.DAY_OF_WEEK)-Calendar.MONDAY+7)%7
-            add(Calendar.DAY_OF_YEAR,-delta)
-            set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)
-        }
+        val periodEnd=periodKey(ts,cfg.payDay)
+        val periodStart=displayDate(Calendar.getInstance().apply{timeInMillis=parseDate(periodEnd);add(Calendar.DAY_OF_YEAR,-6)}.timeInMillis)
         val today=displayDate(ts)
-        val names=listOf("LUNES","MARTES","MIÉRCOLES","JUEVES","VIERNES","SÁBADO","DOMINGO")
         val all=attendance(c).filter{it.employeeId==employeeId}.associateBy{it.date}
         return (0..6).map{index->
-            val date=Calendar.getInstance().apply{timeInMillis=monday.timeInMillis;add(Calendar.DAY_OF_YEAR,index)}
+            val date=Calendar.getInstance().apply{timeInMillis=parseDate(periodStart);add(Calendar.DAY_OF_YEAR,index)}
             val key=displayDate(date.timeInMillis)
             val record=all[key]
+            val dayName=when(date.get(Calendar.DAY_OF_WEEK)){
+                Calendar.SUNDAY->"DOMINGO";Calendar.MONDAY->"LUNES";Calendar.TUESDAY->"MARTES"
+                Calendar.WEDNESDAY->"MIÉRCOLES";Calendar.THURSDAY->"JUEVES";Calendar.FRIDAY->"VIERNES";else->"SÁBADO"
+            }
             val status=when{
                 record!=null&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday -> "EARLY_EXIT"
                 record!=null&&record.startedAt>0L&&record.closedAt==0L -> "WORKING"
                 record!=null&&record.startedAt>0L&&record.closedAt>0L -> "WORKED"
-                key>today || date.get(Calendar.DAY_OF_WEEK) !in cfg.workDaysOfWeek -> "FUTURE"
+                key>=today -> "FUTURE"
+                date.get(Calendar.DAY_OF_WEEK) !in cfg.workDaysOfWeek -> "FUTURE"
                 effective.isNotBlank()&&key<effective -> "NO_RECORD"
                 else -> "NOT_WORKED"
             }
             val timeFormat=SimpleDateFormat("HH:mm",Locale("es","MX"))
-            WeeklyDay(names[index],status,
+            WeeklyDay(dayName,status,
                 record?.startedAt?.takeIf{it>0L}?.let{timeFormat.format(Date(it))}.orEmpty(),
                 record?.closedAt?.takeIf{it>0L}?.let{timeFormat.format(Date(it))}.orEmpty())
         }
