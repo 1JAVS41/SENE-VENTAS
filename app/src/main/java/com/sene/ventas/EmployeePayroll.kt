@@ -187,8 +187,9 @@ object EmployeePayroll {
     }
     fun periodKey(timestamp:Long,payDay:Int):String{
         val cal=Calendar.getInstance().apply{timeInMillis=timestamp}
-        val delta=(cal.get(Calendar.DAY_OF_WEEK)-payDay+7)%7
-        cal.add(Calendar.DAY_OF_YEAR,-delta)
+        // El período activo termina en el próximo día de pago, igual que SENE ADMIN.
+        val delta=(payDay-cal.get(Calendar.DAY_OF_WEEK)+7)%7
+        cal.add(Calendar.DAY_OF_YEAR,delta)
         return dateKey(cal.timeInMillis)
     }
     private fun periodStart(ts:Long,payDay:Int):Calendar=Calendar.getInstance().apply{timeInMillis=parseDate(periodKey(ts,payDay))}
