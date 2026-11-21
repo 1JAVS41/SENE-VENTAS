@@ -1244,7 +1244,7 @@ class MainActivity:FragmentActivity(){
   metric.addView(TextView(this).apply{text="VENTAS DE HOY";textSize=10f;letterSpacing=.12f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFFD7E7FF.toInt())})
   metric.addView(TextView(this).apply{text=Store.money(sum);textSize=25f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(-1);setPadding(0,dp(3),0,0)})
   summary.addView(metric,LinearLayout.LayoutParams(0,-2,1f))
-  summary.addView(TextView(this).apply{text="$count\nVENTAS";gravity=Gravity.CENTER;textSize=12f;typeface=Typeface.DEFAULT_BOLD;setTextColor(-1);setPadding(dp(13),dp(8),dp(13),dp(8));background=rounded(0x332FFFFFF,14)})
+  summary.addView(TextView(this).apply{text="$count\nVENTAS";gravity=Gravity.CENTER;textSize=12f;typeface=Typeface.DEFAULT_BOLD;setTextColor(-1);setPadding(dp(13),dp(8),dp(13),dp(8));background=rounded(0x33FFFFFF.toInt(),14)})
   v.addView(summary,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(7)})
   val linkButton=button("VINCULAR SENE VENTAS",false){startActivity(Intent(this,ActivationActivity::class.java))}
   v.addView(linkButton);hideLinkButtonWhenActive(this,linkButton)
