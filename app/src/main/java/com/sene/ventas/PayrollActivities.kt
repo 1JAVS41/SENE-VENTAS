@@ -160,7 +160,7 @@ class PayrollEmployeeActivity:FragmentActivity(){
   root.addView(payText("ASISTENCIA DE LA SEMANA",17f,true))
   EmployeePayroll.weekAttendance(this,employeeId).forEach{day->
    val symbol=when(day.status){"WORKED","EARLY_EXIT"->"🟢";"NOT_WORKED"->"❌";"WORKING"->"🔁";else->"—"}
-   val status=when(day.status){"NO_RECORD"->"Aún no tenía registro";"EARLY_EXIT"->"Cierre anticipado";"WORKING"->"En curso";"WORKED"->"Jornada completada";"NOT_WORKED"->"Sin asistencia";else->""}
+   val status=when(day.status){"NO_RECORD"->"Aún no tenía registro";"EARLY_EXIT"->"Cierre anticipado";"WORKING"->"En curso";"WORKED"->"Jornada completada";"NOT_WORKED"->"Sin registro de asistencia";else->""}
    val times=listOf(day.started.takeIf{it.isNotBlank()}?.let{"Entrada: $it"},day.closed.takeIf{it.isNotBlank()}?.let{"Salida: $it"}).filterNotNull().joinToString(" · ")
    val detail=listOf(status,times).filter{it.isNotBlank()}.joinToString(" · ")
    root.addView(payText(day.day+" - ["+symbol+"]"+if(detail.isBlank()) "" else " · "+detail,13f,true))
