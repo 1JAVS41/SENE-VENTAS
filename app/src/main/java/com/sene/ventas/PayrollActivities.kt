@@ -75,7 +75,7 @@ class PayrollRequestActivity:FragmentActivity(){
    val detail=buildString{append(kind).append(" · ").append(e.description).append(" · ").append(EmployeePayroll.money(e.amountCents)).append("\\n").append(state);if(e.decidedBy.isNotBlank())append("\\nAutorizó: ").append(e.decidedBy);if(e.decidedAt>0L)append(" · ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.decidedAt)));if(e.rejectionReason.isNotBlank())append("\\nMotivo: ").append(e.rejectionReason)}
    root.addView(payText(detail,13f,e.status=="PENDING"))
   }
-  root.addView(payText("Los consumos y préstamos se descuentan de la nómina. Los préstamos también reducen la caja al entregarse.",13f));payShow(root)
+  root.addView(payText("Las solicitudes requieren autorización del patrón. El inventario, la caja y la nómina solo cambian cuando el servidor confirma la aprobación.",13f));payShow(root)
  }
  private fun consumptionForm(){
   val box=LinearLayout(this).apply{orientation=1;setPadding(20,8,20,8)}
@@ -95,7 +95,8 @@ class PayrollRequestActivity:FragmentActivity(){
      val entry=EmployeePayroll.addRequest(this,EmployeePayroll.TYPE_CONSUMPTION,cents,
        description=found.optString("name")+" x$q",employeeId=workerId,productCode=found.optString("code"),quantity=q)
      if(entry==null){Toast.makeText(this,"No se pudo guardar la solicitud. Revisa el límite.",Toast.LENGTH_LONG).show();return@setPositiveButton}
-     Toast.makeText(this,"Solicitud guardada como PENDIENTE. Se enviará al servidor al sincronizar.",Toast.LENGTH_LONG).show()
+     Toast.makeText(this,"Solicitud guardada. Intentando sincronizar con el servidor.",Toast.LENGTH_LONG).show()
+     PayrollRequestSync.sync(this,true)
      draw()
     }.setNegativeButton("VOLVER",null).show()
    d.dismiss()
@@ -115,12 +116,14 @@ class PayrollRequestActivity:FragmentActivity(){
     .setPositiveButton("ENVIAR SOLICITUD"){_,_->
      val entry=EmployeePayroll.addRequest(this,EmployeePayroll.TYPE_LOAN,cents,reason.text.toString(),employeeId=workerId)
      if(entry==null){Toast.makeText(this,"No se pudo guardar la solicitud",Toast.LENGTH_LONG).show();return@setPositiveButton}
-     Toast.makeText(this,"Solicitud guardada como PENDIENTE. Se enviará al servidor al sincronizar.",Toast.LENGTH_LONG).show()
+     Toast.makeText(this,"Solicitud guardada. Intentando sincronizar con el servidor.",Toast.LENGTH_LONG).show()
+     PayrollRequestSync.sync(this,true)
      draw()
     }.setNegativeButton("CANCELAR",null).show()
    d.dismiss()
   }};d.show()
  }
+ override fun onResume(){super.onResume();if(::workerId.isInitialized)PayrollRequestSync.sync(this)}
  override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){super.onActivityResult(requestCode,resultCode,data);val r=IntentIntegrator.parseActivityResult(requestCode,resultCode,data);if(r?.contents!=null){scanCode=r.contents;codeField?.setText(scanCode)}}
 }
 
