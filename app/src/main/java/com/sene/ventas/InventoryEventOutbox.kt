@@ -11,13 +11,13 @@ object InventoryEventOutbox {
     private const val KEY="events"
 
     @Synchronized
-    fun enqueue(context:Context,scope:String,changed:JSONArray,ts:Long) {
-        if(scope !in setOf("M","S")||changed.length()==0)return
+    fun enqueue(context:Context,scope:String,changed:JSONArray,ts:Long,fullSnapshot:Boolean=false):Boolean {
+        if(scope !in setOf("M","S")||changed.length()==0)return false
         val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
         val events=try{JSONArray(prefs.getString(KEY,"[]")?:"[]")}catch(_:Exception){JSONArray()}
         events.put(JSONObject().put("v",SeneWireProtocol.VERSION).put("t",SeneWireProtocol.INVENTORY_SYNC).put("e",UUID.randomUUID().toString())
-            .put("g",scope).put("i",ts).put("p",changed))
-        prefs.edit().putString(KEY,events.toString()).commit()
+            .put("g",scope).put("i",ts).put("p",changed).put("f",fullSnapshot))
+        return prefs.edit().putString(KEY,events.toString()).commit()
     }
 
     @Synchronized fun pending(context:Context):JSONArray {
