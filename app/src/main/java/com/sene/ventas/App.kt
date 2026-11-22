@@ -2321,7 +2321,7 @@ object ReportFile {
   val workerId=movement.optString("employeeId").ifBlank{shift?.optString("employeeId").orEmpty()}
   val eventId=java.util.UUID.randomUUID().toString()
   val body=file.readText(Charsets.UTF_8)
-  val encrypted=ReportCrypto.prepare(c,workerId,"MOVEMENTS",body,eventId)
+  val encrypted=ReportCrypto.prepare(c,workerId,SeneWireProtocol.SYNC,body,eventId)
   if(ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)) PayrollRequestSync.sync(c,true)
  }
 }
