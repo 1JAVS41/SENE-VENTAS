@@ -161,7 +161,11 @@ class PayrollEmployeeActivity:FragmentActivity(){
   root.addView(payText("TOTAL A RECIBIR\n"+EmployeePayroll.money(net),24f,true))
   root.addView(payText("HISTORIAL DEL PERIODO",17f,true))
   root.addView(payText("HISTORIAL COMPLETO",17f,true))
-  EmployeePayroll.entries(this,employeeId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}
+  EmployeePayroll.entries(this,employeeId).sortedByDescending{it.timestamp}.forEach{e->
+   val state=when(e.status){"PENDING"->"PENDIENTE DE AUTORIZACIÓN";"APPROVED"->if(e.settled)"LIQUIDADO" else "AUTORIZADO";"REJECTED"->"RECHAZADO";else->e.status}
+   val details=buildString{append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))).append(" · ").append(e.periodKey).append("\n").append(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO").append(" · ").append(e.description).append(" · ").append(EmployeePayroll.money(e.amountCents)).append("\n").append(state);if(e.decidedBy.isNotBlank())append("\nAutorizó: ").append(e.decidedBy);if(e.decidedAt>0L)append(" · ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.decidedAt)));if(e.rejectionReason.isNotBlank())append("\nMotivo: ").append(e.rejectionReason)}
+   root.addView(payText(details))
+  }
   root.addView(payText("ASISTENCIA DE LA SEMANA",17f,true))
   EmployeePayroll.weekAttendance(this,employeeId).forEach{day->
    val symbol=when(day.status){"WORKED","EARLY_EXIT"->"🟢";"ADMIN_CLOSED"->"🔵";"NOT_WORKED"->"❌";"WORKING"->"🔁";else->"—"}
