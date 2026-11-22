@@ -1731,7 +1731,7 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("HACER PRIMER INVENTARIO","Registrar el inventario inicial",0xFF25845A.toInt()){openFirstInventory()})
   v.addView(adminTag("AGREGAR O MODIFICAR PRODUCTO","Editar productos y existencias"){product()})
   v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número para recibir reportes"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
-  v.addView(adminTag("CAMBIAR CLAVE DE CIFRADO","Clave compartida con SENE ADMIN"){ReportKeySetup.change(this){msg("Clave de cifrado actualizada. Conserva también la clave anterior para los reportes históricos.");draw()}})
+  v.addView(adminTag("CIFRADO AUTOMÁTICO","Protección local y reportes seguros mediante SERVER-SENE"){ReportKeySetup.change(this){draw()}})
   v.addView(adminTag("CONSULTAR NÓMINA","Revisar nóminas de los trabajadores"){startActivity(Intent(this,PayrollAdminActivity::class.java))})
   v.addView(adminTag("VINCULAR SENE ADMIN","Generar código temporal para conectar este negocio",0xFF25845A.toInt()){createAdminPairing()})
   v.addView(adminTag("VER INVENTARIO ACTUAL","Consultar productos, precios y existencias"){inventory()})
