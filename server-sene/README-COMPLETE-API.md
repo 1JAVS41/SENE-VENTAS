@@ -51,8 +51,8 @@ Se conserva el protocolo v1 y sus códigos existentes. El servidor no inventa c�
 
 - SENE VENTAS: `q` solicitudes `[P$]` / `[C$]`, `h` asistencia, `g` inventario y `b` sobres de reportes.
 - SeneAdmin: `d` decisiones, `ha` ACK de asistencia, `gi` ACK de inventario, `ba` ACK de reportes y `rp` clave pública RSA.
-- El servidor devuelve a SENE VENTAS `d`, `ha`, `ga`, `ba`, `rp` y cursor `n`.
-- El servidor devuelve a SeneAdmin `items`, `h`, `g`, `b`, `haa`, `gaa`, `baa` y cursor `n`.
+- El servidor devuelve a SENE VENTAS `d`, `ha`, `ga`, `ba` y `rp`. Las decisiones aprobadas/rechazadas se reenvían de forma idempotente en cada sincronización; esta respuesta no usa cursor.
+- El servidor devuelve a SeneAdmin `items`, `h`, `g`, `b`, `haa`, `gaa`, `baa` y cursor `n` para paginar las solicitudes.
 
 Los sobres de reportes se almacenan y transportan como texto cifrado; el Worker no posee ni necesita la clave privada de SeneAdmin. Los reportes no se envían por WhatsApp.
 
