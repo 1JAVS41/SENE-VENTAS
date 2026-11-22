@@ -48,6 +48,7 @@ object PayrollRequestSync {
                     .put("i", ActivationApi.installationId(app))
                     .put("c", prefs.getString(CURSOR, "").orEmpty())
                     .put("r", requests)
+                    .put("h", AttendanceEventOutbox.pending(app))
                 prefs.edit().putLong(LAST_ATTEMPT, now).commit()
                 val response = ActivationApi.post("/payroll/requests/sync", payload)
                 val status = response.optInt("_http_status", 0)
@@ -71,6 +72,8 @@ object PayrollRequestSync {
                         decision.optString("by", decision.optString("decided_by")), decidedAt,
                         decision.optString("rr", decision.optString("rejection_reason")))
                 }
+                val attendanceAcks = response.optJSONArray("ha") ?: response.optJSONArray("attendance_acks") ?: JSONArray()
+                AttendanceEventOutbox.acknowledge(app, attendanceAcks)
                 val cursor = response.optString("n", response.optString("next_cursor"))
                 if (cursor.isNotBlank()) prefs.edit().putString(CURSOR, cursor).commit()
             } catch (_: Exception) {
