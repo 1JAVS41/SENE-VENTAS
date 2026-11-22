@@ -304,9 +304,36 @@ object EmployeePayroll {
     }
     @Synchronized fun applyDecision(c:Context,requestId:String,approved:Boolean,decidedBy:String,decidedAt:Long=System.currentTimeMillis(),reason:String=""):Boolean {
         val all=entries(c).toMutableList();val index=all.indexOfFirst{it.id==requestId};if(index<0)return false
-        val old=all[index];if(old.status!="PENDING")return old.status==if(approved)"APPROVED" else "REJECTED"
+        val old=all[index]
+        if(old.status!="PENDING")return if(old.status==if(approved)"APPROVED" else "REJECTED") {
+            !approved || applyApprovedMovement(c,old)
+        } else false
         all[index]=old.copy(status=if(approved)"APPROVED" else "REJECTED",decidedAt=decidedAt,decidedBy=decidedBy,rejectionReason=reason.trim())
-        return saveEntries(c,all)
+        if(!saveEntries(c,all))return false
+        return !approved || applyApprovedMovement(c,all[index])
+    }
+    private fun applyApprovedMovement(c:Context,e:Entry):Boolean {
+        if(Store.moves(c).let{moves->(0 until moves.length()).any{moves.optJSONObject(it)?.optString("requestId")==e.id}})return true
+        val now=System.currentTimeMillis()
+        if(e.type==TYPE_CONSUMPTION) {
+            if(e.productCode.isBlank()||e.quantity<=0)return false
+            val products=Store.products(c);var found:JSONObject?=null
+            for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;if(p.optString("code")==e.productCode){found=p;break}}
+            if(found==null||found.optInt("stock")<e.quantity)return false
+            found.put("stock",found.optInt("stock")-e.quantity)
+            Store.saveProducts(c,products)
+            val amount=e.amountCents/100.0
+            Store.addMove(c,JSONObject().put("requestId",e.id).put("type","EMPLOYEE_CONSUMPTION")
+                .put("ts",now).put("time",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
+                .put("amount",amount).put("worker",e.employee).put("employeeId",e.employeeId)
+                .put("text","CONSUMO AUTORIZADO: ${e.employee} | ${e.description} | ${money(e.amountCents)} | Descuento de nómina"))
+        } else if(e.type==TYPE_LOAN) {
+            Store.addMove(c,JSONObject().put("requestId",e.id).put("type","LOAN_DISBURSEMENT")
+                .put("ts",now).put("time",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
+                .put("amount",e.amountCents/100.0).put("worker",e.employee).put("employeeId",e.employeeId)
+                .put("text","PRÉSTAMO AUTORIZADO Y ENTREGADO A ${e.employee} | ${e.reason} | ${money(e.amountCents)}"))
+        }
+        return true
     }
     fun pendingRequests(c:Context,employeeId:String=activeId(c)):List<Entry> = entries(c,employeeId).filter{it.status=="PENDING"}
     fun markSettled(c:Context,period:String,employeeId:String):Boolean{
