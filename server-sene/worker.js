@@ -453,9 +453,12 @@ async function subscriptionStatus(request, env) {
 
   const active = !!row && row.status === "active" && expiryTime > Date.now();
   const expired = !!row && row.status === "expired" && hasExpired;
+  const reportKey = row ? await db.prepare("SELECT public_key FROM admin_public_keys WHERE business_id=?")
+    .bind(row.id).first() : null;
   return json({ ok: true, linked: !!row, active, expired,
     business_name: row?.business_name || null,
     expires_at: row?.expires_at || null,
+    rp: reportKey?.public_key || "",
     message: active ? "Suscripción vigente." : expired ? "LICENCIA_VENCIDA" : "Se requiere vincular o renovar SENE VENTAS." });
 }
 
