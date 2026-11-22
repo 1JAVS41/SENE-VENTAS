@@ -515,13 +515,23 @@ async function createAdminPairing(request, env) {
   ]);
   return json({ok:true,pairing_code:code,expires_at:expires},201);
 }
+async function validReportPublicKey(encoded) {
+  try {
+    const normalized=encoded.replace(/-/g,"+").replace(/_/g,"/").replace(/=+$/,"");
+    const padded=normalized+"=".repeat((4-normalized.length%4)%4);
+    const raw=Uint8Array.from(atob(padded),c=>c.charCodeAt(0));
+    const key=await crypto.subtle.importKey("spki",raw,{name:"RSA-OAEP",hash:"SHA-256"},false,["encrypt"]);
+    return key.algorithm?.name==="RSA-OAEP" && key.algorithm.modulusLength>=2048;
+  } catch (_) { return false; }
+}
 async function claimAdminPairing(request, env) {
   const body = await readJson(request);
   const code = String(body?.pairing_code || "").trim().toUpperCase();
   const adminInstallationId = String(body?.admin_installation_id || "").trim();
   const publicKey = String(body?.rp || "").trim();
   if (!/^[A-HJ-NP-Z2-9]{10}$/.test(code) || !validText(adminInstallationId,20,100) ||
-      publicKey.length < 200 || publicKey.length > 12000 || !/^[A-Za-z0-9_+/=-]+$/.test(publicKey)) {
+      publicKey.length < 200 || publicKey.length > 12000 || !/^[A-Za-z0-9_+/-]+={0,2}$/.test(publicKey) ||
+      !(await validReportPublicKey(publicKey))) {
     return json({ok:false,error:"DATOS_INVALIDOS"},400);
   }
   const row = await env.DB.prepare(
@@ -612,7 +622,7 @@ async function adminPayrollSync(request, env) {
   if(!session) return json({ok:false,error:"ADMIN_NO_AUTORIZADO"},401);
   const db=env.DB,businessId=session.business_id,now=nowIso();
   const publicKey=String(body?.rp||"").trim();
-  if(publicKey.length>=200 && publicKey.length<=12000 && /^[A-Za-z0-9_+/=-]+$/.test(publicKey)) {
+  if(publicKey.length>=200 && publicKey.length<=12000 && /^[A-Za-z0-9_+/-]+={0,2}$/.test(publicKey) && await validReportPublicKey(publicKey)) {
     await db.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
       .bind(businessId,session.admin_installation_id,publicKey,now).run();
   }
