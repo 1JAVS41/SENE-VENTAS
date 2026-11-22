@@ -600,15 +600,16 @@ async function payrollSync(request, env) {
   const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') ORDER BY seq LIMIT 300")
     .bind(business.id).all();
   const key=await db.prepare("SELECT public_key FROM admin_public_keys WHERE business_id=?").bind(business.id).first();
-  const cursor=parseCursor(body.c);
+  // Las decisiones se reenvían de forma idempotente en cada sincronización.
+  // No se devuelve un cursor aquí: esta ruta no pagina decisiones y no debe
+  // depender de una variable inexistente que interrumpa la sincronización.
   const responseDecisions=(decisions.results||[]).map(x=>({
     e:x.event_id,x:x.status,by:x.decision_by||"",r:x.decision_reason||"",at:x.decided_at||""
   }));
   return json({
     v:1,d:responseDecisions,
     ha:acceptedH,ga:acceptedG,ba:acceptedB,
-    rp:key?.public_key||"",
-    n:nextCursor
+    rp:key?.public_key||""
   });
 }
 async function adminPayrollSync(request, env) {
