@@ -70,7 +70,7 @@ object ReportCrypto {
         return cipher.doFinal(packed.copyOfRange(IV_SIZE, packed.size)).toString(Charsets.UTF_8)
     }
 
-    fun hasKey(c: Context): Boolean = try { ownerKey(c).length >= 8 } catch (_: Exception) { false }
+    fun hasKey(c: Context): Boolean = ReportPublicKeyStore.hasKey(c) || try { ownerKey(c).length >= 8 } catch (_: Exception) { false }
 
     @Synchronized fun saveKey(c: Context, value: String): Boolean {
         val clean = value.trim()
@@ -120,6 +120,8 @@ object ReportCrypto {
             return if (it.startsWith(instruction)) it else instruction + it
         }
 
+        // Usa cifrado E2E v2 cuando el servidor ya entregó la clave pública del patrón.
+        if (ReportPublicKeyStore.hasKey(c)) return ReportEnvelopeCrypto.prepare(c, workerId, type, body, eventKey)
         val passphrase = ownerKey(c)
         val reportId = UUID.randomUUID().toString()
         // El consecutivo se conserva por trabajador en el dispositivo; el UUID evita colisiones incluso entre dispositivos.
@@ -149,6 +151,7 @@ object ReportCrypto {
 
     @Synchronized fun markSent(c: Context, eventKey: String) {
         prefs(c).edit().remove("pending_" + eventKey).commit()
+        ReportEnvelopeCrypto.markSent(c, eventKey)
     }
 }
 
