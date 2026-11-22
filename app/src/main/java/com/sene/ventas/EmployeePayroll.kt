@@ -86,7 +86,7 @@ object EmployeePayroll {
             if(startCal.get(Calendar.DAY_OF_WEEK) in cfg.workDaysOfWeek && displayDate(startCal.timeInMillis) !in attended)absences++
             startCal.add(Calendar.DAY_OF_YEAR,1)
         }
-        val absenceDeduction=(cfg.weeklySalaryCents/cfg.workDays.coerceAtLeast(1)*absences).coerceAtMost(gross)
+        val absenceDeduction=(cfg.weeklySalaryCents*absences/cfg.workDays.coerceAtLeast(1)).coerceAtMost(gross)
         val earlyRecords=records.filter{record->
             record.date>=periodStart&&record.date<=today&&record.startedAt>0L&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday
         }
