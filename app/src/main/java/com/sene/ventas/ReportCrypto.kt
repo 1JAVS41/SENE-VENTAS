@@ -70,7 +70,7 @@ object ReportCrypto {
         return cipher.doFinal(packed.copyOfRange(IV_SIZE, packed.size)).toString(Charsets.UTF_8)
     }
 
-    fun hasKey(c: Context): Boolean = ReportPublicKeyStore.hasKey(c) || try { ownerKey(c).length >= 8 } catch (_: Exception) { false }
+    fun hasKey(c: Context): Boolean = ReportPublicKeyStore.hasKey(c)
 
     @Synchronized fun saveKey(c: Context, value: String): Boolean {
         val clean = value.trim()
