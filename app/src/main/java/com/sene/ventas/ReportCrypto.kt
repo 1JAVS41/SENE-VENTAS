@@ -120,8 +120,13 @@ object ReportCrypto {
             return if (it.startsWith(instruction)) it else instruction + it
         }
 
-        // Usa cifrado E2E v2 cuando el servidor ya entregó la clave pública del patrón.
-        if (ReportPublicKeyStore.hasKey(c)) return ReportEnvelopeCrypto.prepare(c, workerId, type, body, eventKey)
+        // Los reportes nuevos solo usan la clave pública entregada por SERVER-SENE
+        // durante la vinculación autenticada. Nunca solicitar ni depender de una clave manual.
+        if (!ReportPublicKeyStore.hasKey(c)) {
+            throw IllegalStateException("Vincula SENE VENTAS con SERVER-SENE para habilitar el cifrado automático de reportes.")
+        }
+        return ReportEnvelopeCrypto.prepare(c, workerId, type, body, eventKey)
+        @Suppress("UNREACHABLE_CODE")
         val passphrase = ownerKey(c)
         val reportId = UUID.randomUUID().toString()
         // El consecutivo se conserva por trabajador en el dispositivo; el UUID evita colisiones incluso entre dispositivos.
@@ -157,94 +162,18 @@ object ReportCrypto {
 
 /** Pantallas para registrar la misma clave que después solicitará SENE ADMIN. */
 object ReportKeySetup {
+    /** El cifrado se configura automáticamente al vincular el negocio con SERVER-SENE. */
     fun ensureConfigured(activity: Activity, onComplete: () -> Unit) {
-        if (activity.isFinishing || activity.isDestroyed) return
-        if (ReportCrypto.hasKey(activity)) { onComplete(); return }
-        chooseKey(activity, onComplete, false)
+        if (!activity.isFinishing && !activity.isDestroyed) onComplete()
     }
 
+    /** La clave de cifrado ya no es una configuración manual del usuario. */
     fun change(activity: Activity, onSaved: () -> Unit = {}) {
-        chooseKey(activity, onSaved, true)
-    }
-
-    private fun chooseKey(activity: Activity, onSaved: () -> Unit, changing: Boolean) {
-        val message = "CLAVE DE CIFRADO\nCONSERVA TU CLAVE, NO LA OLVIDES.\nSerá la clave que utilizarás para SENE ADMIN.\n\n¿Ya eres cliente SENE?\nSi ya tienes una clave de cifrado, introduce tu clave.\nSi no la tienes, genera una nueva."
-        AlertDialog.Builder(activity)
-            .setTitle(if (changing) "CAMBIAR CLAVE DE CIFRADO" else "CLAVE DE CIFRADO")
-            .setMessage(message)
-            .setPositiveButton("YA TENGO UNA CLAVE") { _, _ -> enterExisting(activity, onSaved, changing) }
-            .setNeutralButton("GENERAR UNA NUEVA") { _, _ -> generateAndConfirm(activity, onSaved, changing) }
-            .setNegativeButton(if (changing) "CANCELAR" else "SALIR") { _, _ -> if (!changing) activity.finish() }
-            .setCancelable(changing).show()
-    }
-
-    private fun field(activity: Activity, hint: String, password: Boolean = false) =
-        EditText(activity).apply {
-            this.hint = hint; textSize = 15f; setSingleLine(true); setPadding(28, 24, 28, 24)
-            if (password) inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-
-    private fun enterExisting(activity: Activity, onSaved: () -> Unit, changing: Boolean) {
-        val key = field(activity, "Introduce tu clave de cifrado", true)
-        val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 8, 24, 4); addView(key) }
-        val dialog = AlertDialog.Builder(activity).setTitle("YA TENGO UNA CLAVE SENE")
-            .setMessage("Introduce la clave que utilizarás también en SENE ADMIN.")
-            .setView(box).setPositiveButton("GUARDAR CLAVE", null)
-            .setNegativeButton("CANCELAR") { _, _ -> chooseKey(activity, onSaved, changing) }.create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val value = key.text.toString().trim()
-                if (value.length < 8) { key.error = "La clave debe tener al menos 8 caracteres"; return@setOnClickListener }
-                if (!ReportCrypto.saveKey(activity, value)) { key.error = "No se pudo guardar la clave"; return@setOnClickListener }
-                dialog.dismiss()
-                AlertDialog.Builder(activity).setTitle("CLAVE GUARDADA")
-                    .setMessage("SENE VENTAS utilizará esta misma clave para preparar los reportes cifrados de SENE ADMIN.")
-                    .setPositiveButton("CONTINUAR") { _, _ -> onSaved() }.setCancelable(false).show()
-            }
-        }
-        dialog.show()
-    }
-
-    private fun generateAndConfirm(activity: Activity, onSaved: () -> Unit, changing: Boolean) {
-        val generated = ReportCrypto.newKey()
-        val confirm = field(activity, "Vuelve a escribir la clave para confirmarla", true)
-        val shown = TextView(activity).apply {
-            text = generated; textSize = 14f; typeface = Typeface.create("monospace", Typeface.BOLD)
-            setTextIsSelectable(true); setPadding(20, 20, 20, 20)
-        }
-        val copy = android.widget.Button(activity).apply {
-            text = "COPIAR CLAVE"; isAllCaps = false
-            setOnClickListener {
-                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Clave SENE", generated))
-                android.widget.Toast.makeText(activity, "Clave copiada. Guárdala en un lugar seguro.", android.widget.Toast.LENGTH_LONG).show()
-            }
-        }
-        val box = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(24, 8, 24, 4)
-            addView(TextView(activity).apply {
-                text = "Esta clave será necesaria para SENE ADMIN. Cópiala y consérvala. No podremos recuperarla si la pierdes."
-                textSize = 14f
-            })
-            addView(shown); addView(copy); addView(confirm)
-        }
-        val dialog = AlertDialog.Builder(activity).setTitle("TU NUEVA CLAVE SENE")
-            .setView(box).setPositiveButton("CONFIRMAR Y GUARDAR", null)
-            .setNegativeButton("CANCELAR") { _, _ -> chooseKey(activity, onSaved, changing) }.create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                if (confirm.text.toString().trim() != generated) {
-                    confirm.error = "La clave no coincide. Escríbela exactamente."; return@setOnClickListener
-                }
-                if (!ReportCrypto.saveKey(activity, generated)) {
-                    confirm.error = "No se pudo guardar la clave"; return@setOnClickListener
-                }
-                dialog.dismiss()
-                AlertDialog.Builder(activity).setTitle("CLAVE GUARDADA")
-                    .setMessage("Conserva tu clave. Es la misma que deberás introducir en SENE ADMIN.")
-                    .setPositiveButton("CONTINUAR") { _, _ -> onSaved() }.setCancelable(false).show()
-            }
-        }
-        dialog.show()
+        android.widget.Toast.makeText(
+            activity,
+            "El cifrado de reportes se administra automáticamente al vincular con SERVER-SENE.",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
+        onSaved()
     }
 }
