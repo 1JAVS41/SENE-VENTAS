@@ -15,7 +15,7 @@ object InventoryEventOutbox {
         if(scope !in setOf("M","S")||changed.length()==0)return
         val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
         val events=try{JSONArray(prefs.getString(KEY,"[]")?:"[]")}catch(_:Exception){JSONArray()}
-        events.put(JSONObject().put("v",SeneWireProtocol.VERSION).put("e",UUID.randomUUID().toString())
+        events.put(JSONObject().put("v",SeneWireProtocol.VERSION).put("t",SeneWireProtocol.INVENTORY_SYNC).put("e",UUID.randomUUID().toString())
             .put("g",scope).put("i",ts).put("p",changed))
         prefs.edit().putString(KEY,events.toString()).commit()
     }
