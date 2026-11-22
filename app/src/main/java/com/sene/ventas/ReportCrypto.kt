@@ -91,9 +91,13 @@ object ReportCrypto {
         return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     }
 
-    fun ownerKey(c: Context): String {
-        val blob = prefs(c).getString(KEY_BLOB, null) ?: throw IllegalStateException("Falta configurar la clave de cifrado")
-        return unwrap(blob)
+    /** Clave local de archivo generada automáticamente y protegida por Android Keystore. */
+    @Synchronized fun ownerKey(c: Context): String {
+        val blob = prefs(c).getString(KEY_BLOB, null)
+        if (!blob.isNullOrBlank()) return unwrap(blob)
+        val generated = newKey()
+        check(saveKey(c, generated)) { "No se pudo preparar el cifrado local automático" }
+        return generated
     }
 
     private fun derive(passphrase: String, salt: ByteArray): SecretKeySpec {
