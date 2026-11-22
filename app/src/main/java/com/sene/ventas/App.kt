@@ -1712,12 +1712,48 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número para recibir reportes"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
   v.addView(adminTag("CAMBIAR CLAVE DE CIFRADO","Clave compartida con SENE ADMIN"){ReportKeySetup.change(this){msg("Clave de cifrado actualizada. Conserva también la clave anterior para los reportes históricos.");draw()}})
   v.addView(adminTag("CONSULTAR NÓMINA","Revisar nóminas de los trabajadores"){startActivity(Intent(this,PayrollAdminActivity::class.java))})
+  v.addView(adminTag("VINCULAR SENE ADMIN","Generar código temporal para conectar este negocio",0xFF25845A.toInt()){createAdminPairing()})
   v.addView(adminTag("VER INVENTARIO ACTUAL","Consultar productos, precios y existencias"){inventory()})
   v.addView(adminTag("GUARDAR TXT DEL STOCK","Crear respaldo del inventario",0xFF25845A.toInt()){export()})
   v.addView(adminTag("CARGAR INVENTARIO DESDE TXT","Restaurar un inventario guardado"){chooseInventoryFolder()})
   v.addView(adminTag("VOLVER A VENTAS","Regresar a la pantalla principal",0xFF78849D.toInt()){finish()})
   display(v)
   v.post { showFirstSetupGuideIfNeeded() }
+ }
+ private fun createAdminPairing(){
+  val business=input("Nombre del negocio").apply{setText(ActivationApi.savedLicenseBusiness(this@PatronActivity))}
+  AlertDialog.Builder(this).setTitle("VINCULAR SENE ADMIN")
+   .setMessage("Genera un código temporal para conectar SeneAdmin con este negocio. Compártelo únicamente con tu aplicación SeneAdmin.")
+   .setView(business).setPositiveButton("GENERAR CÓDIGO",null).setNegativeButton("CANCELAR",null).create().also{dialog->
+    dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+     if(business.text.isBlank()){business.error="Escribe el nombre del negocio";return@setOnClickListener}
+     dialog.dismiss()
+     val progress=AlertDialog.Builder(this).setTitle("Generando código").setMessage("Conectando de forma segura con SERVER-SENE...").setCancelable(false).create()
+     progress.show()
+     Thread{
+      val result=try{ActivationApi.createAdminPairing(this,business.text.toString())}catch(e:Exception){JSONObject().put("_error",e.message?: "No fue posible conectar")}
+      runOnUiThread{
+       progress.dismiss()
+       if(isFinishing||isDestroyed)return@runOnUiThread
+       val code=result.optString("pairing_code",result.optString("code"))
+       if(result.optInt("_http_status",0) !in 200..299||code.isBlank()){
+        AlertDialog.Builder(this).setTitle("NO SE PUDO GENERAR EL CÓDIGO")
+         .setMessage(result.optString("message",result.optString("_error","SERVER-SENE todavía no tiene habilitada la vinculación. Inténtalo cuando se complete el servidor.")))
+         .setPositiveButton("ACEPTAR",null).show()
+        return@runOnUiThread
+       }
+       val expiry=result.optString("expires_at")
+       val box=LinearLayout(this).apply{orientation=1;setPadding(dp(20),dp(10),dp(20),dp(10))}
+       box.addView(TextView(this).apply{text=code;textSize=30f;gravity=Gravity.CENTER;letterSpacing=.18f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF173A78.toInt());setPadding(0,dp(14),0,dp(14))})
+       box.addView(TextView(this).apply{text="Código de un solo uso. Caduca: "+expiry.ifBlank{"en unos minutos"}+"\n\nAbre SeneAdmin, selecciona VINCULAR NEGOCIO e ingresa este código.";textSize=14f;setTextColor(0xFF586581.toInt())})
+       AlertDialog.Builder(this).setTitle("CÓDIGO PARA SENE ADMIN").setView(box)
+        .setPositiveButton("ENTENDIDO",null).show()
+      }
+     }
+    }.start()
+    }
+    dialog.show()
+   }
  }
  private fun showFirstSetupGuideIfNeeded(){
   val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
