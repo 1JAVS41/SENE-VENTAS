@@ -43,7 +43,42 @@ object Store {
  fun shift(c:Context)=root(c).optJSONObject("shift")
  fun phone(c:Context)=root(c).optString("phone","523311337592")
  fun setPhone(c:Context,p:String){ val r=root(c);r.put("phone",p);put(c,r) }
- fun saveProducts(c:Context,a:JSONArray,saveAsMaster:Boolean=true){val r=root(c);r.put("products",a).put("stockUpdatedAt",System.currentTimeMillis());if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply();put(c,r)}
+ fun saveProducts(c:Context,a:JSONArray,saveAsMaster:Boolean=true){
+  val previous=products(c)
+  val oldByCode=mutableMapOf<String,JSONObject>()
+  for(i in 0 until previous.length()){val item=previous.optJSONObject(i)?:continue;val code=item.optString("code");if(code.isNotBlank())oldByCode[code]=item}
+  val seen=mutableSetOf<String>()
+  val changes=JSONArray()
+  for(i in 0 until a.length()){
+   val item=a.optJSONObject(i)?:continue
+   val code=item.optString("code");if(code.isBlank())continue
+   seen.add(code)
+   val old=oldByCode[code]
+   val before=old?.optInt("stock",0)?:0
+   val after=item.optInt("stock",0).coerceAtLeast(0)
+   if(before==after)continue
+   val delta=after-before
+   changes.put(JSONObject().put("c",code).put("n",item.optString("name"))
+    .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+    .put("s",after).put("q",delta).put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
+    .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+  }
+  // Un producto eliminado del catálogo se representa como existencia cero, no como borrado de historial.
+  oldByCode.forEach{(code,item)->
+   if(code !in seen&&item.optInt("stock",0)>0)changes.put(JSONObject().put("c",code)
+    .put("n",item.optString("name")).put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+    .put("s",0).put("q",-item.optInt("stock",0)).put("x",SeneWireProtocol.STOCK_OUT)
+    .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+  }
+  val now=System.currentTimeMillis()
+  val r=root(c);r.put("products",a).put("stockUpdatedAt",now)
+  if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()
+  put(c,r)
+  if(changes.length()>0){
+   InventoryEventOutbox.enqueue(c,if(shift(c)==null)"M" else "S",changes,now)
+   PayrollRequestSync.sync(c,true)
+  }
+ }
  @Synchronized fun applyApprovedConsumption(c:Context,requestId:String,code:String,quantity:Int,amount:Double,worker:String,employeeId:String,description:String):Boolean {
   if(requestId.isBlank()||code.isBlank()||quantity<=0)return false
   val currentMoves=moves(c)
