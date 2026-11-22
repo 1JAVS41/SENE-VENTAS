@@ -228,7 +228,7 @@ class PayrollAdminActivity:FragmentActivity(){
   root.addView(payText("EMPLEADO SELECCIONADO",15f,true))
   root.addView(payText("👤  "+profile.name,20f,true))
   addEmployeeConfiguration(root,profile,old,employeeId,true)
-  root.addView(payButton("ELIMINAR PERFIL",false){confirmDeleteProfile(profile)})
+  root.addView(payButton("ELIMINAR PERFIL"){confirmDeleteProfile(profile)})
   showWorkersScreen(root)
  }
  private fun addWorkerProfile(){
