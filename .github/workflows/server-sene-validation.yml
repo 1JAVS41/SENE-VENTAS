@@ -1,0 +1,65 @@
+name: SERVER-SENE validation
+
+on:
+  push:
+    branches:
+      - feature/server-sene-complete-api
+    paths:
+      - "server-sene/**"
+      - ".github/workflows/server-sene-validation.yml"
+  workflow_dispatch:
+
+jobs:
+  validate-worker-and-migration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check Worker JavaScript syntax
+        run: node --check server-sene/worker.js
+      - name: Validate additive D1 migration with SQLite
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          db = sqlite3.connect(":memory:")
+          db.executescript("""
+          CREATE TABLE businesses (
+            id TEXT PRIMARY KEY,
+            business_name TEXT NOT NULL,
+            business_name_normalized TEXT NOT NULL UNIQUE,
+            holder_name TEXT,
+            whatsapp TEXT,
+            installation_id TEXT UNIQUE,
+            status TEXT NOT NULL,
+            activated_at TEXT,
+            expires_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          """)
+          db.executescript(Path("server-sene/migrations/0001_complete_sync.sql").read_text())
+          expected = {
+              "admin_pairing_codes", "admin_sessions", "admin_public_keys",
+              "payroll_requests", "attendance_events", "inventory_events",
+              "report_events", "server_sync_state"
+          }
+          actual = {
+              row[0] for row in db.execute(
+                  "SELECT name FROM sqlite_master WHERE type='table'"
+              )
+          }
+          missing = expected - actual
+          if missing:
+              raise SystemExit(f"Missing migration tables: {sorted(missing)}")
+          print(f"Migration OK: {len(expected)} synchronization tables created.")
+          PY
+      - name: Guard against the removed undefined cursor reference
+        run: |
+          ! grep -n "n:nextCursor" server-sene/worker.js
+          grep -q "asArray(body.q)" server-sene/worker.js
