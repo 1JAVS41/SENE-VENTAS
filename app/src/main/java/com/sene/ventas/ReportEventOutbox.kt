@@ -131,6 +131,8 @@ object ReportEventOutbox {
                 accepted.forEach { id -> db.delete("report_events", "event_id=?", arrayOf(id)) }
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }
+            // Libera la copia temporal solo después del ACK confirmado del servidor.
+            accepted.forEach { id -> ReportCrypto.markSent(context, id) }
         } catch (_: Exception) {
             // Un fallo al borrar conserva la cola; el servidor reconocerá el reintento por ID.
         }
