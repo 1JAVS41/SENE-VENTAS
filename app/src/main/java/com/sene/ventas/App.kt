@@ -1506,7 +1506,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     val attended=EmployeePayroll.attendance(this).filter{it.employeeId==employeeId&&it.date>=period&&it.date<=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())&&it.startedAt>0L&&!it.closureSource.equals("PATRÓN",true)&&!it.closureSource.equals("ADMIN_FORCED",true)&&!it.closureSource.equals("ADMINISTRATIVE",true)}
     val workedDays=attended.map{it.date}.distinct().size
     val absences=EmployeePayroll.absences(this,employeeId)
-    val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId)
+    val entries=EmployeePayroll.entriesForCurrentPeriod(this,employeeId).filter{it.status=="APPROVED"}
     val loans=entries.filter{it.type==EmployeePayroll.TYPE_LOAN}.sumOf{it.amountCents}
     val consumption=entries.filter{it.type==EmployeePayroll.TYPE_CONSUMPTION}.sumOf{it.amountCents}
     "\n\nDESGLOSE PARA NÓMINA SENE ADMIN\nPERÍODO DESDE: "+period+
@@ -2236,7 +2236,7 @@ object ReportFile {
   // Incluir solicitudes de préstamo y consumo pendientes en cada reporte para que SENE ADMIN las organice sin separarlas.
   val employeeId=shift.optString("employeeId")
   if(employeeId.isNotBlank()){
-   val payrollEntries=EmployeePayroll.entriesForCurrentPeriod(c,employeeId)
+   val payrollEntries=EmployeePayroll.entriesForCurrentPeriod(c,employeeId).filter{it.status=="APPROVED"}
    out.append("\n\nETIQUETA: SOLICITUDES DE NÓMINA PENDIENTES")
    if(payrollEntries.isEmpty())out.append("\nSin solicitudes pendientes en este período.")
    for(entry in payrollEntries){
@@ -2245,7 +2245,7 @@ object ReportFile {
      .append("\nFECHA: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
      .append("\nMOTIVO: ").append(entry.reason.ifBlank{"No indicado"})
      .append("\nDESCRIPCIÓN: ").append(entry.description.ifBlank{"No indicada"})
-     .append("\nESTADO: ").append(if(entry.settled)"LIQUIDADO" else "PENDIENTE")
+     .append("\nESTADO: ").append(if(entry.settled)"LIQUIDADO" else "AUTORIZADO")
    }
   }
 
