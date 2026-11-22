@@ -635,7 +635,7 @@ class InicioTurnoActivity:FragmentActivity(){
     else saveTextBackupLocal(this,"SENE-VENTAS-INICIO",body,workerId,worker)
     Store.saveShift(this,shift)
     val attendanceSaved=EmployeePayroll.recordShiftStart(this,workerId,now)
-    step(4,"Preparando el reporte seguro para WhatsApp…")
+    step(4,"Guardando el reporte en la cola segura para SENE SERVER…")
     val startEventKey=shift.optString("shiftId")+":START"
     val encryptedStart=ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey)
     runOnUiThread{
@@ -643,9 +643,10 @@ class InicioTurnoActivity:FragmentActivity(){
      progress.progress=5
      progress.dismiss()
      shiftPreparationRunning=false
-     pendingStartAfterWhatsApp=openWhatsAppText(this,encryptedStart)
+     pendingStartAfterWhatsApp=ReportEventOutbox.enqueue(this,startEventKey,workerId,"INICIO_TURNO",encryptedStart)
      if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
-     if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado y el respaldo TXT está guardado en el teléfono, en SENE VENTAS / INVENTARIO SENE. Revisa el número de WhatsApp del patrón.")
+     if(!pendingStartAfterWhatsApp)msg("No se pudo guardar el reporte en la cola segura. El turno quedó registrado; vuelve a intentar la sincronización.")
+     else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SENE SERVER; no se usa WhatsApp.")
     }
    }catch(e:Exception){
     runOnUiThread{
@@ -785,7 +786,7 @@ class MainActivity:FragmentActivity(){
  private fun updateReportCountdown(){if(!::countdownView.isInitialized)return;val s=Store.shift(this)?:return;val remaining=(10800000L-(System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis()))).coerceAtLeast(0L);if(remaining==0L){countdownView.text="\u26A0 REPORTE PENDIENTE: ENV\u00CDA PARA CONTINUAR";countdownView.setTextColor(0xFFB3261E.toInt());sell.isEnabled=false;sell.alpha=0.45f}else{val total=remaining/1000;val hh=total/3600;val mm=(total%3600)/60;val ss=total%60;countdownView.text=String.format(Locale.US,"SIGUIENTE REPORTE EN: %02d:%02d:%02d",hh,mm,ss);countdownView.setTextColor(0xFF168B45.toInt())}}
  private fun due():Boolean{val s=Store.shift(this)?:return false;return System.currentTimeMillis()-s.optLong("lastReport",System.currentTimeMillis())>=10800000}
  override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(Store.shift(this)==null){startActivity(Intent(this,InicioTurnoActivity::class.java));finish();return@enforceLicenseGate};draw();h.post(lock);salesClockHandler.post(salesClockTick);refreshSalesInternetClock();if(intent.getBooleanExtra("admin_force_close",false))h.post{requestAdminForceClose()}}}
- override fun onResume(){super.onResume();PayrollRequestSync.sync(this);if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(pendingShareUri!=null)h.post{confirmReportSent()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized){val active=Store.shift(this);if(active?.optBoolean("finishPending",false)==true){sell.isEnabled=false;sell.alpha=0.45f}else{h.post{checkScheduledWorkdayEnd();if(overtimeDialog?.isShowing!=true&&due())showReportAlert()}}}}
+ override fun onResume(){super.onResume();PayrollRequestSync.sync(this);if(::salesDeviceClock.isInitialized){enforceLicenseGate(this){};salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.post(salesClockTick)};if(::salesInternetClock.isInitialized)refreshSalesInternetClock();if(refreshAfterPatron){refreshAfterPatron=false;draw()}else if(::sell.isInitialized){val active=Store.shift(this);if(active?.optBoolean("finishPending",false)==true){sell.isEnabled=false;sell.alpha=0.45f}else{h.post{checkScheduledWorkdayEnd();if(overtimeDialog?.isShowing!=true&&due())showReportAlert()}}}}
  override fun onDestroy(){h.removeCallbacks(lock);salesClockHandler.removeCallbacks(salesClockTick);salesClockHandler.removeCallbacks(salesInternetClockTick);super.onDestroy()}
  private fun refreshSalesInternetClock(){
   salesInternetText="Consultando…"
@@ -1568,23 +1569,43 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private fun launchPendingReportShare(){
   val body=pendingReportText?:return
-  openWhatsAppText(this,body)
- }
- private fun confirmReportSent(){
-  if(confirmingReport||pendingShareUri==null)return
-  confirmingReport=true
-  AlertDialog.Builder(this).setTitle("Confirmar envío del reporte")
-   .setMessage("¿Ya enviaste el reporte escrito por WhatsApp? El respaldo TXT completo ya está guardado en INVENTARIO SENE. Las ventas seguirán bloqueadas hasta que confirmes.")
-   .setCancelable(false)
-   .setPositiveButton("SÍ, YA LO ENVIÉ"){_,_->
-    confirmingReport=false
-    val final=pendingFinalShare;pendingShareUri=null;pendingReportText=null
-    val shift=Store.shift(this)
-    if(final){shift?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),active.optString("closingReason"),active.optString("closingBy"),active.optBoolean("completedWorkday",false),active.optLong("startTs",0L))}};Store.saveShift(this,null);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";ticket.clear();startActivity(Intent(this,InicioTurnoActivity::class.java));finish()}
-    else if(shift!=null){shift.put("lastReport",System.currentTimeMillis()).put("reportReminderShown",false).put("reportCount",shift.optInt("reportCount",0)+1);Store.saveShift(this,shift);if(pendingReportEventKey.isNotBlank())ReportCrypto.markSent(this,pendingReportEventKey);pendingReportEventKey="";reportDialog?.dismiss();sell.isEnabled=true;sell.alpha=1f;updateReportCountdown();msg("Envío confirmado. Puedes continuar trabajando.")}
-   }
-   .setNegativeButton("VOLVER A ENVIAR"){_,_->confirmingReport=false;launchPendingReportShare()}
-   .show()
+  val shift=Store.shift(this)
+  val workerId=shift?.optString("employeeId").orEmpty()
+  val reportType=if(pendingFinalShare)"CIERRE_TURNO" else "REPORTE_TURNO"
+  val queued=ReportEventOutbox.enqueue(this,pendingReportEventKey,workerId,reportType,body)
+  if(!queued){
+   msg("No se pudo guardar el reporte en la cola segura. El turno permanece protegido; vuelve a intentar.")
+   return
+  }
+  // La cola es durable: el reporte permanece hasta recibir el ACK del servidor.
+  pendingShareUri=null
+  pendingReportText=null
+  val final=pendingFinalShare
+  val current=Store.shift(this)
+  if(final){
+   current?.let{active->active.optString("employeeId").takeIf{id->id.isNotBlank()}?.let{id->
+    EmployeePayroll.recordShiftEnd(this,id,active.optLong("closingTs",System.currentTimeMillis()),
+     active.optString("closingReason"),active.optString("closingBy"),
+     active.optBoolean("completedWorkday",false),active.optLong("startTs",0L))
+   }}
+   Store.saveShift(this,null)
+   pendingReportEventKey=""
+   ticket.clear()
+   msg("Cierre guardado. El reporte quedó en cola para sincronizarse con SENE SERVER.")
+   startActivity(Intent(this,InicioTurnoActivity::class.java))
+   finish()
+  }else if(current!=null){
+   current.put("lastReport",System.currentTimeMillis())
+    .put("reportReminderShown",false)
+    .put("reportCount",current.optInt("reportCount",0)+1)
+   Store.saveShift(this,current)
+   pendingReportEventKey=""
+   reportDialog?.dismiss()
+   sell.isEnabled=true
+   sell.alpha=1f
+   updateReportCountdown()
+   msg("Reporte guardado en la cola segura. Se enviará a SENE SERVER al sincronizar.")
+  }
  }
  private fun saveDailyReport(tree:Uri,source:java.io.File,employeeId:String="",workerName:String=""):Uri{
   val resolver=contentResolver
