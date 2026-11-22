@@ -245,7 +245,7 @@ object EmployeePayroll {
         val key=dateKey(ts);val all=attendance(c).toMutableList();val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
         if(i>=0)all[i]=all[i].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="") else all.add(Attendance(employeeId,key,ts,0L))
         val saved=saveAttendance(c,all)
-        if(saved)AttendanceEventOutbox.enqueue(c,employeeId,key,SeneWireProtocol.IN_PROGRESS,ts,0L,"","TRABAJADOR")
+        if(saved){AttendanceEventOutbox.enqueue(c,employeeId,key,SeneWireProtocol.IN_PROGRESS,ts,0L,"","TRABAJADOR");PayrollRequestSync.sync(c,true)}
         return saved
     }
     @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false,startedAt:Long=0L):Boolean{
@@ -262,7 +262,7 @@ object EmployeePayroll {
             completedWorkday -> SeneWireProtocol.FULL_SHIFT
             else -> SeneWireProtocol.EARLY_CLOSE
         }
-        if(saved)AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source)
+        if(saved){AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source);PayrollRequestSync.sync(c,true)}
         return saved
     }
     // Todos los resúmenes y límites usan el mismo cálculo efectivo de nómina.
