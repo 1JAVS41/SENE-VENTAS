@@ -9,6 +9,13 @@ import org.json.JSONObject
 object SeneWireProtocol {
     const val VERSION = 1
 
+    // Controles de transporte: nunca se presentan como texto literal en la interfaz.
+    const val SYNC = "[SYNC]"
+    const val ATTENDANCE_SYNC = "[AT_SYNC]"
+    const val INVENTORY_SYNC = "[IN_SYNC]"
+    const val APPROVED = "[OK]"
+    const val REJECTED = "[NO]"
+
     const val LOAN = "[P$]"
     const val CONSUMPTION = "[C$]"
     const val NO_RECORD = "[SR]"
@@ -40,7 +47,12 @@ object SeneWireProtocol {
         STOCK_IN to "Entrada de almacén",
         STOCK_OUT to "Salida de almacén",
         INVENTORY_ADJUSTMENT to "Ajuste de inventario",
-        OUT_OF_STOCK to "Producto agotado"
+        OUT_OF_STOCK to "Producto agotado",
+        APPROVED to "Autorizada",
+        REJECTED to "Rechazada",
+        SYNC to "Sincronización",
+        ATTENDANCE_SYNC to "Sincronización de asistencia",
+        INVENTORY_SYNC to "Sincronización de inventario"
     )
 
     private val weekdays = mapOf(
@@ -73,5 +85,6 @@ object SeneWireProtocol {
             .put("w", workerId).put("a", amountCents)
     }
 
-    fun isKnown(code: String): Boolean = code in labels || code.startsWith("[DP][")
+    fun isKnown(code: String): Boolean = code in labels || code in setOf(SYNC, ATTENDANCE_SYNC, INVENTORY_SYNC) ||
+        code in setOf("[DP][L]", "[DP][M]", "[DP][MI]", "[DP][J]", "[DP][V]", "[DP][S]", "[DP][D]")
 }
