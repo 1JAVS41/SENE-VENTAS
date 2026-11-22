@@ -54,6 +54,7 @@ object PayrollRequestSync {
                 val response = ActivationApi.post("/payroll/requests/sync", payload)
                 val status = response.optInt("_http_status", 0)
                 if (status !in 200..299) return@Thread
+                if(response.optInt("v",SeneWireProtocol.VERSION)!=SeneWireProtocol.VERSION)return@Thread
                 val decisions = response.optJSONArray("d") ?: response.optJSONArray("decisions") ?: JSONArray()
                 for (i in 0 until decisions.length()) {
                     val decision = decisions.optJSONObject(i) ?: continue
