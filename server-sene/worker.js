@@ -569,10 +569,10 @@ async function payrollSync(request, env) {
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.r).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
+  const requests=asArray(body.q).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
   const statements=[];
   for (const item of requests) {
-    const id=eventId(item), worker=eventWorker(item);
+    const id=eventId(item), worker=eventWorker(item) || String(body.w || "").trim();
     if (!id || !worker || !["[P$]","[C$]"].includes(String(item.t||""))) continue;
     statements.push(db.prepare("INSERT INTO payroll_requests (event_id,business_id,worker_id,payload,status,created_at,updated_at) VALUES (?,?,?,?, 'PENDING',?,?) ON CONFLICT(business_id,event_id) DO NOTHING")
       .bind(id,business.id,worker,JSON.stringify(item),now,now));
@@ -601,13 +601,9 @@ async function payrollSync(request, env) {
     .bind(business.id).all();
   const key=await db.prepare("SELECT public_key FROM admin_public_keys WHERE business_id=?").bind(business.id).first();
   const cursor=parseCursor(body.c);
-  const pending=await db.prepare("SELECT seq,payload FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
-    .bind(business.id,cursor).all();
-  const nextCursor=pending.results?.length ? String(pending.results[pending.results.length-1].seq) : String(cursor);
   const responseDecisions=(decisions.results||[]).map(x=>({
     e:x.event_id,x:x.status,by:x.decision_by||"",r:x.decision_reason||"",at:x.decided_at||""
   }));
-  const hAck=asArray(body.h).map(eventId).filter(Boolean);
   return json({
     v:1,d:responseDecisions,
     ha:acceptedH,ga:acceptedG,ba:acceptedB,
