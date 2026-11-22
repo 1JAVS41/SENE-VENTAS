@@ -68,13 +68,20 @@ class PayrollRequestActivity:FragmentActivity(){
   root.addView(payText("LÍMITE CONJUNTO (50%)\nSueldo ajustado por faltas: "+EmployeePayroll.money(cap.adjustedSalaryCents)+"\nDisponible: "+EmployeePayroll.money(cap.availableCents),18f,true))
   root.addView(payButton("CONSUMO"){consumptionForm()});root.addView(payButton("PRÉSTAMO"){loanForm()})
   root.addView(payButton("MI NÓMINA"){startActivity(Intent(this,PayrollEmployeeActivity::class.java).putExtra("employee_id",workerId))})
+  root.addView(payText("MIS SOLICITUDES",16f,true))
+  EmployeePayroll.entries(this,workerId).filter{it.type==EmployeePayroll.TYPE_LOAN||it.type==EmployeePayroll.TYPE_CONSUMPTION}.sortedByDescending{it.timestamp}.forEach{e->
+   val kind=if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
+   val state=when(e.status){"PENDING"->"PENDIENTE DE AUTORIZACIÓN";"APPROVED"->"AUTORIZADA";"REJECTED"->"RECHAZADA";else->e.status}
+   val detail=buildString{append(kind).append(" · ").append(e.description).append(" · ").append(EmployeePayroll.money(e.amountCents)).append("\\n").append(state);if(e.decidedBy.isNotBlank())append("\\nAutorizó: ").append(e.decidedBy);if(e.decidedAt>0L)append(" · ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.decidedAt)));if(e.rejectionReason.isNotBlank())append("\\nMotivo: ").append(e.rejectionReason)}
+   root.addView(payText(detail,13f,e.status=="PENDING"))
+  }
   root.addView(payText("Los consumos y préstamos se descuentan de la nómina. Los préstamos también reducen la caja al entregarse.",13f));payShow(root)
  }
  private fun consumptionForm(){
   val box=LinearLayout(this).apply{orientation=1;setPadding(20,8,20,8)}
   val code=payInput("Código del producto");codeField=code;val qty=payInput("Cantidad",true)
   box.addView(code);box.addView(payButton("ESCANEAR CÓDIGO"){IntentIntegrator(this).setPrompt("Escanea el producto").setBeepEnabled(true).initiateScan()});box.addView(qty)
-  val d=AlertDialog.Builder(this).setTitle("SOLICITAR CONSUMO").setMessage("Se descontará de tu nómina en el próximo pago.").setView(box).setPositiveButton("REVISAR",null).setNegativeButton("CANCELAR",null).create()
+  val d=AlertDialog.Builder(this).setTitle("SOLICITAR CONSUMO").setMessage("La solicitud debe ser autorizada por el patrón. El inventario y tu nómina no cambiarán mientras esté pendiente.").setView(box).setPositiveButton("REVISAR",null).setNegativeButton("CANCELAR",null).create()
   d.setOnShowListener{d.getButton(-1).setOnClickListener{
    val q=qty.text.toString().toIntOrNull();val products=Store.products(this);var found:JSONObject?=null
    for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;if(p.optString("code")==code.text.toString().trim()){found=p;break}}
@@ -82,15 +89,14 @@ class PayrollRequestActivity:FragmentActivity(){
    if(q==null||q<=0||q>found.optInt("stock")){qty.error="Cantidad no disponible";return@setOnClickListener}
    val cents=moneyCents(found.optDouble("price")*q);val cap=EmployeePayroll.capacity(this,workerId)
    if(cents>cap.availableCents){Toast.makeText(this,"Disponible: "+EmployeePayroll.money(cap.availableCents),Toast.LENGTH_LONG).show();return@setOnClickListener}
-   AlertDialog.Builder(this).setTitle("CONFIRMAR CONSUMO")
-    .setMessage(found.optString("name")+"\nCantidad: $q\nImporte: "+EmployeePayroll.money(cents)+"\n\nSe descontará de tu nómina en el próximo pago.")
-    .setPositiveButton("CONFIRMAR"){_,_->
-     val entry=EmployeePayroll.addRequest(this,EmployeePayroll.TYPE_CONSUMPTION,cents,description=found.optString("name")+" x$q",employeeId=workerId)
-     if(entry==null){Toast.makeText(this,"No se pudo registrar. Revisa el límite.",Toast.LENGTH_LONG).show();return@setPositiveButton}
-     val amount=found.optDouble("price")*q;found.put("stock",found.optInt("stock")-q);Store.saveProducts(this,products)
-     Store.addMove(this,JSONObject().put("type","EMPLOYEE_CONSUMPTION").put("ts",System.currentTimeMillis()).put("time",stampPayroll()).put("amount",amount).put("worker",workerName).put("employeeId",workerId).put("text","CONSUMO DE EMPLEADO: $workerName | "+found.optString("name")+" x$q | "+Store.money(amount)+" | Descuento de nómina"))
-     val sent=SeneOrderSender.send(this,workerId,workerName,"CONSUMO",found.optString("name")+" x$q",cents,entry.id)
-     Toast.makeText(this,if(sent)"Consumo registrado. WhatsApp se abrió con la orden preparada; pulsa ENVIAR para entregarla al patrón." else "Consumo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
+   AlertDialog.Builder(this).setTitle("CONFIRMAR SOLICITUD")
+    .setMessage(found.optString("name")+"\nCantidad: $q\nImporte: "+EmployeePayroll.money(cents)+"\n\nEl patrón deberá autorizarla. No se descontará inventario ni nómina hasta recibir su aprobación.")
+    .setPositiveButton("ENVIAR SOLICITUD"){_,_->
+     val entry=EmployeePayroll.addRequest(this,EmployeePayroll.TYPE_CONSUMPTION,cents,
+       description=found.optString("name")+" x$q",employeeId=workerId,productCode=found.optString("code"),quantity=q)
+     if(entry==null){Toast.makeText(this,"No se pudo guardar la solicitud. Revisa el límite.",Toast.LENGTH_LONG).show();return@setPositiveButton}
+     Toast.makeText(this,"Solicitud guardada como PENDIENTE. Se enviará al servidor al sincronizar.",Toast.LENGTH_LONG).show()
+     draw()
     }.setNegativeButton("VOLVER",null).show()
    d.dismiss()
   }};d.show()
@@ -98,20 +104,19 @@ class PayrollRequestActivity:FragmentActivity(){
  private fun loanForm(){
   val box=LinearLayout(this).apply{orientation=1;setPadding(20,8,20,8)}
   val reason=payInput("Motivo del préstamo");val amount=payInput("Cantidad $",true);box.addView(reason);box.addView(amount)
-  val d=AlertDialog.Builder(this).setTitle("SOLICITAR PRÉSTAMO").setMessage("El préstamo se descuenta de tu nómina y el efectivo sale de caja al entregarse.").setView(box).setPositiveButton("REVISAR",null).setNegativeButton("CANCELAR",null).create()
+  val d=AlertDialog.Builder(this).setTitle("SOLICITAR PRÉSTAMO").setMessage("El patrón deberá autorizarlo. No se registrará salida de caja ni descuento de nómina mientras esté pendiente.").setView(box).setPositiveButton("REVISAR",null).setNegativeButton("CANCELAR",null).create()
   d.setOnShowListener{d.getButton(-1).setOnClickListener{
    val value=amount.text.toString().replace(",",".").toDoubleOrNull()
    if(reason.text.isBlank()){reason.error="Indica el motivo";return@setOnClickListener}
    if(value==null||value<=0){amount.error="Cantidad inválida";return@setOnClickListener}
    val cents=moneyCents(value);val cap=EmployeePayroll.capacity(this,workerId)
    if(cents>cap.availableCents){Toast.makeText(this,"Solo tienes "+EmployeePayroll.money(cap.availableCents)+" disponibles",Toast.LENGTH_LONG).show();return@setOnClickListener}
-   AlertDialog.Builder(this).setTitle("CONFIRMAR PRÉSTAMO").setMessage("Motivo: "+reason.text+"\nImporte: "+Store.money(value)+"\nDisponible después: "+EmployeePayroll.money(cap.availableCents-cents))
-    .setPositiveButton("CONFIRMAR Y REGISTRAR"){_,_->
+   AlertDialog.Builder(this).setTitle("CONFIRMAR SOLICITUD").setMessage("Motivo: "+reason.text+"\nImporte: "+Store.money(value)+"\nDisponible después de reservar: "+EmployeePayroll.money(cap.availableCents-cents)+"\n\nNo se entregará efectivo hasta que el patrón autorice.")
+    .setPositiveButton("ENVIAR SOLICITUD"){_,_->
      val entry=EmployeePayroll.addRequest(this,EmployeePayroll.TYPE_LOAN,cents,reason.text.toString(),employeeId=workerId)
-     if(entry==null){Toast.makeText(this,"No se pudo registrar el préstamo",Toast.LENGTH_LONG).show();return@setPositiveButton}
-     Store.addMove(this,JSONObject().put("type","LOAN_DISBURSEMENT").put("ts",System.currentTimeMillis()).put("time",stampPayroll()).put("amount",value).put("worker",workerName).put("employeeId",workerId).put("text","PRÉSTAMO ENTREGADO A $workerName | "+reason.text+" | "+Store.money(value)+" | Descuento de nómina"))
-     val sent=SeneOrderSender.send(this,workerId,workerName,"PRESTAMO",reason.text.toString(),cents,entry.id)
-     Toast.makeText(this,if(sent)"Préstamo registrado. WhatsApp se abrió con la orden preparada; pulsa ENVIAR para entregarla al patrón." else "Préstamo guardado. No se pudo abrir WhatsApp para avisar al patrón.",Toast.LENGTH_LONG).show();draw()
+     if(entry==null){Toast.makeText(this,"No se pudo guardar la solicitud",Toast.LENGTH_LONG).show();return@setPositiveButton}
+     Toast.makeText(this,"Solicitud guardada como PENDIENTE. Se enviará al servidor al sincronizar.",Toast.LENGTH_LONG).show()
+     draw()
     }.setNegativeButton("CANCELAR",null).show()
    d.dismiss()
   }};d.show()
