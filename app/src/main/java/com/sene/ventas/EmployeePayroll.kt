@@ -244,7 +244,9 @@ object EmployeePayroll {
         if(employeeId.isBlank())return false
         val key=dateKey(ts);val all=attendance(c).toMutableList();val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
         if(i>=0)all[i]=all[i].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="") else all.add(Attendance(employeeId,key,ts,0L))
-        return saveAttendance(c,all)
+        val saved=saveAttendance(c,all)
+        if(saved)AttendanceEventOutbox.enqueue(c,employeeId,key,SeneWireProtocol.IN_PROGRESS,ts,0L,"","TRABAJADOR")
+        return saved
     }
     @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false,startedAt:Long=0L):Boolean{
         if(employeeId.isBlank())return false
@@ -254,7 +256,14 @@ object EmployeePayroll {
         val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
         if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source,completedWorkday=completedWorkday)
         else all.add(Attendance(employeeId,key,start,ts,reason,source,completedWorkday))
-        return saveAttendance(c,all)
+        val saved=saveAttendance(c,all)
+        val state=when {
+            source.equals("PATRÓN",true)||source.equals("ADMIN_FORCED",true)||source.equals("ADMINISTRATIVE",true) -> SeneWireProtocol.ADMIN_CLOSE
+            completedWorkday -> SeneWireProtocol.FULL_SHIFT
+            else -> SeneWireProtocol.EARLY_CLOSE
+        }
+        if(saved)AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source)
+        return saved
     }
     // Todos los resúmenes y límites usan el mismo cálculo efectivo de nómina.
     // Así no se descuentan días anteriores al primer turno ni cierres administrativos.
