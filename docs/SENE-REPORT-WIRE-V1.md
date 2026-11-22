@@ -34,7 +34,7 @@ El arreglo `b` se conserva localmente en ReportEventOutbox. Un reporte solo se e
 
 ## Compatibilidad criptográfica pendiente
 
-El contenido `b` todavía usa el formato cifrado histórico para mantener compatibilidad con lectores y respaldos existentes. La migración a cifrado nuevo sin clave compartida requiere definir y desplegar el esquema criptográfico de extremo a extremo antes de retirar el lector histórico. No se debe borrar ni invalidar la clave ni los respaldos anteriores durante esta etapa.
+Los reportes nuevos usan `SENE-ADMIN-REPORT|2` cuando SENE VENTAS ya recibió `rp`, la clave pública RSA del SeneAdmin vinculado. Cada reporte usa AES-256-GCM y envuelve su clave de contenido con RSA-OAEP SHA-256. Si aún no se recibió `rp`, se conserva v1 como compatibilidad transitoria. El lector histórico y los respaldos antiguos no se borran.
 
 ## Estado de implementación
 
@@ -45,5 +45,6 @@ El contenido `b` todavía usa el formato cifrado histórico para mantener compat
 - [ ] Endpoint y persistencia de SERVER-SENE.
 - [x] Recepción autenticada, buzón local cifrado y cola de ACK de reportes en SeneAdmin.
 - [ ] Presentación e importación sin depender de la clave compartida histórica (la importación actual conserva compatibilidad y todavía requiere esa clave).
-- [ ] Migración criptográfica compatible y retirada segura de la clave compartida.
+- [x] Cifrado E2E v2 en ambos clientes y lectura compatible con reportes v1.
+- [ ] SERVER-SENE debe registrar/distribuir `rp` y habilitar rotación de claves; hasta entonces las instalaciones sin clave pública siguen usando v1.
 - [ ] Pruebas instrumentadas y compilación verificadas de ambas APK.
