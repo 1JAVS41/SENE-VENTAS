@@ -113,6 +113,8 @@ object ActivationApi {
 
     fun subscriptionStatus(context: Context): JSONObject {
         val result = post("/subscription/status", JSONObject().put("installation_id", installationId(context)))
+        val reportPublicKey = result.optString("rp", result.optString("report_public_key"))
+        if (reportPublicKey.isNotBlank()) ReportPublicKeyStore.saveFromServer(context, reportPublicKey)
         val expiry = result.optString("expires_at")
         if (expiry.isNotBlank()) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
