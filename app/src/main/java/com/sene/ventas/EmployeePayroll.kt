@@ -63,10 +63,23 @@ object EmployeePayroll {
         val effective=effectiveStartDate(c,employeeId)
         val payableStart=if(effective.isNotBlank()&&effective>periodStart)effective else periodStart
         val payableDays=scheduledDaysBetween(payableStart,periodEnd,cfg.workDaysOfWeek)
-        val gross=if(cfg.workDays>0)(cfg.weeklySalaryCents*payableDays/cfg.workDays).coerceAtMost(cfg.weeklySalaryCents) else 0L
         val today=displayDate(ts)
         val records=attendance(c).filter{it.employeeId==employeeId}
         val attended=records.filter{it.startedAt>0L}.map{it.date}.toSet()
+        // El sueldo ganado solo incluye jornadas ya terminadas. Un turno en curso
+        // no genera todavía el importe de ese día; una salida anticipada sí genera
+        // el día y su descuento proporcional se calcula abajo.
+        val completedDates=records.filter{record->
+            record.date in payableStart..periodEnd && record.closedAt>0L &&
+                (record.completedWorkday || record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()) &&
+                !record.closureSource.equals("PATRÓN",true) &&
+                !record.closureSource.equals("ADMIN_FORCED",true) &&
+                !record.closureSource.equals("ADMINISTRATIVE",true)
+        }.map{it.date}.toSet()
+        val yesterday=displayDate(Calendar.getInstance().apply{timeInMillis=ts;add(Calendar.DAY_OF_YEAR,-1)}.timeInMillis)
+        val accruedEnd=if(today in completedDates) minOf(today,periodEnd) else minOf(yesterday,periodEnd)
+        val accruedDays=if(accruedEnd>=payableStart)scheduledDaysBetween(payableStart,accruedEnd,cfg.workDaysOfWeek) else 0
+        val gross=if(cfg.workDays>0)(cfg.weeklySalaryCents*accruedDays/cfg.workDays).coerceAtMost(cfg.weeklySalaryCents) else 0L
         val startCal=Calendar.getInstance().apply{timeInMillis=parseDate(payableStart)}
         var absences=0;var guard=0
         while(displayDate(startCal.timeInMillis)<today&&displayDate(startCal.timeInMillis)<=periodEnd&&guard++<370){
