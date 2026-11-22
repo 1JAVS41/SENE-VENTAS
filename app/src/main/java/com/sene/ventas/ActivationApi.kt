@@ -86,6 +86,13 @@ object ActivationApi {
         }
     }
 
+    /** Solicita un código temporal para vincular SeneAdmin al negocio. Solo se invoca desde SOY PATRÓN autenticado. */
+    fun createAdminPairing(context: Context, businessName: String): JSONObject {
+        return post("/admin/pairing/create", JSONObject()
+            .put("installation_id", installationId(context))
+            .put("business_name", businessName.trim()))
+    }
+
     fun subscriptionStatus(context: Context): JSONObject {
         val result = post("/subscription/status", JSONObject().put("installation_id", installationId(context)))
         val expiry = result.optString("expires_at")
