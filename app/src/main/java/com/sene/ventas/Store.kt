@@ -44,6 +44,33 @@ object Store {
  fun phone(c:Context)=root(c).optString("phone","523311337592")
  fun setPhone(c:Context,p:String){ val r=root(c);r.put("phone",p);put(c,r) }
  fun saveProducts(c:Context,a:JSONArray,saveAsMaster:Boolean=true){val r=root(c);r.put("products",a).put("stockUpdatedAt",System.currentTimeMillis());if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply();put(c,r)}
+ @Synchronized fun applyApprovedConsumption(c:Context,requestId:String,code:String,quantity:Int,amount:Double,worker:String,employeeId:String,description:String):Boolean {
+  if(requestId.isBlank()||code.isBlank()||quantity<=0)return false
+  val currentMoves=moves(c)
+  val moveExists=(0 until currentMoves.length()).any{currentMoves.optJSONObject(it)?.optString("requestId")==requestId}
+  val r=root(c)
+  val applied=try{r.optJSONObject("approved_consumption_requests")?:JSONObject()}catch(_:Exception){JSONObject()}
+  if(!applied.optBoolean(requestId,false)){
+   val products=r.optJSONArray("products")?:JSONArray()
+   var found:JSONObject?=null
+   for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;if(p.optString("code")==code){found=p;break}}
+   val product=found?:return false
+   if(product.optInt("stock")<quantity)return false
+   product.put("stock",product.optInt("stock")-quantity)
+   applied.put(requestId,true)
+   r.put("products",products).put("approved_consumption_requests",applied).put("stockUpdatedAt",System.currentTimeMillis())
+   val edit=c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString())
+   if(shift(c)==null)edit.putString("master_products",products.toString())
+   if(!edit.commit())return false
+   try{ReportFile.update(c,r)}catch(_:Exception){}
+  }
+  if(!moveExists)addMove(c,JSONObject().put("requestId",requestId).put("type","EMPLOYEE_CONSUMPTION")
+   .put("ts",System.currentTimeMillis()).put("time",java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date()))
+   .put("amount",amount).put("worker",worker).put("employeeId",employeeId)
+   .put("text","CONSUMO AUTORIZADO: "+worker+" | "+description+" | "+money(amount)+" | Descuento de nómina"))
+  return true
+ }
+
  fun publishMasterProducts(c:Context,a:JSONArray){c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()}
  fun stockUpdatedAtText(c:Context):String{val ts=root(c).optLong("stockUpdatedAt",0L);return if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Sin registro previo de actualización"}
  fun saveSales(c:Context,a:JSONArray){db(c).replace("sales",a);try{ReportFile.update(c)}catch(_:Exception){}}
