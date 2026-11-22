@@ -29,7 +29,7 @@ object ReportEventOutbox {
         if ((0 until current.length()).any { current.optJSONObject(it)?.optString("e") == eventId }) return true
         current.put(JSONObject()
             .put("v", SeneWireProtocol.VERSION)
-            .put("t", SeneWireProtocol.REPORT)
+            .put("t", SeneWireProtocol.SYNC)
             .put("e", eventId)
             .put("w", workerId)
             .put("k", reportType)
