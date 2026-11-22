@@ -30,18 +30,17 @@ object PayrollRequestSync {
                 }
                 val requests = JSONArray()
                 pending.forEach { entry ->
-                    requests.put(JSONObject()
-                        .put("request_id", entry.id)
-                        .put("worker_id", entry.employeeId)
-                        .put("worker_name", entry.employee)
-                        .put("type", if (entry.type == EmployeePayroll.TYPE_LOAN) "LOAN" else "CONSUMPTION")
-                        .put("amount_cents", entry.amountCents)
-                        .put("reason", entry.reason)
-                        .put("description", entry.description)
-                        .put("product_code", entry.productCode)
-                        .put("quantity", entry.quantity)
-                        .put("created_at", entry.timestamp)
-                        .put("payroll_period", entry.periodKey))
+                    val typeCode = if (entry.type == EmployeePayroll.TYPE_LOAN)
+                        SeneWireProtocol.LOAN else SeneWireProtocol.CONSUMPTION
+                    requests.put(SeneWireProtocol.request(
+                        typeCode, entry.id, entry.employeeId, entry.amountCents
+                    ).put("n", entry.employee)
+                        .put("r", entry.reason)
+                        .put("z", entry.description)
+                        .put("p", entry.productCode)
+                        .put("q", entry.quantity)
+                        .put("i", entry.timestamp)
+                        .put("k", entry.periodKey))
                 }
                 val payload = JSONObject()
                     .put("installation_id", ActivationApi.installationId(app))
