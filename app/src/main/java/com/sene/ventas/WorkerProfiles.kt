@@ -54,6 +54,20 @@ object WorkerProfiles {
         if(items.none{it.id==profileId})return false
         return save(c,items.filterNot{it.id==profileId})
     }
+    @Synchronized fun updateProfile(c:Context,profileId:String,name:String,phone:String,newPin:String?):Boolean{
+        val cleanName=name.trim()
+        val cleanPhone=phone.filter{it.isDigit()}
+        if(cleanName.isBlank()||cleanPhone.length !in 10..15)return false
+        if(newPin!=null&&(newPin.length!=4||newPin.any{!it.isDigit()}))return false
+        val items=all(c)
+        val current=items.firstOrNull{it.id==profileId}?:return false
+        if(items.any{it.id!=profileId&&it.name.equals(cleanName,true)})return false
+        val updated=if(newPin.isNullOrBlank())current.copy(name=cleanName,phone=cleanPhone) else {
+            val salt=ByteArray(16).also{SecureRandom().nextBytes(it)}.joinToString(""){"%02x".format(it)}
+            current.copy(name=cleanName,phone=cleanPhone,salt=salt,pinHash=digest(salt,newPin))
+        }
+        return save(c,items.map{if(it.id==profileId)updated else it})
+    }
     @Synchronized fun updatePhone(c:Context,profileId:String,phone:String):Boolean{
         val cleanPhone=phone.filter{it.isDigit()}
         if(cleanPhone.length !in 10..15)return false
