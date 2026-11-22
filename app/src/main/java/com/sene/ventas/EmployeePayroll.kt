@@ -313,20 +313,12 @@ object EmployeePayroll {
         return !approved || applyApprovedMovement(c,all[index])
     }
     private fun applyApprovedMovement(c:Context,e:Entry):Boolean {
-        if(Store.moves(c).let{moves->(0 until moves.length()).any{moves.optJSONObject(it)?.optString("requestId")==e.id}})return true
+        val current=Store.moves(c)
+        if((0 until current.length()).any{current.optJSONObject(it)?.optString("requestId")==e.id})return true
         val now=System.currentTimeMillis()
         if(e.type==TYPE_CONSUMPTION) {
-            if(e.productCode.isBlank()||e.quantity<=0)return false
-            val products=Store.products(c);var found:JSONObject?=null
-            for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;if(p.optString("code")==e.productCode){found=p;break}}
-            if(found==null||found.optInt("stock")<e.quantity)return false
-            found.put("stock",found.optInt("stock")-e.quantity)
-            Store.saveProducts(c,products)
-            val amount=e.amountCents/100.0
-            Store.addMove(c,JSONObject().put("requestId",e.id).put("type","EMPLOYEE_CONSUMPTION")
-                .put("ts",now).put("time",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
-                .put("amount",amount).put("worker",e.employee).put("employeeId",e.employeeId)
-                .put("text","CONSUMO AUTORIZADO: ${e.employee} | ${e.description} | ${money(e.amountCents)} | Descuento de nómina"))
+            return Store.applyApprovedConsumption(c,e.id,e.productCode,e.quantity,e.amountCents/100.0,
+                e.employee,e.employeeId,e.description)
         } else if(e.type==TYPE_LOAN) {
             Store.addMove(c,JSONObject().put("requestId",e.id).put("type","LOAN_DISBURSEMENT")
                 .put("ts",now).put("time",SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(now)))
