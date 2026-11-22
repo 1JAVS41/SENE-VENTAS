@@ -459,6 +459,197 @@ async function subscriptionStatus(request, env) {
     message: active ? "Suscripción vigente." : expired ? "LICENCIA_VENCIDA" : "Se requiere vincular o renovar SENE VENTAS." });
 }
 
+
+
+// ---- SENE VENTAS / SeneAdmin durable synchronization API ----
+const readJson = async request => {
+  try { return await request.json(); } catch (_) { return null; }
+};
+const asArray = value => Array.isArray(value) ? value : [];
+const eventId = value => String(value?.e || value?.event_id || value?.id || "").trim();
+const eventWorker = value => String(value?.w || value?.worker_id || value?.i_worker || "").trim();
+const parseCursor = value => {
+  const n = Number.parseInt(String(value || "0"), 10);
+  return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+};
+const encodeRow = row => {
+  try { return JSON.parse(row.payload); } catch (_) { return null; }
+};
+async function activeBusinessByInstallation(db, installationId) {
+  if (!validText(installationId, 20, 100)) return null;
+  const row = await db.prepare(
+    "SELECT id,business_name,status,expires_at,installation_id FROM businesses WHERE installation_id=? LIMIT 1"
+  ).bind(installationId).first();
+  if (!row || row.status !== "active" || !row.expires_at || new Date(row.expires_at).getTime() <= Date.now()) return null;
+  return row;
+}
+async function adminSession(db, token) {
+  if (!validText(token, 24, 256)) return null;
+  const tokenHash = await sha256(token);
+  const row = await db.prepare(
+    "SELECT s.id,s.business_id,s.admin_installation_id,b.business_name,b.status,b.expires_at FROM admin_sessions s JOIN businesses b ON b.id=s.business_id WHERE s.token_hash=? AND s.revoked_at IS NULL LIMIT 1"
+  ).bind(tokenHash).first();
+  if (!row || row.status !== "active" || !row.expires_at || new Date(row.expires_at).getTime() <= Date.now()) return null;
+  await db.prepare("UPDATE admin_sessions SET last_seen_at=? WHERE id=? AND revoked_at IS NULL")
+    .bind(nowIso(), row.id).run();
+  return row;
+}
+async function createAdminPairing(request, env) {
+  const body = await readJson(request);
+  const installationId = String(body?.installation_id || "").trim();
+  if (!validText(installationId, 20, 100)) return json({ok:false,error:"INSTALACION_INVALIDA"},400);
+  const business = await activeBusinessByInstallation(env.DB, installationId);
+  if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA",message:"Se requiere una licencia SENE VENTAS activa para vincular SeneAdmin."},403);
+  const code = randomCode();
+  const created = nowIso();
+  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const id = crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE admin_pairing_codes SET invalidated_at=? WHERE business_id=? AND consumed_at IS NULL AND invalidated_at IS NULL")
+      .bind(created,business.id),
+    env.DB.prepare("INSERT INTO admin_pairing_codes (id,business_id,installation_id,code_hash,created_at,expires_at) VALUES (?,?,?,?,?,?)")
+      .bind(id,business.id,installationId,await sha256(code),created,expires)
+  ]);
+  return json({ok:true,pairing_code:code,expires_at:expires},201);
+}
+async function claimAdminPairing(request, env) {
+  const body = await readJson(request);
+  const code = String(body?.pairing_code || "").trim().toUpperCase();
+  const adminInstallationId = String(body?.admin_installation_id || "").trim();
+  const publicKey = String(body?.rp || "").trim();
+  if (!/^[A-HJ-NP-Z2-9]{10}$/.test(code) || !validText(adminInstallationId,20,100) ||
+      publicKey.length < 200 || publicKey.length > 12000 || !/^[A-Za-z0-9_+/=-]+$/.test(publicKey)) {
+    return json({ok:false,error:"DATOS_INVALIDOS"},400);
+  }
+  const row = await env.DB.prepare(
+    "SELECT p.*,b.business_name,b.status AS business_status,b.expires_at AS business_expires FROM admin_pairing_codes p JOIN businesses b ON b.id=p.business_id WHERE p.code_hash=? LIMIT 1"
+  ).bind(await sha256(code)).first();
+  if (!row) return json({ok:false,error:"CODIGO_NO_ENCONTRADO"},404);
+  if (row.consumed_at || row.invalidated_at) return json({ok:false,error:"CODIGO_NO_DISPONIBLE"},409);
+  if (new Date(row.expires_at).getTime() <= Date.now()) return json({ok:false,error:"CODIGO_EXPIRADO"},410);
+  if (row.business_status !== "active" || !row.business_expires || new Date(row.business_expires).getTime() <= Date.now()) {
+    return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
+  }
+  const tokenBytes = new Uint8Array(32); crypto.getRandomValues(tokenBytes);
+  const token = Array.from(tokenBytes,b=>b.toString(16).padStart(2,"0")).join("");
+  const tokenHash = await sha256(token);
+  const now = nowIso();
+  const sessionId = crypto.randomUUID();
+  try {
+    const results = await env.DB.batch([
+      env.DB.prepare("UPDATE admin_pairing_codes SET consumed_at=? WHERE id=? AND consumed_at IS NULL AND invalidated_at IS NULL AND expires_at>?")
+        .bind(now,row.id,now),
+      env.DB.prepare("INSERT INTO admin_sessions (id,business_id,admin_installation_id,token_hash,created_at,last_seen_at,revoked_at) SELECT ?,?,?,?,?,?,NULL WHERE EXISTS (SELECT 1 FROM admin_pairing_codes WHERE id=? AND consumed_at=?) ON CONFLICT(business_id) DO UPDATE SET id=excluded.id,admin_installation_id=excluded.admin_installation_id,token_hash=excluded.token_hash,created_at=excluded.created_at,last_seen_at=excluded.last_seen_at,revoked_at=NULL")
+        .bind(sessionId,row.business_id,adminInstallationId,tokenHash,now,now,row.id,now),
+      env.DB.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
+        .bind(row.business_id,adminInstallationId,publicKey,now)
+    ]);
+    if (!results[0]?.meta || results[0].meta.changes !== 1) return json({ok:false,error:"CODIGO_YA_UTILIZADO"},409);
+  } catch (_) { return json({ok:false,error:"NO_SE_PUDO_VINCULAR"},500); }
+  return json({ok:true,admin_token:token,business_id:row.business_id,business_name:row.business_name},200);
+}
+async function payrollSync(request, env) {
+  const body = await readJson(request);
+  const installationId = String(body?.i || "").trim();
+  if (Number(body?.v) !== 1 || body?.t !== "[SYNC]" || !validText(installationId,20,100))
+    return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
+  const business = await activeBusinessByInstallation(env.DB,installationId);
+  if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
+  const db=env.DB, now=nowIso();
+  const requests=asArray(body.r), attendance=asArray(body.h), inventory=asArray(body.g), reports=asArray(body.b);
+  const statements=[];
+  for (const item of requests) {
+    const id=eventId(item), worker=eventWorker(item);
+    if (!id || !worker || !["[P$]","[C$]"].includes(String(item.t||""))) continue;
+    statements.push(db.prepare("INSERT INTO payroll_requests (event_id,business_id,worker_id,payload,status,created_at,updated_at) VALUES (?,?,?,?, 'PENDING',?,?) ON CONFLICT(business_id,event_id) DO NOTHING")
+      .bind(id,business.id,worker,JSON.stringify(item),now,now));
+  }
+  const acceptedH=[],acceptedG=[],acceptedB=[];
+  for (const item of attendance) {
+    const id=eventId(item); if(!id) continue;
+    statements.push(db.prepare("INSERT INTO attendance_events (event_id,business_id,worker_id,payload,created_at) VALUES (?,?,?,?,?) ON CONFLICT(business_id,event_id) DO NOTHING")
+      .bind(id,business.id,eventWorker(item)||null,JSON.stringify(item),now));
+    acceptedH.push(id);
+  }
+  for (const item of inventory) {
+    const id=eventId(item); if(!id) continue;
+    statements.push(db.prepare("INSERT INTO inventory_events (event_id,business_id,worker_id,payload,created_at) VALUES (?,?,?,?,?) ON CONFLICT(business_id,event_id) DO NOTHING")
+      .bind(id,business.id,eventWorker(item)||null,JSON.stringify(item),now));
+    acceptedG.push(id);
+  }
+  for (const item of reports) {
+    const id=eventId(item); if(!id) continue;
+    statements.push(db.prepare("INSERT INTO report_events (event_id,business_id,worker_id,envelope,created_at) VALUES (?,?,?,?,?) ON CONFLICT(business_id,event_id) DO NOTHING")
+      .bind(id,business.id,eventWorker(item)||null,JSON.stringify(item),now));
+    acceptedB.push(id);
+  }
+  if (statements.length) await db.batch(statements);
+  const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') ORDER BY seq LIMIT 300")
+    .bind(business.id).all();
+  const key=await db.prepare("SELECT public_key FROM admin_public_keys WHERE business_id=?").bind(business.id).first();
+  const cursor=parseCursor(body.c);
+  const pending=await db.prepare("SELECT seq,payload FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
+    .bind(business.id,cursor).all();
+  const nextCursor=pending.results?.length ? String(pending.results[pending.results.length-1].seq) : String(cursor);
+  const responseDecisions=(decisions.results||[]).map(x=>({
+    e:x.event_id,x:x.status,by:x.decision_by||"",r:x.decision_reason||"",at:x.decided_at||""
+  }));
+  const hAck=asArray(body.h).map(eventId).filter(Boolean);
+  return json({
+    v:1,d:responseDecisions,
+    ha:acceptedH,ga:acceptedG,ba:acceptedB,
+    rp:key?.public_key||"",
+    n:nextCursor
+  });
+}
+async function adminPayrollSync(request, env) {
+  const body=await readJson(request);
+  if(Number(body?.v)!==1 || body?.t!=="[SYNC]") return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
+  const session=await adminSession(env.DB,String(body?.a||""));
+  if(!session) return json({ok:false,error:"ADMIN_NO_AUTORIZADO"},401);
+  const db=env.DB,businessId=session.business_id,now=nowIso();
+  const publicKey=String(body?.rp||"").trim();
+  if(publicKey.length>=200 && publicKey.length<=12000 && /^[A-Za-z0-9_+/=-]+$/.test(publicKey)) {
+    await db.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
+      .bind(businessId,session.admin_installation_id,publicKey,now).run();
+  }
+  const decisions=asArray(body.d), statements=[];
+  for(const d of decisions) {
+    const id=eventId(d), state=String(d.x||"").toUpperCase();
+    if(!id || !["[OK]","[NO]","APPROVED","REJECTED"].includes(state)) continue;
+    const normalized=state==="[OK]"||state==="APPROVED"?"APPROVED":"REJECTED";
+    statements.push(db.prepare("UPDATE payroll_requests SET status=?,decision_by='PATRON',decision_reason=?,decided_at=?,updated_at=? WHERE business_id=? AND event_id=? AND status='PENDING'")
+      .bind(normalized,String(d.r||""),now,now,businessId,id));
+  }
+  const attendanceAcks=asArray(body.ha).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const inventoryAcks=asArray(body.gi).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const reportAcks=asArray(body.ba).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  for(const id of attendanceAcks) statements.push(db.prepare("DELETE FROM attendance_events WHERE business_id=? AND event_id=?").bind(businessId,id));
+  for(const id of inventoryAcks) statements.push(db.prepare("DELETE FROM inventory_events WHERE business_id=? AND event_id=?").bind(businessId,id));
+  for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
+  if(statements.length) await db.batch(statements);
+
+  const requestCursor=parseCursor(body.c);
+  const reqRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
+    .bind(businessId,requestCursor).all();
+  const reqs=(reqRows.results||[]).map(row=>{
+    const p=(()=>{try{return JSON.parse(row.payload)}catch(_){return {}}})();
+    return {...p,e:row.event_id,x:row.status,by:row.decision_by||"",rr:row.decision_reason||"",at:row.decided_at||""};
+  });
+  const hRows=await db.prepare("SELECT seq,payload FROM attendance_events WHERE business_id=? ORDER BY seq LIMIT 300").bind(businessId).all();
+  const gRows=await db.prepare("SELECT seq,payload FROM inventory_events WHERE business_id=? ORDER BY seq LIMIT 300").bind(businessId).all();
+  const bRows=await db.prepare("SELECT seq,event_id,envelope FROM report_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 100").bind(businessId).all();
+  const maxSeq=reqRows.results?.length?reqRows.results[reqRows.results.length-1].seq:requestCursor;
+  const parsePayload=rows=>(rows||[]).map(r=>{try{return JSON.parse(r.payload)}catch(_){return null}}).filter(Boolean);
+  return json({
+    v:1,items:reqs,
+    h:parsePayload(hRows.results),g:parsePayload(gRows.results),
+    b:(bRows.results||[]).map(r=>{try{return JSON.parse(r.envelope)}catch(_){return {e:r.event_id,p:r.envelope}}}),
+    haa:attendanceAcks,gaa:inventoryAcks,baa:reportAcks,
+    n:String(maxSeq)
+  });
+}
+
 export default {
   // Ejecución automática programada: marca vencidas las licencias al pasar su fecha.
   async scheduled(controller, env, ctx) {
@@ -487,6 +678,10 @@ export default {
       if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
+      if (request.method === "POST" && url.pathname === "/admin/pairing/create") return await createAdminPairing(request, env);
+      if (request.method === "POST" && url.pathname === "/admin/pairing/claim") return await claimAdminPairing(request, env);
+      if (request.method === "POST" && url.pathname === "/payroll/requests/sync") return await payrollSync(request, env);
+      if (request.method === "POST" && url.pathname === "/admin/payroll/requests/sync") return await adminPayrollSync(request, env);
       return json({ ok: false, error: "RUTA_NO_ENCONTRADA" }, 404);
     } catch (error) {
       return json({ ok: false, error: "ERROR_INTERNO" }, 500);
