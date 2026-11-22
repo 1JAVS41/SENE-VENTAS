@@ -23,6 +23,7 @@ object SeneWireProtocol {
     const val IN_PROGRESS = "[EC]"
     const val FULL_SHIFT = "[CO]"
     const val EARLY_CLOSE = "[CA]"
+    const val ADMIN_CLOSE = "[AD]"
     const val DAMAGED = "[PD]"
     const val EXPIRED = "[PC]"
     const val WASTE = "[ME]"
@@ -40,6 +41,7 @@ object SeneWireProtocol {
         IN_PROGRESS to "En curso",
         FULL_SHIFT to "Jornada completa",
         EARLY_CLOSE to "Cierre anticipado",
+        ADMIN_CLOSE to "Cierre administrativo",
         DAMAGED to "Producto dañado",
         EXPIRED to "Producto caducado",
         WASTE to "Merma",
