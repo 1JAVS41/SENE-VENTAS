@@ -680,6 +680,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/redeem") return await redeemCode(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
+      if (request.method === "POST" && url.pathname === "/account/device/transfer") return await completeAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
       if (request.method === "POST" && url.pathname === "/admin/pairing/create") return await createAdminPairing(request, env);
       if (request.method === "POST" && url.pathname === "/admin/pairing/claim") return await claimAdminPairing(request, env);
