@@ -74,10 +74,24 @@ object Store {
   val r=root(c);r.put("products",a).put("stockUpdatedAt",now)
   if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()
   put(c,r)
-  if(changes.length()>0){
-   InventoryEventOutbox.enqueue(c,if(shift(c)==null)"M" else "S",changes,now)
-   PayrollRequestSync.sync(c,true)
+  val scope=if(shift(c)==null)"M" else "S"
+  val syncPrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
+  val bootstrapKey="full_snapshot_queued_"+scope
+  if(a.length()>0&&!syncPrefs.getBoolean(bootstrapKey,false)){
+   val full=JSONArray()
+   for(i in 0 until a.length()){
+    val item=a.optJSONObject(i)?:continue
+    val code=item.optString("code")
+    if(code.isBlank())continue
+    full.put(JSONObject().put("c",code).put("n",item.optString("name"))
+     .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+     .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+   }
+   if(full.length()>0&&InventoryEventOutbox.enqueue(c,scope,full,now,true))
+    syncPrefs.edit().putBoolean(bootstrapKey,true).commit()
   }
+  if(changes.length()>0)InventoryEventOutbox.enqueue(c,scope,changes,now)
+  if(changes.length()>0||syncPrefs.getBoolean(bootstrapKey,false))PayrollRequestSync.sync(c,true)
  }
  @Synchronized fun applyApprovedConsumption(c:Context,requestId:String,code:String,quantity:Int,amount:Double,worker:String,employeeId:String,description:String):Boolean {
   if(requestId.isBlank()||code.isBlank()||quantity<=0)return false
