@@ -228,6 +228,7 @@ class PayrollAdminActivity:FragmentActivity(){
   root.addView(payText("EMPLEADO SELECCIONADO",15f,true))
   root.addView(payText("👤  "+profile.name,20f,true))
   addEmployeeConfiguration(root,profile,old,employeeId,true)
+  root.addView(payButton("ELIMINAR PERFIL",false){confirmDeleteProfile(profile)})
   showWorkersScreen(root)
  }
  private fun addWorkerProfile(){
@@ -291,7 +292,7 @@ class PayrollAdminActivity:FragmentActivity(){
     val profile=WorkerProfiles.create(this@PayrollAdminActivity,cleanName,cleanPhone,code)
     if(profile==null){name.error="Ese nombre ya existe o no se pudo guardar";scroll.smoothScrollTo(0,name.top);return@setOnClickListener}
     val payDay=Calendar.SUNDAY+pay.selectedItemPosition-1
-    val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,payDay,chosen,profile.id,System.currentTimeMillis())
+    val cfg=EmployeePayroll.Config(cleanName,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,payDay,chosen,profile.id,System.currentTimeMillis())
     if(!EmployeePayroll.saveConfig(this@PayrollAdminActivity,cfg)){
      WorkerProfiles.delete(this@PayrollAdminActivity,profile.id)
      Toast.makeText(this@PayrollAdminActivity,"No se pudo guardar la configuración completa. El perfil no quedó registrado; inténtalo de nuevo.",Toast.LENGTH_LONG).show()
@@ -316,8 +317,26 @@ class PayrollAdminActivity:FragmentActivity(){
    setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
   }
  }
+ private fun confirmDeleteProfile(profile:WorkerProfiles.Profile){
+  val active=Store.shift(this)?.optString("employeeId").orEmpty()
+  if(active==profile.id){
+   AlertDialog.Builder(this).setTitle("NO SE PUEDE ELIMINAR")
+    .setMessage("Este trabajador tiene un turno activo. Primero debe finalizarse el turno.")
+    .setPositiveButton("ENTENDIDO",null).show()
+   return
+  }
+  AlertDialog.Builder(this).setTitle("ELIMINAR PERFIL")
+   .setMessage("¿Eliminar el perfil de "+profile.name+"?\n\nSe quitará de la lista de trabajadores y ya no podrá iniciar sesión. Sus reportes, inventarios, asistencias, nóminas y movimientos históricos se conservarán; no se borrarán.")
+   .setPositiveButton("ELIMINAR"){_,_->
+    if(WorkerProfiles.delete(this,profile.id)){
+     Toast.makeText(this,"Perfil eliminado. El historial se conservó.",Toast.LENGTH_LONG).show()
+     draw()
+    }else Toast.makeText(this,"No se pudo eliminar el perfil.",Toast.LENGTH_LONG).show()
+   }.setNegativeButton("CANCELAR",null).show()
+ }
  private fun addEmployeeConfiguration(root:LinearLayout,profile:WorkerProfiles.Profile,old:EmployeePayroll.Config?,selectedId:String,manage:Boolean){
-  val name=payInput("Nombre del empleado").apply{setText(profile.name);isEnabled=false}
+  val name=payInput("Nombre completo del empleado").apply{setText(profile.name);isEnabled=manage}
+  val newPin=payInput("Nuevo PIN de 4 dígitos (déjalo vacío para conservarlo)",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
   val phone=payInput("Número de celular (obligatorio)",true).apply{inputType=android.text.InputType.TYPE_CLASS_PHONE;setText(profile.phone)}
   val hours=payInput("Horas diarias (1 a 24)",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;old?.let{setText(it.dailyHours.toString())}}
   val salary=payInput("Sueldo semanal $",true).apply{old?.let{setText(String.format(Locale.US,"%.2f",it.weeklySalaryCents/100.0))}}
@@ -329,22 +348,26 @@ class PayrollAdminActivity:FragmentActivity(){
    adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,listOf("Selecciona día de pago")+labels)
    setSelection(old?.let{it.payDay-Calendar.SUNDAY+1}?:0)
   }
-  root.addView(payText("DATOS DEL TRABAJADOR",17f,true));root.addView(name);root.addView(phone)
+  root.addView(payText("DATOS DEL TRABAJADOR",17f,true));root.addView(name);root.addView(phone);if(manage)root.addView(newPin)
   root.addView(payText("CONDICIONES DE TRABAJO",17f,true));root.addView(hours);root.addView(salary)
   root.addView(payText("SELECCIONA LOS DÍAS QUE TRABAJA",16f,true));checks.forEach{root.addView(it.second)}
   root.addView(payText("Los días no seleccionados se consideran descanso."));root.addView(payText("DÍA DE PAGO"));root.addView(pay)
   root.addView(payButton("GUARDAR TODOS LOS DATOS"){
+   val cleanName=name.text.toString().trim()
    val cleanPhone=phone.text.toString().filter{it.isDigit()}
+   val pinValue=newPin.text.toString().trim()
    val h=hours.text.toString().toIntOrNull()
    val s=salary.text.toString().replace(",",".").toDoubleOrNull()
    val chosen=checks.filter{it.second.isChecked}.map{it.first}.toSet()
+   if(cleanName.isBlank()){name.error="Escribe el nombre completo";return@payButton}
    if(cleanPhone.length !in 10..15){phone.error="Escribe un celular válido de 10 a 15 dígitos";return@payButton}
+   if(pinValue.isNotBlank()&&(pinValue.length!=4||pinValue.any{!it.isDigit()})){newPin.error="El PIN debe tener exactamente 4 dígitos";return@payButton}
    if(h==null||h !in 1..24){hours.error="Elige las horas de jornada";return@payButton}
    if(s==null||s<=0){salary.error="Captura el sueldo semanal";return@payButton}
    if(chosen.isEmpty()){Toast.makeText(this,"Selecciona al menos un día de trabajo.",Toast.LENGTH_LONG).show();return@payButton}
    if(pay.selectedItemPosition<=0){Toast.makeText(this,"Selecciona el día de pago.",Toast.LENGTH_LONG).show();return@payButton}
    val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,Calendar.SUNDAY+pay.selectedItemPosition-1,chosen,profile.id,old?.createdAt?:System.currentTimeMillis())
-   if(!WorkerProfiles.updatePhone(this,selectedId,cleanPhone)){Toast.makeText(this,"No se pudo guardar el celular.",Toast.LENGTH_LONG).show();return@payButton}
+   if(!WorkerProfiles.updateProfile(this,selectedId,cleanName,cleanPhone,pinValue.takeIf{it.isNotBlank()})){Toast.makeText(this,"No se pudieron guardar los datos del perfil. Revisa que el nombre no esté duplicado.",Toast.LENGTH_LONG).show();return@payButton}
    if(EmployeePayroll.saveConfig(this,cfg)){Toast.makeText(this,"Todos los datos de "+profile.name+" quedaron guardados.",Toast.LENGTH_LONG).show();if(manage)drawEmployee(selectedId)else draw()}else Toast.makeText(this,"No se pudo guardar la configuración.",Toast.LENGTH_LONG).show()
   })
   val cfg=EmployeePayroll.config(this,selectedId)
