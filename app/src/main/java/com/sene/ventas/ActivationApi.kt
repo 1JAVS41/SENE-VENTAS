@@ -86,11 +86,29 @@ object ActivationApi {
         }
     }
 
-    /** Solicita un código temporal para vincular SeneAdmin al negocio. Solo se invoca desde SOY PATRÓN autenticado. */
-    fun createAdminPairing(context: Context, businessName: String): JSONObject {
+    /**
+     * Emite código solo tras comprobar EN LÍNEA la licencia. SERVER-SENE debe
+     * volver a validar la licencia antes de crear el código temporal.
+     */
+    fun createAdminPairing(context: Context): JSONObject {
+        val status = subscriptionStatus(context)
+        if (status.optInt("_http_status", 0) !in 200..299) {
+            return JSONObject().put("_http_status", status.optInt("_http_status", 503))
+                .put("message", status.optString("message", "No se pudo verificar la licencia con SERVER-SENE."))
+        }
+        if (!status.optBoolean("active", false)) {
+            return JSONObject().put("_http_status", 403)
+                .put("message", status.optString("message", "Para vincular SeneAdmin necesitas una licencia SENE VENTAS activa."))
+        }
+        val licensedBusiness = status.optString("business_name").trim()
+            .ifBlank { savedLicenseBusiness(context).trim() }
+        if (licensedBusiness.isBlank()) {
+            return JSONObject().put("_http_status", 409)
+                .put("message", "SERVER-SENE confirmó la licencia, pero no devolvió el nombre del negocio.")
+        }
         return post("/admin/pairing/create", JSONObject()
             .put("installation_id", installationId(context))
-            .put("business_name", businessName.trim()))
+            .put("business_name", licensedBusiness))
     }
 
     fun subscriptionStatus(context: Context): JSONObject {
