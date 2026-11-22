@@ -126,32 +126,6 @@ object ReportCrypto {
             throw IllegalStateException("Vincula SENE VENTAS con SERVER-SENE para habilitar el cifrado automático de reportes.")
         }
         return ReportEnvelopeCrypto.prepare(c, workerId, type, body, eventKey)
-        @Suppress("UNREACHABLE_CODE")
-        val passphrase = ownerKey(c)
-        val reportId = UUID.randomUUID().toString()
-        // El consecutivo se conserva por trabajador en el dispositivo; el UUID evita colisiones incluso entre dispositivos.
-        val sequenceKey = "sequence_" + workerId
-        val reportNumber = p.getLong(sequenceKey, 0L) + 1L
-        if (!p.edit().putLong(sequenceKey, reportNumber).commit())
-            throw IllegalStateException("No se pudo reservar el número del reporte")
-
-        val now = Date()
-        val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
-        val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(now)
-        val safeWorker = b64(workerId.toByteArray(Charsets.UTF_8))
-        val header = listOf("SENE-ADMIN-REPORT|1", "ID=$reportId", "WORKER=$safeWorker",
-            "DATE=$date", "TIME=$time", "NUMBER=$reportNumber", "TYPE=$type",
-            "KEY_ID=" + keyId(passphrase)).joinToString("\n")
-
-        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, derive(passphrase, salt))
-        cipher.updateAAD(header.toByteArray(Charsets.UTF_8))
-        val encrypted = cipher.doFinal(body.toByteArray(Charsets.UTF_8))
-        val message = "*COPIA Y PEGA en SeneAdmin*\n" + header + "\nSALT=" + b64(salt) + "\nIV=" + b64(cipher.iv) + "\nDATA=" + b64(encrypted)
-        if (!p.edit().putString(cacheKey, message).commit())
-            throw IllegalStateException("No se pudo guardar el identificador del reporte")
-        return message
     }
 
     @Synchronized fun markSent(c: Context, eventKey: String) {
