@@ -49,7 +49,7 @@ La migración usa únicamente `CREATE TABLE/INDEX IF NOT EXISTS`; no elimina ni 
 
 Se conserva el protocolo v1 y sus códigos existentes. El servidor no inventa códigos de negocio.
 
-- SENE VENTAS: `r` solicitudes `[P$]` / `[C$]`, `h` asistencia, `g` inventario y `b` sobres de reportes.
+- SENE VENTAS: `q` solicitudes `[P$]` / `[C$]`, `h` asistencia, `g` inventario y `b` sobres de reportes.
 - SeneAdmin: `d` decisiones, `ha` ACK de asistencia, `gi` ACK de inventario, `ba` ACK de reportes y `rp` clave pública RSA.
 - El servidor devuelve a SENE VENTAS `d`, `ha`, `ga`, `ba`, `rp` y cursor `n`.
 - El servidor devuelve a SeneAdmin `items`, `h`, `g`, `b`, `haa`, `gaa`, `baa` y cursor `n`.
