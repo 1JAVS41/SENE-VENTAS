@@ -366,7 +366,7 @@ class PayrollAdminActivity:FragmentActivity(){
    if(s==null||s<=0){salary.error="Captura el sueldo semanal";return@payButton}
    if(chosen.isEmpty()){Toast.makeText(this,"Selecciona al menos un día de trabajo.",Toast.LENGTH_LONG).show();return@payButton}
    if(pay.selectedItemPosition<=0){Toast.makeText(this,"Selecciona el día de pago.",Toast.LENGTH_LONG).show();return@payButton}
-   val cfg=EmployeePayroll.Config(profile.name,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,Calendar.SUNDAY+pay.selectedItemPosition-1,chosen,profile.id,old?.createdAt?:System.currentTimeMillis())
+   val cfg=EmployeePayroll.Config(cleanName,h,moneyCents(s),chosen.size,(Calendar.SUNDAY..Calendar.SATURDAY).firstOrNull{it !in chosen}?:Calendar.SUNDAY,Calendar.SUNDAY+pay.selectedItemPosition-1,chosen,profile.id,old?.createdAt?:System.currentTimeMillis())
    if(!WorkerProfiles.updateProfile(this,selectedId,cleanName,cleanPhone,pinValue.takeIf{it.isNotBlank()})){Toast.makeText(this,"No se pudieron guardar los datos del perfil. Revisa que el nombre no esté duplicado.",Toast.LENGTH_LONG).show();return@payButton}
    if(EmployeePayroll.saveConfig(this,cfg)){Toast.makeText(this,"Todos los datos de "+profile.name+" quedaron guardados.",Toast.LENGTH_LONG).show();if(manage)drawEmployee(selectedId)else draw()}else Toast.makeText(this,"No se pudo guardar la configuración.",Toast.LENGTH_LONG).show()
   })
