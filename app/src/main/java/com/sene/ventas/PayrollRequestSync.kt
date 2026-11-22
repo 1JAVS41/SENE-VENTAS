@@ -43,29 +43,35 @@ object PayrollRequestSync {
                         .put("k", entry.periodKey))
                 }
                 val payload = JSONObject()
-                    .put("installation_id", ActivationApi.installationId(app))
-                    .put("cursor", prefs.getString(CURSOR, "").orEmpty())
-                    .put("requests", requests)
+                    .put("v", SeneWireProtocol.VERSION)
+                    .put("t", "[SYNC]")
+                    .put("i", ActivationApi.installationId(app))
+                    .put("c", prefs.getString(CURSOR, "").orEmpty())
+                    .put("r", requests)
                 prefs.edit().putLong(LAST_ATTEMPT, now).commit()
                 val response = ActivationApi.post("/payroll/requests/sync", payload)
                 val status = response.optInt("_http_status", 0)
                 if (status !in 200..299) return@Thread
-                val decisions = response.optJSONArray("decisions") ?: JSONArray()
+                val decisions = response.optJSONArray("d") ?: response.optJSONArray("decisions") ?: JSONArray()
                 for (i in 0 until decisions.length()) {
                     val decision = decisions.optJSONObject(i) ?: continue
-                    val id = decision.optString("request_id")
-                    val state = decision.optString("status").uppercase()
+                    val id = decision.optString("e", decision.optString("request_id"))
+                    val state = when(decision.optString("x", decision.optString("status")).uppercase()) {
+                        "[OK]" -> "APPROVED"
+                        "[NO]" -> "REJECTED"
+                        else -> decision.optString("status").uppercase()
+                    }
                     if (id.isBlank() || state !in setOf("APPROVED", "REJECTED")) continue
-                    val decidedAt = when (val raw = decision.opt("decided_at")) {
+                    val decidedAt = when (val raw = decision.opt("at")?.takeIf { it !is org.json.JSONObject && it != JSONObject.NULL } ?: decision.opt("decided_at")) {
                         is Number -> raw.toLong().let { if (it < 100000000000L) it * 1000L else it }
                         is String -> raw.toLongOrNull() ?: 0L
                         else -> 0L
                     }
                     EmployeePayroll.applyDecision(app, id, state == "APPROVED",
-                        decision.optString("decided_by"), decidedAt,
-                        decision.optString("rejection_reason"))
+                        decision.optString("by", decision.optString("decided_by")), decidedAt,
+                        decision.optString("rr", decision.optString("rejection_reason")))
                 }
-                val cursor = response.optString("next_cursor")
+                val cursor = response.optString("n", response.optString("next_cursor"))
                 if (cursor.isNotBlank()) prefs.edit().putString(CURSOR, cursor).commit()
             } catch (_: Exception) {
                 // La solicitud permanece pendiente y se reintentará en la siguiente sincronización.
