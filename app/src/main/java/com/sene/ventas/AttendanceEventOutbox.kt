@@ -19,7 +19,7 @@ object AttendanceEventOutbox {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val events = try { JSONArray(prefs.getString(KEY, "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
         val id = UUID.randomUUID().toString()
-        events.put(JSONObject().put("v", SeneWireProtocol.VERSION).put("e", id)
+        events.put(JSONObject().put("v", SeneWireProtocol.VERSION).put("t",SeneWireProtocol.ATTENDANCE_SYNC).put("e", id)
             .put("w", workerId).put("d", date).put("x", state)
             .put("s", startedAt).put("f", closedAt).put("m", reason).put("o", source))
         prefs.edit().putString(KEY, events.toString()).commit()
