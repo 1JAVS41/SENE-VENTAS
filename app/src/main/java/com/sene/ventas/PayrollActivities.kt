@@ -203,7 +203,7 @@ class PayrollAdminActivity:FragmentActivity(){
    }
    root.addView(payText("EMPLEADOS REGISTRADOS",17f,true))
    profiles.forEach{p->
-    root.addView(payButton("👤  "+p.name){
+    root.addView(payButton("✏️  EDITAR · "+p.name){
      intent.putExtra("employee_id",p.id)
      drawEmployee(p.id)
     })
@@ -348,7 +348,7 @@ class PayrollAdminActivity:FragmentActivity(){
    adapter=ArrayAdapter(this@PayrollAdminActivity,android.R.layout.simple_spinner_dropdown_item,listOf("Selecciona día de pago")+labels)
    setSelection(old?.let{it.payDay-Calendar.SUNDAY+1}?:0)
   }
-  root.addView(payText("DATOS DEL TRABAJADOR",17f,true));root.addView(name);root.addView(phone);if(manage)root.addView(newPin)
+  root.addView(payText(if(manage)"EDITAR PERFIL DEL TRABAJADOR" else "DATOS DEL TRABAJADOR",17f,true));root.addView(name);root.addView(phone);if(manage)root.addView(newPin)
   root.addView(payText("CONDICIONES DE TRABAJO",17f,true));root.addView(hours);root.addView(salary)
   root.addView(payText("SELECCIONA LOS DÍAS QUE TRABAJA",16f,true));checks.forEach{root.addView(it.second)}
   root.addView(payText("Los días no seleccionados se consideran descanso."));root.addView(payText("DÍA DE PAGO"));root.addView(pay)
