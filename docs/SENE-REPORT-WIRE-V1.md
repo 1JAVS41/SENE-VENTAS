@@ -18,7 +18,7 @@ Cada elemento contiene:
 | `i` | Fecha/hora de creación en milisegundos |
 | `b` | Reporte cifrado, sin texto legible en el transporte |
 
-El arreglo `b` se conserva localmente en ReportEventOutbox. Un reporte solo se elimina después de que la respuesta del servidor incluya su identificador en `ba` (o `report_acks`). Un error de red o una respuesta sin ACK no elimina datos.
+El arreglo `b` se conserva localmente en ReportEventOutbox. Un reporte solo se elimina después de que la respuesta del servidor incluya su identificador en `ba` (o `report_acks`). Un error de red o una respuesta sin ACK no elimina datos. El reporte de movimientos se encola también por este canal con `k=[SYNC]` y `TYPE=MOVEMENTS` dentro del encabezado cifrado; no se crea un código wire nuevo. SeneAdmin lo presenta como «Reporte de movimientos».
 
 ## Reglas obligatorias del servidor
 
