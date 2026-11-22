@@ -26,7 +26,9 @@ object EmployeePayroll {
     data class Entry(
         val id:String,val employee:String,val type:String,val amountCents:Long,
         val reason:String,val description:String,val timestamp:Long,val periodKey:String,
-        val settled:Boolean,val employeeId:String = ""
+        val settled:Boolean,val employeeId:String = "",val status:String = "APPROVED",
+        val decidedAt:Long = 0L,val decidedBy:String = "",val rejectionReason:String = "",
+        val productCode:String = "",val quantity:Int = 0
     )
     data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false)
 
@@ -98,8 +100,9 @@ object EmployeePayroll {
         }else 0L
         val earlyDeduction=earlyAmount.coerceAtMost((gross-absenceDeduction).coerceAtLeast(0L))
         val pending=entriesForCurrentPeriod(c,employeeId,ts)
-        val consumption=pending.filter{it.type==TYPE_CONSUMPTION}.sumOf{it.amountCents}
-        val loans=pending.filter{it.type==TYPE_LOAN}.sumOf{it.amountCents}
+        val approved=pending.filter{it.status=="APPROVED"}
+        val consumption=approved.filter{it.type==TYPE_CONSUMPTION}.sumOf{it.amountCents}
+        val loans=approved.filter{it.type==TYPE_LOAN}.sumOf{it.amountCents}
         val net=(gross-absenceDeduction-earlyDeduction-consumption-loans).coerceAtLeast(0L)
         return PayrollCalculation(gross,absences,absenceDeduction,earlyMinutes,earlyDeduction,consumption,loans,net)
     }
@@ -268,14 +271,15 @@ object EmployeePayroll {
         val raw=prefs(c).getString(ENTRIES,"[]")?: "[]"
         return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue
             val e=Entry(x.optString("id"),x.optString("employee"),x.optString("type"),x.optLong("amountCents").coerceAtLeast(0),
-                x.optString("reason"),x.optString("description"),x.optLong("timestamp"),x.optString("periodKey"),x.optBoolean("settled"),x.optString("employeeId"))
+                x.optString("reason"),x.optString("description"),x.optLong("timestamp"),x.optString("periodKey"),x.optBoolean("settled"),x.optString("employeeId"),x.optString("status","APPROVED"),x.optLong("decidedAt"),x.optString("decidedBy"),x.optString("rejectionReason"),x.optString("productCode"),x.optInt("quantity"))
             if(employeeId.isNullOrBlank()||e.employeeId==employeeId)add(e)
         }}}catch(_:Exception){emptyList()}
     }
     private fun saveEntries(c:Context,items:List<Entry>):Boolean{
         val a=JSONArray();items.forEach{e->a.put(JSONObject().put("id",e.id).put("employeeId",e.employeeId).put("employee",e.employee).put("type",e.type)
             .put("amountCents",e.amountCents).put("reason",e.reason).put("description",e.description).put("timestamp",e.timestamp)
-            .put("periodKey",e.periodKey).put("settled",e.settled))}
+            .put("periodKey",e.periodKey).put("settled",e.settled).put("status",e.status).put("decidedAt",e.decidedAt)
+            .put("decidedBy",e.decidedBy).put("rejectionReason",e.rejectionReason).put("productCode",e.productCode).put("quantity",e.quantity))}
         return prefs(c).edit().putString(ENTRIES,a.toString()).commit()
     }
     fun capacity(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Capacity{
@@ -283,7 +287,7 @@ object EmployeePayroll {
         val calculation=calculateCurrentPeriod(c,employeeId,ts)
         val adjusted=(calculation.grossCents-calculation.absenceDeductionCents-calculation.earlyExitDeductionCents).coerceAtLeast(0L)
         val limit=adjusted/2;val key=periodKey(ts,cfg.payDay)
-        val committed=entries(c,employeeId).filter{it.periodKey==key&&!it.settled&&(it.type==TYPE_LOAN||it.type==TYPE_CONSUMPTION)}.sumOf{it.amountCents}
+        val committed=entries(c,employeeId).filter{it.periodKey==key&&!it.settled&&it.status in setOf("PENDING","APPROVED")&&(it.type==TYPE_LOAN||it.type==TYPE_CONSUMPTION)}.sumOf{it.amountCents}
         return Capacity(adjusted,limit,committed,(limit-committed).coerceAtLeast(0))
     }
     fun capacity(c:Context,absences:Int, timestamp:Long=System.currentTimeMillis()):Capacity{
@@ -292,12 +296,19 @@ object EmployeePayroll {
         return capacity(c,cfg.employeeId,timestamp)
     }
     @Synchronized fun addRequest(c:Context,type:String,amountCents:Long,reason:String="",description:String="",absences:Int=0,
-        timestamp:Long=System.currentTimeMillis(),employeeId:String=activeId(c)):Entry?{
+        timestamp:Long=System.currentTimeMillis(),employeeId:String=activeId(c),productCode:String="",quantity:Int=0):Entry?{
         if(type!=TYPE_LOAN&&type!=TYPE_CONSUMPTION||amountCents<=0||employeeId.isBlank())return null
         val cfg=config(c,employeeId)?:return null;val cap=capacity(c,employeeId,timestamp);if(amountCents>cap.availableCents)return null
-        val entry=Entry(UUID.randomUUID().toString(),cfg.employee,type,amountCents,reason.trim(),description.trim(),timestamp,periodKey(timestamp,cfg.payDay),false,employeeId)
+        val entry=Entry(UUID.randomUUID().toString(),cfg.employee,type,amountCents,reason.trim(),description.trim(),timestamp,periodKey(timestamp,cfg.payDay),false,employeeId,"PENDING",0L,"","",productCode.trim(),quantity.coerceAtLeast(0))
         return if(saveEntries(c,entries(c)+entry))entry else null
     }
+    @Synchronized fun applyDecision(c:Context,requestId:String,approved:Boolean,decidedBy:String,decidedAt:Long=System.currentTimeMillis(),reason:String=""):Boolean {
+        val all=entries(c).toMutableList();val index=all.indexOfFirst{it.id==requestId};if(index<0)return false
+        val old=all[index];if(old.status!="PENDING")return old.status==if(approved)"APPROVED" else "REJECTED"
+        all[index]=old.copy(status=if(approved)"APPROVED" else "REJECTED",decidedAt=decidedAt,decidedBy=decidedBy,rejectionReason=reason.trim())
+        return saveEntries(c,all)
+    }
+    fun pendingRequests(c:Context,employeeId:String=activeId(c)):List<Entry> = entries(c,employeeId).filter{it.status=="PENDING"}
     fun markSettled(c:Context,period:String,employeeId:String):Boolean{
         val updated=entries(c).map{if(it.employeeId==employeeId&&it.periodKey==period&&!it.settled)it.copy(settled=true)else it}
         return saveEntries(c,updated)
