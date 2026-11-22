@@ -554,8 +554,8 @@ async function claimAdminPairing(request, env) {
         .bind(now,row.id,now),
       env.DB.prepare("INSERT INTO admin_sessions (id,business_id,admin_installation_id,token_hash,created_at,last_seen_at,revoked_at) SELECT ?,?,?,?,?,?,NULL WHERE EXISTS (SELECT 1 FROM admin_pairing_codes WHERE id=? AND consumed_at=?) ON CONFLICT(business_id) DO UPDATE SET id=excluded.id,admin_installation_id=excluded.admin_installation_id,token_hash=excluded.token_hash,created_at=excluded.created_at,last_seen_at=excluded.last_seen_at,revoked_at=NULL")
         .bind(sessionId,row.business_id,adminInstallationId,tokenHash,now,now,row.id,now),
-      env.DB.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
-        .bind(row.business_id,adminInstallationId,publicKey,now)
+      env.DB.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM admin_pairing_codes WHERE id=? AND consumed_at=?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
+        .bind(row.business_id,adminInstallationId,publicKey,now,row.id,now)
     ]);
     if (!results[0]?.meta || results[0].meta.changes !== 1) return json({ok:false,error:"CODIGO_YA_UTILIZADO"},409);
   } catch (_) { return json({ok:false,error:"NO_SE_PUDO_VINCULAR"},500); }
@@ -569,7 +569,7 @@ async function payrollSync(request, env) {
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.r), attendance=asArray(body.h), inventory=asArray(body.g), reports=asArray(body.b);
+  const requests=asArray(body.r).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
   const statements=[];
   for (const item of requests) {
     const id=eventId(item), worker=eventWorker(item);
