@@ -337,7 +337,7 @@ object EmployeePayroll {
     }
     fun pendingRequests(c:Context,employeeId:String=activeId(c)):List<Entry> = entries(c,employeeId).filter{it.status=="PENDING"}
     fun markSettled(c:Context,period:String,employeeId:String):Boolean{
-        val updated=entries(c).map{if(it.employeeId==employeeId&&it.periodKey==period&&!it.settled)it.copy(settled=true)else it}
+        val updated=entries(c).map{if(it.employeeId==employeeId&&it.periodKey==period&&it.status=="APPROVED"&&!it.settled)it.copy(settled=true)else it}
         return saveEntries(c,updated)
     }
     fun entriesForCurrentPeriod(c:Context,employeeId:String=activeId(c),ts:Long=System.currentTimeMillis()):List<Entry>{
