@@ -25,10 +25,12 @@ El arreglo `b` se conserva localmente en ReportEventOutbox. Un reporte solo se e
 1. Validar instalación, licencia y vínculo antes de aceptar reportes.
 2. Guardar cada evento de forma idempotente por `e`; un reintento no debe duplicarlo.
 3. Asociar el reporte al negocio y trabajador autenticados; no confiar en nombres enviados por el cliente.
-4. Entregar el evento a SeneAdmin mediante su sincronización autenticada.
-5. Confirmar en `ba` únicamente después de persistirlo de forma durable.
-6. No interpretar el contenido cifrado ni modificar sus bytes.
-7. No enviar reportes, nómina ni datos de inventario por WhatsApp.
+4. Entregar el evento a SeneAdmin mediante `POST /admin/payroll/requests/sync`, autenticado por el token admin y filtrado por negocio.
+5. En la respuesta a SENE VENTAS, confirmar en `ba` únicamente después de persistir el reporte en el servidor.
+6. En la respuesta a SeneAdmin, incluir los reportes pendientes en `b`; SeneAdmin los guarda localmente cifrados y devuelve sus IDs en `ba`.
+7. Confirmar los ACK de SeneAdmin en `baa`; no borrar eventos de entrega hasta recibir su ACK.
+8. No interpretar el contenido cifrado ni modificar sus bytes.
+9. No enviar reportes, nómina ni datos de inventario por WhatsApp.
 
 ## Compatibilidad criptográfica pendiente
 
@@ -41,6 +43,7 @@ El contenido `b` todavía usa el formato cifrado histórico para mantener compat
 - [x] Eliminación de la ruta de envío WhatsApp para inicio, reportes periódicos y cierre.
 - [x] ACK de reportes en el cliente SENE VENTAS.
 - [ ] Endpoint y persistencia de SERVER-SENE.
-- [ ] Recepción, presentación y ACK de reportes en SeneAdmin.
+- [x] Recepción autenticada, buzón local cifrado y cola de ACK de reportes en SeneAdmin.
+- [ ] Presentación e importación sin depender de la clave compartida histórica (la importación actual conserva compatibilidad y todavía requiere esa clave).
 - [ ] Migración criptográfica compatible y retirada segura de la clave compartida.
 - [ ] Pruebas instrumentadas y compilación verificadas de ambas APK.
