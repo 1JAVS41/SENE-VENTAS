@@ -1752,7 +1752,6 @@ class PatronActivity:FragmentActivity(){
       AlertDialog.Builder(this).setTitle("CÓDIGO PARA SENE ADMIN").setView(box)
        .setPositiveButton("ENTENDIDO",null).show()
      }
-    }
     }).start()
    }
   }
