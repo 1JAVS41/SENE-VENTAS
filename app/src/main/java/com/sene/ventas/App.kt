@@ -2313,6 +2313,17 @@ object ReportFile {
   file.writeText(out.toString(),Charsets.UTF_8)
   return file
  }
+
+ /** Encola el reporte completo de movimientos; viaja cifrado y no usa WhatsApp. */
+ @Synchronized fun queueMovementReport(c:android.content.Context,file:java.io.File,movement:org.json.JSONObject){
+  if(!file.exists()||file.length()==0L)return
+  val shift=Store.shift(c)
+  val workerId=movement.optString("employeeId").ifBlank{shift?.optString("employeeId").orEmpty()}
+  val eventId=java.util.UUID.randomUUID().toString()
+  val body=file.readText(Charsets.UTF_8)
+  val encrypted=ReportCrypto.prepare(c,workerId,"MOVEMENTS",body,eventId)
+  if(ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)) PayrollRequestSync.sync(c,true)
+ }
 }
 
 // Pantalla inicial de instalación: solo ofrece los dos recorridos de acceso.
