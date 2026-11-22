@@ -39,6 +39,7 @@ La migración usa únicamente `CREATE TABLE/INDEX IF NOT EXISTS`; no elimina ni 
 | POST | `/subscription/status` | Estado de licencia y clave pública de reportes |
 | POST | `/account/recovery/request` | Solicitar recuperación |
 | POST | `/account/recovery/complete` | Completar recuperación |
+| POST | `/account/device/transfer` | Completar transferencia autenticada de dispositivo |
 | POST | `/admin/pairing/create` | Código temporal, solo con licencia activa |
 | POST | `/admin/pairing/claim` | Vincular SeneAdmin y registrar clave pública RSA |
 | POST | `/payroll/requests/sync` | SENE VENTAS envía eventos y recibe decisiones/ACK |
