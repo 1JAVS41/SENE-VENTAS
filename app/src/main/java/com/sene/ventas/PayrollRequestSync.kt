@@ -44,7 +44,7 @@ object PayrollRequestSync {
                 }
                 val payload = JSONObject()
                     .put("v", SeneWireProtocol.VERSION)
-                    .put("t", "[SYNC]")
+                    .put("t", SeneWireProtocol.SYNC)
                     .put("i", ActivationApi.installationId(app))
                     .put("c", prefs.getString(CURSOR, "").orEmpty())
                     .put("r", requests)
@@ -57,8 +57,8 @@ object PayrollRequestSync {
                     val decision = decisions.optJSONObject(i) ?: continue
                     val id = decision.optString("e", decision.optString("request_id"))
                     val state = when(decision.optString("x", decision.optString("status")).uppercase()) {
-                        "[OK]" -> "APPROVED"
-                        "[NO]" -> "REJECTED"
+                        SeneWireProtocol.APPROVED -> "APPROVED"
+                        SeneWireProtocol.REJECTED -> "REJECTED"
                         else -> decision.optString("status").uppercase()
                     }
                     if (id.isBlank() || state !in setOf("APPROVED", "REJECTED")) continue
