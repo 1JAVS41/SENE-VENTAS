@@ -643,7 +643,7 @@ class InicioTurnoActivity:FragmentActivity(){
      progress.progress=5
      progress.dismiss()
      shiftPreparationRunning=false
-     pendingStartAfterWhatsApp=ReportEventOutbox.enqueue(this,startEventKey,workerId,"INICIO_TURNO",encryptedStart)
+     pendingStartAfterWhatsApp=ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart)
      if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
      if(!pendingStartAfterWhatsApp)msg("No se pudo guardar el reporte en la cola segura. El turno quedó registrado; vuelve a intentar la sincronización.")
      else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SENE SERVER; no se usa WhatsApp.")
@@ -1571,7 +1571,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val body=pendingReportText?:return
   val shift=Store.shift(this)
   val workerId=shift?.optString("employeeId").orEmpty()
-  val reportType=if(pendingFinalShare)"CIERRE_TURNO" else "REPORTE_TURNO"
+  val reportType=if(!pendingFinalShare) SeneWireProtocol.SYNC else when(shift?.optString("closingType")){ "EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE; "ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE; else->SeneWireProtocol.FULL_SHIFT }
   val queued=ReportEventOutbox.enqueue(this,pendingReportEventKey,workerId,reportType,body)
   if(!queued){
    msg("No se pudo guardar el reporte en la cola segura. El turno permanece protegido; vuelve a intentar.")
