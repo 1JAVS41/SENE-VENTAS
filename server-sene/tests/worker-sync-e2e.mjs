@@ -38,6 +38,13 @@ CREATE TABLE businesses (
 db.exec(readFileSync(new URL("../migrations/0001_complete_sync.sql", import.meta.url), "utf8"));
 db.exec(readFileSync(new URL("../migrations/0002_retention.sql", import.meta.url), "utf8"));
 const d1 = new D1Mock(db);
+const configResponse = await worker.fetch(new Request("https://sene.test/config"), { DB: d1 });
+assert.equal(configResponse.status, 200);
+const config = await configResponse.json();
+assert.equal(config.amount_cents, 29900);
+assert.equal(config.activation_amount_cents, 29900);
+assert.equal(config.renewal_amount_cents, 10000);
+assert.equal(config.currency, "MXN");
 const now = new Date().toISOString();
 db.prepare(`INSERT INTO businesses (id,business_name,business_name_normalized,installation_id,status,expires_at,created_at,updated_at)
  VALUES (?,?,?,?,?,?,?,?)`).run("biz-1","Negocio de prueba","negocio de prueba","installation-sales-00000001","active",
