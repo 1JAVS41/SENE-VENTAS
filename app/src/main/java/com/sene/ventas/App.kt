@@ -2258,38 +2258,6 @@ private fun saveTextBackup(activity:Activity,tree:Uri,prefix:String,body:String,
  resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
  return target
 }
-private fun openWhatsAppText(activity:Activity,body:String):Boolean {
- var target=Store.phone(activity).filter{it.isDigit()}
- if(target.isBlank()){activity.msg("Configura primero el número de WhatsApp del patrón en Soy Patrón");return false}
- if(target.length==10)target="52"+target
- if(target.startsWith("521")&&target.length==13)target="52"+target.substring(3)
- if(target.length<12){activity.msg("El número de WhatsApp del patrón no parece válido. Incluye lada y código de país.");return false}
- if(body.startsWith("SENE-ADMIN-REPORT|1") && body.length>55000){activity.msg("El reporte cifrado supera el límite seguro para enviarlo como texto de WhatsApp. No se enviará incompleto.");return false}
- val safeBody=if(body.length>55000)body.take(55000)+"\n\n[Reporte recortado. El respaldo TXT contiene el reporte completo.]" else body
- val encoded=URLEncoder.encode(safeBody,"UTF-8")
- val links=listOf(
-  Uri.parse("https://api.whatsapp.com/send?phone="+target+"&text="+encoded),
-  Uri.parse("https://wa.me/"+target+"?text="+encoded)
- )
- for(pkg in listOf("com.whatsapp","com.whatsapp.w4b")){
-  for(link in links){
-   try{
-    val intent=Intent(Intent.ACTION_VIEW,link).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    activity.startActivity(intent);return true
-   }catch(_:Exception){}
-  }
- }
- // Último intento: dejar que Android resuelva el enlace al chat con WhatsApp o navegador.
- try {
-  activity.startActivity(Intent(Intent.ACTION_VIEW,links.last()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-  return true
- } catch(_:Exception) {}
- activity.msg("No se pudo abrir el chat del patrón. Verifica que WhatsApp esté instalado y que el número de Soy Patrón incluya lada y código de país.")
- return false
-}
-
-private fun openWhatsAppDocument(activity:Activity,uri:Uri,subject:String){ openWhatsAppText(activity,subject+REPORT_BACKUP_NOTE) }
-
 object ReportFile {
  @Synchronized fun update(c:android.content.Context, root:org.json.JSONObject?=null):java.io.File {
   val data=root ?: run { val pref=c.getSharedPreferences("sene_ventas_local",0).getString("datos",null); try{if(pref==null)org.json.JSONObject() else org.json.JSONObject(pref)}catch(_:Exception){org.json.JSONObject()} }
