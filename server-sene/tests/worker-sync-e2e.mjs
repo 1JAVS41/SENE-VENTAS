@@ -271,4 +271,12 @@ assert.equal((await transfer(locked.folio,locked.code,"installation-new-device-0
 assert.equal(db.prepare("SELECT installation_id FROM businesses WHERE id=?").get(locked.businessId).installation_id,locked.oldDevice);
 console.log("SERVER-SENE device-transfer E2E OK: consumed-code validation, wrong-code attempts/lockout, one-device reassignment, session revocation, same-device idempotency, repeat transfer with same folio/code, occupied device rejection, and preservation of license dates/status.");
 
+// Las rutas antiguas de recuperación quedan deshabilitadas: la transferencia solo usa
+// el folio y código originales de una licencia ya activada.
+assert.equal((await post("/account/recovery/request",{
+ business_name:"Negocio de prueba",whatsapp:"5215555555555",installation_id:"installation-recovery-test-0001"
+})).status,404);
+assert.equal((await post("/account/recovery/complete",{
+ folio:"TRAS-20261123-ABC123",code:"ABCDEFGHJK",installation_id:"installation-recovery-test-0001"
+})).status,404);
 console.log("SERVER-SENE sync E2E OK: one-time pairing, RSA public-key exchange, real RSA-OAEP/AES-256-GCM report encryption/decryption, compact payroll/attendance/inventory/report transport, ACK round-trip, decisions, and safe 10-item retention.");
