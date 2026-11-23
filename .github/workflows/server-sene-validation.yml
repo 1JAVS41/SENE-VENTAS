@@ -1,4 +1,5 @@
 name: SERVER-SENE validation
+# Also validates the public activation and renewal pricing contract.
 
 on:
   push:
