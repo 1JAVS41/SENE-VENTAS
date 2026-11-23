@@ -670,8 +670,8 @@ async function adminPayrollSync(request, env) {
 
 async function cleanupRetainedHistory(db) {
   // Solo elimina historial ya entregado/resuelto, nunca colas pendientes de ACK.
-  // Conserva los 10 registros más recientes por negocio y categoría, aunque tengan más de 30 días.
-  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  // En cada limpieza conserva exactamente los 10 más recientes por negocio y categoría.
+  // Los registros pendientes nunca entran en estas consultas.
   await db.batch([
     db.prepare(`
       DELETE FROM payroll_requests
@@ -685,9 +685,9 @@ async function cleanupRetainedHistory(db) {
           FROM payroll_requests
           WHERE status IN ('APPROVED','REJECTED')
         )
-        WHERE rn > 10 AND created_at < ?
+        WHERE rn > 10
       )
-    `).bind(cutoff),
+    `),
     db.prepare(`
       DELETE FROM report_events
       WHERE seq IN (
@@ -700,9 +700,9 @@ async function cleanupRetainedHistory(db) {
           FROM report_events
           WHERE delivered_at IS NOT NULL
         )
-        WHERE rn > 10 AND created_at < ?
+        WHERE rn > 10
       )
-    `).bind(cutoff),
+    `),
     db.prepare(`
       DELETE FROM inventory_events
       WHERE seq IN (
@@ -715,9 +715,9 @@ async function cleanupRetainedHistory(db) {
           FROM inventory_events
           WHERE delivered_at IS NOT NULL
         )
-        WHERE rn > 10 AND created_at < ?
+        WHERE rn > 10
       )
-    `).bind(cutoff),
+    `),
     db.prepare(`
       DELETE FROM attendance_events
       WHERE seq IN (
@@ -730,9 +730,9 @@ async function cleanupRetainedHistory(db) {
           FROM attendance_events
           WHERE delivered_at IS NOT NULL
         )
-        WHERE rn > 10 AND created_at < ?
+        WHERE rn > 10
       )
-    `).bind(cutoff)
+    `)
   ]);
 }
 
