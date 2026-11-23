@@ -11,6 +11,18 @@ const cors = {
   "Content-Type": "application/json; charset=utf-8"
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: cors });
+// Diccionario compacto compartido con SENE VENTAS y SeneAdmin (SeneWireProtocol.kt).
+// Los nombres de campos son parte del contrato Wire v1; no traducirlos ni renombrarlos.
+const WIRE = Object.freeze({
+  VERSION: "v", TYPE: "t", EVENT: "e", WORKER: "w", AMOUNT: "a",
+  INSTALLATION: "i", CURSOR: "c", REQUESTS: "r", ATTENDANCE: "h",
+  INVENTORY: "g", REPORTS: "b", DECISIONS: "d", ADMIN_TOKEN: "a",
+  ATTENDANCE_ACKS: "ha", SALES_INVENTORY_ACKS: "ga", INVENTORY_ACKS: "gi",
+  REPORT_ACKS: "ba", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
+  INVENTORY_ACK_CONFIRMATIONS: "gaa", REPORT_ACK_CONFIRMATIONS: "baa",
+  NEXT_CURSOR: "n", REPORT_PUBLIC_KEY: "rp", SYNC: "[SYNC]"
+});
+
 const nowIso = () => new Date().toISOString();
 const plusHours = (date, hours) => new Date(date.getTime() + hours * 3600000).toISOString();
 const normalizeName = value => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -601,7 +613,7 @@ async function claimAdminPairing(request, env) {
   const body = await readJson(request);
   const code = String(body?.pairing_code || "").trim().toUpperCase();
   const adminInstallationId = String(body?.admin_installation_id || "").trim();
-  const publicKey = String(body?.rp || "").trim();
+  const publicKey = String(body?.[WIRE.REPORT_PUBLIC_KEY] || "").trim();
   if (!/^[A-HJ-NP-Z2-9]{10}$/.test(code) || !validText(adminInstallationId,20,100) ||
       publicKey.length < 200 || publicKey.length > 12000 || !/^[A-Za-z0-9_+/-]+={0,2}$/.test(publicKey) ||
       !(await validReportPublicKey(publicKey))) {
@@ -636,13 +648,13 @@ async function claimAdminPairing(request, env) {
 }
 async function payrollSync(request, env) {
   const body = await readJson(request);
-  const installationId = String(body?.i || "").trim();
-  if (Number(body?.v) !== 1 || body?.t !== "[SYNC]" || !validText(installationId,20,100))
+  const installationId = String(body?.[WIRE.INSTALLATION] || "").trim();
+  if (Number(body?.[WIRE.VERSION]) !== 1 || body?.[WIRE.TYPE] !== WIRE.SYNC || !validText(installationId,20,100))
     return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.q ?? body.r).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
+  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
   const statements=[];
   for (const item of requests) {
     const id=eventId(item), worker=eventWorker(item) || String(body.w || "").trim();
@@ -705,16 +717,16 @@ async function adminPayrollSync(request, env) {
     statements.push(db.prepare("UPDATE payroll_requests SET status=?,decision_by='PATRON',decision_reason=?,decided_at=?,updated_at=? WHERE business_id=? AND event_id=? AND status='PENDING'")
       .bind(normalized,String(d.r||""),now,now,businessId,id));
   }
-  const attendanceAcks=asArray(body.ha).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const inventoryAcks=asArray(body.gi).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const reportAcks=asArray(body.ba).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const attendanceAcks=asArray(body[WIRE.ATTENDANCE_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const inventoryAcks=asArray(body[WIRE.INVENTORY_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   for(const id of attendanceAcks) statements.push(db.prepare("UPDATE attendance_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of inventoryAcks) statements.push(db.prepare("UPDATE inventory_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   if(statements.length) await db.batch(statements);
   await maybeCleanupRetainedHistory(db);
 
-  const requestCursor=parseCursor(body.c);
+  const requestCursor=parseCursor(body[WIRE.CURSOR]);
   const reqRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
     .bind(businessId,requestCursor).all();
   // Las decisiones resueltas se vuelven a entregar aunque su seq sea anterior al cursor.
