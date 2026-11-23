@@ -1,9 +1,11 @@
 name: SERVER-SENE validation
+# Also validates the public activation and renewal pricing contract.
 
 on:
   push:
     branches:
       - feature/server-sene-complete-api
+      - review/server-sene-prices-20261122
     paths:
       - "server-sene/**"
       - ".github/workflows/server-sene-validation.yml"
@@ -65,6 +67,7 @@ jobs:
       - name: Guard against the removed undefined cursor reference
         run: |
           ! grep -n "n:nextCursor" server-sene/worker.js
-          grep -q "asArray(body.q ?? body.r)" server-sene/worker.js
+          grep -Fq "asArray(body.q ?? body[WIRE.REQUESTS])" server-sene/worker.js
+          grep -Fq "const WIRE = Object.freeze" server-sene/worker.js
           grep -q "cleanupRetainedHistory" server-sene/worker.js
           grep -q "delivered_at IS NOT NULL" server-sene/worker.js

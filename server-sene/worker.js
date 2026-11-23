@@ -11,6 +11,18 @@ const cors = {
   "Content-Type": "application/json; charset=utf-8"
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: cors });
+// Diccionario compacto compartido con SENE VENTAS y SeneAdmin (SeneWireProtocol.kt).
+// Los nombres de campos son parte del contrato Wire v1; no traducirlos ni renombrarlos.
+const WIRE = Object.freeze({
+  VERSION: "v", TYPE: "t", EVENT: "e", WORKER: "w", AMOUNT: "a",
+  INSTALLATION: "i", CURSOR: "c", REQUESTS: "r", ATTENDANCE: "h",
+  INVENTORY: "g", REPORTS: "b", DECISIONS: "d", ADMIN_TOKEN: "a",
+  ATTENDANCE_ACKS: "ha", SALES_INVENTORY_ACKS: "ga", INVENTORY_ACKS: "gi",
+  REPORT_ACKS: "ba", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
+  INVENTORY_ACK_CONFIRMATIONS: "gaa", REPORT_ACK_CONFIRMATIONS: "baa",
+  NEXT_CURSOR: "n", REPORT_PUBLIC_KEY: "rp", SYNC: "[SYNC]"
+});
+
 const nowIso = () => new Date().toISOString();
 const plusHours = (date, hours) => new Date(date.getTime() + hours * 3600000).toISOString();
 const normalizeName = value => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -26,22 +38,25 @@ const sha256 = async value => {
 };
 const validText = (v, min, max) => typeof v === "string" && v.trim().length >= min && v.trim().length <= max;
 
+// Precios vigentes de SENE VENTAS, expresados en centavos MXN.
+const PRICE_CENTS = Object.freeze({ activation: 29900, renewal: 10000 });
+
 async function telegram(env, message) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) throw new Error("Telegram secrets missing");
+  const chatId = env.ID_DE_CHAT_DE_TELEGRAM || env.TELEGRAM_CHAT_ID;
+  if (!env.TELEGRAM_BOT_TOKEN || !chatId) throw new Error("Telegram secrets missing");
   const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: message })
+    body: JSON.stringify({ chat_id: chatId, text: message })
   });
   if (!response.ok) throw new Error("Telegram notification failed");
   const result = await response.json();
   if (!result.ok) throw new Error("Telegram notification rejected");
 }
 
-async function getAmount(db) {
-  const row = await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='amount_cents'").first();
-  const amount = Number(row?.setting_value);
-  if (!Number.isSafeInteger(amount) || amount < 1) throw new Error("amount_cents is not configured");
+async function getAmount(type) {
+  const amount = PRICE_CENTS[type];
+  if (!Number.isSafeInteger(amount) || amount < 1) throw new Error("TIPO_DE_PAGO_INVALIDO");
   return amount;
 }
 
@@ -108,7 +123,7 @@ async function createRequest(request, env) {
     ]);
   }
 
-  const amount = await getAmount(db);
+  const amount = await getAmount(type);
   const requestId = crypto.randomUUID();
   const folio = "SENE-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + crypto.randomUUID().slice(0, 6).toUpperCase();
   const code = randomCode();
@@ -262,104 +277,7 @@ async function redeemCode(request, env) {
 }
 
 
-async function requestAccountRecovery(request, env) {
-  const body = await request.json();
-  const businessName = typeof body.business_name === "string" ? body.business_name.trim() : "";
-  const phone = typeof body.whatsapp === "string" ? body.whatsapp.replace(/\D/g, "") : "";
-  const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
-  if (!validText(businessName, 2, 80) || phone.length < 10 || phone.length > 15 ||
-      !validText(installationId, 20, 100)) {
-    return json({ ok: false, error: "DATOS_INVALIDOS" }, 400);
-  }
-
-  const db = env.DB;
-  const ddl = [
-    "CREATE TABLE IF NOT EXISTS account_recovery_requests (",
-    "id TEXT PRIMARY KEY, folio TEXT NOT NULL UNIQUE, business_id TEXT NOT NULL,",
-    "old_installation_id TEXT NOT NULL, new_installation_id TEXT NOT NULL, code_hash TEXT NOT NULL,",
-    "attempt_count INTEGER NOT NULL DEFAULT 0, locked_at TEXT, consumed_at TEXT, invalidated_at TEXT,",
-    "status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, expires_at TEXT NOT NULL)"
-  ].join(" ");
-  await db.prepare(ddl).run();
-
-  const business = await db.prepare(
-    "SELECT id,business_name,whatsapp,installation_id,status FROM businesses WHERE business_name_normalized=? LIMIT 1"
-  ).bind(normalizeName(businessName)).first();
-
-  // Respuesta genérica para no revelar si existe una cuenta o si el teléfono coincide.
-  if (!business || (business.whatsapp || "").replace(/\D/g, "") !== phone ||
-      business.status === "blocked") {
-    return json({ ok: false, error: "DATOS_NO_VERIFICADOS", message: "No pudimos validar los datos. Revisa el nombre del negocio y el WhatsApp registrado." }, 404);
-  }
-  if (business.installation_id === installationId) {
-    return json({ ok: false, error: "DISPOSITIVO_YA_VINCULADO", message: "Este dispositivo ya está vinculado a este negocio." }, 409);
-  }
-
-  const deviceOwner = await db.prepare(
-    "SELECT business_name FROM businesses WHERE installation_id=? AND id<>? LIMIT 1"
-  ).bind(installationId, business.id).first();
-  if (deviceOwner) {
-    return json({ ok: false, error: "DISPOSITIVO_OCUPADO", message: "Este dispositivo ya está vinculado a otro negocio." }, 409);
-  }
-
-  const currentTime = nowIso();
-  const pendingBusinessRequest = await db.prepare(
-    "SELECT folio,expires_at FROM activation_requests WHERE business_id=? AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 1"
-  ).bind(business.id, currentTime).first();
-  if (pendingBusinessRequest && business.status !== "pending") {
-    return json({ ok: false, error: "SOLICITUD_ACTIVA", folio: pendingBusinessRequest.folio,
-      expires_at: pendingBusinessRequest.expires_at,
-      message: "El negocio tiene una solicitud de pago pendiente. Espera a que termine antes de cambiar de dispositivo." }, 409);
-  }
-
-  const pendingRecovery = await db.prepare(
-    "SELECT folio,expires_at FROM account_recovery_requests WHERE business_id=? AND status='pending' AND expires_at>? AND consumed_at IS NULL AND invalidated_at IS NULL ORDER BY created_at DESC LIMIT 1"
-  ).bind(business.id, currentTime).first();
-  if (pendingRecovery) {
-    return json({ ok: false, error: "RECUPERACION_EN_CURSO", folio: pendingRecovery.folio,
-      expires_at: pendingRecovery.expires_at,
-      message: "Ya existe una recuperación pendiente para este negocio. Contacta al responsable de SENE." }, 409);
-  }
-
-  await db.prepare(
-    "UPDATE account_recovery_requests SET status='expired',invalidated_at=? WHERE business_id=? AND status='pending' AND expires_at<=? AND consumed_at IS NULL"
-  ).bind(currentTime, business.id, currentTime).run();
-
-  const id = crypto.randomUUID();
-  const folio = "TRAS-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + crypto.randomUUID().slice(0, 6).toUpperCase();
-  const code = randomCode();
-  const codeHash = await sha256(code);
-  const expiresAt = plusHours(new Date(), 48);
-  await db.prepare(
-    "INSERT INTO account_recovery_requests (id,folio,business_id,old_installation_id,new_installation_id,code_hash,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?)"
-  ).bind(id, folio, business.id, business.installation_id, installationId, codeHash, currentTime, expiresAt).run();
-
-  const message = [
-    "🔐 SOLICITUD DE CAMBIO DE DISPOSITIVO SENE",
-    "Folio: " + folio,
-    "Negocio: " + business.business_name,
-    "WhatsApp registrado: " + phone,
-    ...(pendingBusinessRequest ? ["Solicitud de activación pendiente: " + pendingBusinessRequest.folio] : []),
-    "Código de autorización (ENTREGAR SOLO DESPUÉS DE VERIFICAR LA IDENTIDAD): " + code,
-    "Vigencia: 48 horas",
-    "El dispositivo anterior seguirá vinculado hasta que el cliente introduzca el código."
-  ].join("\n");
-
-  try {
-    await telegram(env, message);
-  } catch (error) {
-    await db.prepare(
-      "UPDATE account_recovery_requests SET status='cancelled',invalidated_at=? WHERE id=? AND status='pending'"
-    ).bind(nowIso(), id).run();
-    return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Intenta más tarde." }, 503);
-  }
-
-  return json({ ok: true, folio, expires_at: expiresAt,
-    activation_folio: pendingBusinessRequest?.folio || null,
-    message: "Solicitud recibida. El responsable verificará tu identidad antes de entregarte el código." }, 201);
-}
-
-async function completeAccountRecovery(request, env) {
+async function transferAccountDevice(request, env) {
   const body = await request.json();
   const folio = typeof body.folio === "string" ? body.folio.trim().toUpperCase() : "";
   const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
@@ -370,63 +288,62 @@ async function completeAccountRecovery(request, env) {
   }
 
   const db = env.DB;
-  const row = await db.prepare(
-    "SELECT r.*, b.status AS business_status, b.installation_id AS current_installation_id FROM account_recovery_requests r JOIN businesses b ON b.id=r.business_id WHERE r.folio=?"
-  ).bind(folio).first();
+  const row = await db.prepare(`
+    SELECT ar.id AS request_id, ar.business_id, ar.status AS request_status,
+           ar.request_type, ar.expires_at AS request_expires,
+           ac.id AS code_id, ac.code_hash, ac.consumed_at, ac.invalidated_at,
+           ac.attempt_count, ac.locked_at,
+           b.installation_id, b.status AS business_status, b.expires_at AS business_expires
+    FROM activation_requests ar
+    JOIN activation_codes ac ON ac.request_id=ar.id
+    JOIN businesses b ON b.id=ar.business_id
+    WHERE ar.folio=?
+    ORDER BY ac.created_at DESC LIMIT 1
+  `).bind(folio).first();
 
   if (!row) return json({ ok: false, error: "FOLIO_NO_ENCONTRADO" }, 404);
-  if (row.status !== "pending" || row.consumed_at || row.invalidated_at) {
-    return json({ ok: false, error: "SOLICITUD_NO_DISPONIBLE" }, 409);
+  if (row.request_status !== "completed" || !row.consumed_at || row.invalidated_at) {
+    return json({ ok: false, error: "LICENCIA_NO_TRANSFERIBLE", message: "La transferencia requiere el folio y código de una licencia ya activada." }, 409);
   }
-  if (new Date(row.expires_at).getTime() <= Date.now()) {
-    await db.prepare("UPDATE account_recovery_requests SET status='expired',invalidated_at=? WHERE id=?")
-      .bind(nowIso(), row.id).run();
-    return json({ ok: false, error: "SOLICITUD_EXPIRADA" }, 410);
-  }
-  if (row.locked_at || row.attempt_count >= 5) {
+  if (row.locked_at || Number(row.attempt_count) >= 5) {
     return json({ ok: false, error: "CODIGO_BLOQUEADO" }, 429);
   }
-  if (row.new_installation_id !== installationId ||
-      row.current_installation_id !== row.old_installation_id ||
-      row.business_status === "blocked") {
-    return json({ ok: false, error: "DISPOSITIVO_NO_AUTORIZADO" }, 403);
+  if (row.business_status !== "active" || !row.business_expires ||
+      new Date(row.business_expires).getTime() <= Date.now()) {
+    return json({ ok: false, error: "LICENCIA_NO_ACTIVA" }, 403);
   }
+  if (row.installation_id === installationId) {
+    return json({ ok: true, status: "already_linked", message: "Este dispositivo ya está autorizado." });
+  }
+
+  const owner = await db.prepare(
+    "SELECT id FROM businesses WHERE installation_id=? AND id<>? LIMIT 1"
+  ).bind(installationId, row.business_id).first();
+  if (owner) return json({ ok: false, error: "DISPOSITIVO_OCUPADO" }, 409);
 
   const suppliedHash = await sha256(code);
   if (suppliedHash !== row.code_hash) {
-    await db.prepare("UPDATE account_recovery_requests SET attempt_count=attempt_count+1,locked_at=CASE WHEN attempt_count+1>=5 THEN ? ELSE locked_at END WHERE id=?")
-      .bind(nowIso(), row.id).run();
+    await db.prepare("UPDATE activation_codes SET attempt_count=attempt_count+1, locked_at=CASE WHEN attempt_count+1>=5 THEN ? ELSE locked_at END WHERE id=? AND consumed_at IS NOT NULL AND invalidated_at IS NULL")
+      .bind(nowIso(), row.code_id).run();
     return json({ ok: false, error: "CODIGO_INCORRECTO" }, 401);
   }
 
-  const completedAt = nowIso();
+  const transferredAt = nowIso();
   const results = await db.batch([
-    db.prepare("UPDATE account_recovery_requests SET consumed_at=?,status='completed' WHERE id=? AND status='pending' AND consumed_at IS NULL AND invalidated_at IS NULL AND EXISTS (SELECT 1 FROM businesses WHERE id=? AND installation_id=?)")
-      .bind(completedAt, row.id, row.business_id, row.old_installation_id),
-    db.prepare("UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=? AND EXISTS (SELECT 1 FROM account_recovery_requests WHERE id=? AND consumed_at=?)")
-      .bind(installationId, completedAt, row.business_id, row.old_installation_id, row.id, completedAt)
+    db.prepare("UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=? AND status='active' AND expires_at>? AND EXISTS (SELECT 1 FROM activation_codes WHERE id=? AND consumed_at IS NOT NULL AND invalidated_at IS NULL)")
+      .bind(installationId, transferredAt, row.business_id, row.installation_id, transferredAt, row.code_id),
+    db.prepare("UPDATE admin_sessions SET revoked_at=? WHERE business_id=? AND revoked_at IS NULL AND EXISTS (SELECT 1 FROM businesses WHERE id=? AND installation_id=? AND updated_at=?)")
+      .bind(transferredAt, row.business_id, row.business_id, installationId, transferredAt)
   ]);
-  if (!results[0]?.meta || results[0].meta.changes !== 1 ||
-      !results[1]?.meta || results[1].meta.changes !== 1) {
-    // Compensa el primer UPDATE si el segundo no pudo cambiar el dispositivo.
-    // Solo revierte esta operación concreta; no pisa una transferencia posterior.
-    await db.batch([
-      db.prepare("UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=? AND updated_at=?")
-        .bind(row.old_installation_id, nowIso(), row.business_id, installationId, completedAt),
-      db.prepare("UPDATE account_recovery_requests SET consumed_at=NULL,status='pending' WHERE id=? AND consumed_at=? AND EXISTS (SELECT 1 FROM businesses WHERE id=? AND installation_id=?)")
-        .bind(row.id, completedAt, row.business_id, row.old_installation_id)
-    ]);
-    return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR", message: "La cuenta cambió mientras se procesaba la solicitud. Contacta al responsable de SENE." }, 409);
+  if (!results[0]?.meta || results[0].meta.changes !== 1) {
+    return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR", message: "La cuenta cambió mientras se procesaba la transferencia. Vuelve a intentarlo." }, 409);
   }
 
-  const pendingActivation = await db.prepare(
-    "SELECT folio FROM activation_requests WHERE business_id=? AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 1"
-  ).bind(row.business_id, nowIso()).first();
-  return json({ ok: true, status: row.business_status === "pending" ? "activation_device_rebound" : "transferred",
-    activation_folio: pendingActivation?.folio || null,
-    message: row.business_status === "pending"
-      ? "Dispositivo autorizado para continuar la activación pendiente."
-      : "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
+  return json({
+    ok: true,
+    status: "transferred",
+    message: "Dispositivo autorizado. Se conservó el mismo folio, la licencia y su fecha de vencimiento."
+  });
 }
 
 async function subscriptionStatus(request, env) {
@@ -528,7 +445,7 @@ async function claimAdminPairing(request, env) {
   const body = await readJson(request);
   const code = String(body?.pairing_code || "").trim().toUpperCase();
   const adminInstallationId = String(body?.admin_installation_id || "").trim();
-  const publicKey = String(body?.rp || "").trim();
+  const publicKey = String(body?.[WIRE.REPORT_PUBLIC_KEY] || "").trim();
   if (!/^[A-HJ-NP-Z2-9]{10}$/.test(code) || !validText(adminInstallationId,20,100) ||
       publicKey.length < 200 || publicKey.length > 12000 || !/^[A-Za-z0-9_+/-]+={0,2}$/.test(publicKey) ||
       !(await validReportPublicKey(publicKey))) {
@@ -563,13 +480,13 @@ async function claimAdminPairing(request, env) {
 }
 async function payrollSync(request, env) {
   const body = await readJson(request);
-  const installationId = String(body?.i || "").trim();
-  if (Number(body?.v) !== 1 || body?.t !== "[SYNC]" || !validText(installationId,20,100))
+  const installationId = String(body?.[WIRE.INSTALLATION] || "").trim();
+  if (Number(body?.[WIRE.VERSION]) !== 1 || body?.[WIRE.TYPE] !== WIRE.SYNC || !validText(installationId,20,100))
     return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.q ?? body.r).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
+  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body[WIRE.ATTENDANCE]).slice(0,100), inventory=asArray(body[WIRE.INVENTORY]).slice(0,100), reports=asArray(body[WIRE.REPORTS]).slice(0,100);
   const statements=[];
   for (const item of requests) {
     const id=eventId(item), worker=eventWorker(item) || String(body.w || "").trim();
@@ -615,16 +532,16 @@ async function payrollSync(request, env) {
 }
 async function adminPayrollSync(request, env) {
   const body=await readJson(request);
-  if(Number(body?.v)!==1 || body?.t!=="[SYNC]") return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
-  const session=await adminSession(env.DB,String(body?.a||""));
+  if(Number(body?.[WIRE.VERSION])!==1 || body?.[WIRE.TYPE]!==WIRE.SYNC) return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
+  const session=await adminSession(env.DB,String(body?.[WIRE.ADMIN_TOKEN]||""));
   if(!session) return json({ok:false,error:"ADMIN_NO_AUTORIZADO"},401);
   const db=env.DB,businessId=session.business_id,now=nowIso();
-  const publicKey=String(body?.rp||"").trim();
+  const publicKey=String(body?.[WIRE.REPORT_PUBLIC_KEY]||"").trim();
   if(publicKey.length>=200 && publicKey.length<=12000 && /^[A-Za-z0-9_+/-]+={0,2}$/.test(publicKey) && await validReportPublicKey(publicKey)) {
     await db.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
       .bind(businessId,session.admin_installation_id,publicKey,now).run();
   }
-  const decisions=asArray(body.d), statements=[];
+  const decisions=asArray(body[WIRE.DECISIONS]), statements=[];
   for(const d of decisions) {
     const id=eventId(d), state=String(d.x||"").toUpperCase();
     if(!id || !["[OK]","[NO]","APPROVED","REJECTED"].includes(state)) continue;
@@ -632,16 +549,16 @@ async function adminPayrollSync(request, env) {
     statements.push(db.prepare("UPDATE payroll_requests SET status=?,decision_by='PATRON',decision_reason=?,decided_at=?,updated_at=? WHERE business_id=? AND event_id=? AND status='PENDING'")
       .bind(normalized,String(d.r||""),now,now,businessId,id));
   }
-  const attendanceAcks=asArray(body.ha).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const inventoryAcks=asArray(body.gi).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const reportAcks=asArray(body.ba).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const attendanceAcks=asArray(body[WIRE.ATTENDANCE_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const inventoryAcks=asArray(body[WIRE.INVENTORY_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   for(const id of attendanceAcks) statements.push(db.prepare("UPDATE attendance_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of inventoryAcks) statements.push(db.prepare("UPDATE inventory_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   if(statements.length) await db.batch(statements);
   await maybeCleanupRetainedHistory(db);
 
-  const requestCursor=parseCursor(body.c);
+  const requestCursor=parseCursor(body[WIRE.CURSOR]);
   const reqRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
     .bind(businessId,requestCursor).all();
   // Las decisiones resueltas se vuelven a entregar aunque su seq sea anterior al cursor.
@@ -777,14 +694,13 @@ export default {
         return json({ servidor: "SERVER-SENE", estado: "funcionando", base_de_datos: check?.ok === 1 ? "conectada" : "sin respuesta" });
       }
       if (request.method === "GET" && url.pathname === "/config") {
-        const amount = await getAmount(env.DB);
-        return json({ ok: true, amount_cents: amount, currency: "MXN" });
+        const activationAmount = await getAmount("activation");
+        const renewalAmount = await getAmount("renewal");
+        return json({ ok: true, amount_cents: activationAmount, activation_amount_cents: activationAmount, renewal_amount_cents: renewalAmount, currency: "MXN" });
       }
       if (request.method === "POST" && url.pathname === "/requests") return await createRequest(request, env);
       if (request.method === "POST" && url.pathname === "/redeem") return await redeemCode(request, env);
-      if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
-      if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
-      if (request.method === "POST" && url.pathname === "/account/device/transfer") return await completeAccountRecovery(request, env);
+      if (request.method === "POST" && url.pathname === "/account/device/transfer") return await transferAccountDevice(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
       if (request.method === "POST" && url.pathname === "/admin/pairing/create") return await createAdminPairing(request, env);
       if (request.method === "POST" && url.pathname === "/admin/pairing/claim") return await claimAdminPairing(request, env);

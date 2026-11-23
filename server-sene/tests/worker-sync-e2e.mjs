@@ -38,6 +38,13 @@ CREATE TABLE businesses (
 db.exec(readFileSync(new URL("../migrations/0001_complete_sync.sql", import.meta.url), "utf8"));
 db.exec(readFileSync(new URL("../migrations/0002_retention.sql", import.meta.url), "utf8"));
 const d1 = new D1Mock(db);
+const configResponse = await worker.fetch(new Request("https://sene.test/config"), { DB: d1 });
+assert.equal(configResponse.status, 200);
+const config = await configResponse.json();
+assert.equal(config.amount_cents, 29900);
+assert.equal(config.activation_amount_cents, 29900);
+assert.equal(config.renewal_amount_cents, 10000);
+assert.equal(config.currency, "MXN");
 const now = new Date().toISOString();
 db.prepare(`INSERT INTO businesses (id,business_name,business_name_normalized,installation_id,status,expires_at,created_at,updated_at)
  VALUES (?,?,?,?,?,?,?,?)`).run("biz-1","Negocio de prueba","negocio de prueba","installation-sales-00000001","active",
@@ -80,7 +87,7 @@ const reportHeader = [
  "NUMBER=1",
  "TYPE=[SYNC]",
  "ALG=RSA-OAEP-SHA256+A256GCM"
-].join("\\n");
+].join("\n");
 const contentKey = crypto.getRandomValues(new Uint8Array(32));
 const iv = crypto.getRandomValues(new Uint8Array(12));
 const aesKey = await crypto.subtle.importKey("raw",contentKey,{name:"AES-GCM"},false,["encrypt"]);
@@ -90,7 +97,7 @@ const encryptedReport = new Uint8Array(await crypto.subtle.encrypt({
 },aesKey,new TextEncoder().encode(plaintext)));
 const wrappedKey = new Uint8Array(await crypto.subtle.encrypt({name:"RSA-OAEP"},pair.publicKey,contentKey));
 const b64 = value => Buffer.from(value).toString("base64url");
-const reportEnvelope = reportHeader+"\\nWRAPPED_KEY="+b64(wrappedKey)+"\\nIV="+b64(iv)+"\\nDATA="+b64(encryptedReport);
+const reportEnvelope = reportHeader+"\nWRAPPED_KEY="+b64(wrappedKey)+"\nIV="+b64(iv)+"\nDATA="+b64(encryptedReport);
 const salesEvents = {
  v:1,t:"[SYNC]",i:"installation-sales-00000001",c:"",
  r:[{v:1,t:"[P$]",e:"loan-1",w:"worker-1",a:12500,n:"Ana",z:"Prueba de préstamo",i:eventTime}],
@@ -116,9 +123,9 @@ assert.equal(adminSync.body.g[0].e,"inventory-1");
 assert.equal(adminSync.body.g[0].f,true);
 assert.equal(adminSync.body.b[0].e,"report-1");
 assert.equal(adminSync.body.b[0].b,reportEnvelope);
-const returnedLines = adminSync.body.b[0].b.split("\\n");
+const returnedLines = adminSync.body.b[0].b.split("\n");
 assert.equal(returnedLines[0],"SENE-ADMIN-REPORT|2");
-const returnedHeader = returnedLines.slice(0,8).join("\\n");
+const returnedHeader = returnedLines.slice(0,8).join("\n");
 const privateKey = await crypto.subtle.importKey("pkcs8",pkcs8,{name:"RSA-OAEP",hash:"SHA-256"},false,["decrypt"]);
 const unwrapped = await crypto.subtle.decrypt({name:"RSA-OAEP"},privateKey,Buffer.from(returnedLines.find(x=>x.startsWith("WRAPPED_KEY=")).slice(12),"base64url"));
 const recoveredAes = await crypto.subtle.importKey("raw",unwrapped,{name:"AES-GCM"},false,["decrypt"]);
@@ -168,4 +175,108 @@ assert.equal(keptInventory,10);
 assert.equal(keptReports,10);
 assert.equal(pendingInventory,1);
 assert.equal(db.prepare("SELECT status FROM payroll_requests WHERE event_id='loan-1'").get().status,"APPROVED");
+
+
+// Transferencia de dispositivo: fixtures aislados sobre el esquema de licencias.
+db.exec(`
+CREATE TABLE activation_requests (
+ id TEXT PRIMARY KEY, folio TEXT NOT NULL UNIQUE, business_id TEXT NOT NULL,
+ request_type TEXT NOT NULL, status TEXT NOT NULL, amount_cents INTEGER NOT NULL,
+ created_at TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE TABLE activation_codes (
+ id TEXT PRIMARY KEY, request_id TEXT NOT NULL, code_hash TEXT NOT NULL,
+ created_at TEXT NOT NULL, consumed_at TEXT, invalidated_at TEXT,
+ attempt_count INTEGER NOT NULL DEFAULT 0, locked_at TEXT
+);
+`);
+const digestHex = async value => {
+ const digest = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+ return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+};
+async function addTransferFixture(tag, options={}) {
+ const createdAt=new Date().toISOString();
+ const expiry=new Date(Date.now()+(options.expiryDays ?? 30)*86400000).toISOString();
+ const businessId="biz-transfer-"+tag;
+ const oldDevice="installation-old-"+tag.padEnd(20,"x");
+ const code="ABCDEFGHJK";
+ const requestId="request-transfer-"+tag;
+ const codeId="code-transfer-"+tag;
+ db.prepare(`INSERT INTO businesses
+ (id,business_name,business_name_normalized,installation_id,status,activated_at,expires_at,created_at,updated_at)
+ VALUES (?,?,?,?,?,?,?,?,?)`).run(
+  businessId,"Transfer "+tag,"transfer "+tag,oldDevice,options.businessStatus || "active",
+  createdAt,expiry,createdAt,createdAt
+ );
+ db.prepare(`INSERT INTO activation_requests
+ (id,folio,business_id,request_type,status,amount_cents,created_at,expires_at)
+ VALUES (?,?,?,?,?,?,?,?)`).run(
+  requestId,"SENE-TRANSFER-"+tag.toUpperCase(),businessId,"activation","completed",29900,createdAt,
+  new Date(Date.now()-86400000).toISOString()
+ );
+ db.prepare(`INSERT INTO activation_codes
+ (id,request_id,code_hash,created_at,consumed_at,invalidated_at,attempt_count,locked_at)
+ VALUES (?,?,?,?,?,?,?,?)`).run(
+  codeId,requestId,await digestHex(code),createdAt,
+  options.consumed===false ? null : createdAt,
+  options.invalidated ? createdAt : null,
+  options.attempts || 0,options.locked ? createdAt : null
+ );
+ return {businessId,oldDevice,code,folio:"SENE-TRANSFER-"+tag.toUpperCase(),createdAt,expiry,requestId,codeId};
+}
+const transfer=async(folio,code,installation_id)=>post("/account/device/transfer",{folio,code,installation_id});
+const fixture=await addTransferFixture("valid");
+db.prepare(`INSERT INTO admin_sessions
+(id,business_id,admin_installation_id,token_hash,created_at,last_seen_at,revoked_at)
+VALUES (?,?,?,?,?,?,NULL)`).run("session-transfer-valid",fixture.businessId,"admin-device-transfer-0001","token-hash-transfer-valid",now,now);
+const badCode=await transfer(fixture.folio,"BBBBBBBBBB","installation-new-device-00000001");
+assert.equal(badCode.status,401,"El código incorrecto debe rechazarse");
+assert.equal(db.prepare("SELECT attempt_count FROM activation_codes WHERE id=?").get(fixture.codeId).attempt_count,1);
+assert.equal(db.prepare("SELECT installation_id FROM businesses WHERE id=?").get(fixture.businessId).installation_id,fixture.oldDevice);
+assert.equal(db.prepare("SELECT revoked_at FROM admin_sessions WHERE id='session-transfer-valid'").get().revoked_at,null);
+const moved=await transfer(fixture.folio,fixture.code,"installation-new-device-00000001");
+assert.equal(moved.status,200);
+assert.equal(moved.body.status,"transferred");
+let preserved=db.prepare("SELECT installation_id,status,activated_at,expires_at FROM businesses WHERE id=?").get(fixture.businessId);
+assert.equal(preserved.installation_id,"installation-new-device-00000001");
+assert.equal(preserved.status,"active");
+assert.equal(preserved.expires_at,fixture.expiry,"La transferencia no debe modificar el vencimiento");
+assert.equal(preserved.activated_at,fixture.createdAt,"La transferencia no debe modificar la fecha de activación");
+assert.equal(db.prepare("SELECT folio,status FROM activation_requests WHERE id=?").get(fixture.requestId).folio,fixture.folio);
+assert.equal(db.prepare("SELECT revoked_at FROM admin_sessions WHERE id='session-transfer-valid'").get().revoked_at!==null,true);
+const sameDevice=await transfer(fixture.folio,fixture.code,"installation-new-device-00000001");
+assert.equal(sameDevice.status,200);
+assert.equal(sameDevice.body.status,"already_linked");
+// El mismo folio/código consumido puede transferir la misma licencia a otro dispositivo.
+const movedAgain=await transfer(fixture.folio,fixture.code,"installation-new-device-00000002");
+assert.equal(movedAgain.status,200);
+assert.equal(db.prepare("SELECT expires_at FROM businesses WHERE id=?").get(fixture.businessId).expires_at,fixture.expiry);
+const ownerTime=new Date().toISOString();
+db.prepare(`INSERT INTO businesses
+(id,business_name,business_name_normalized,installation_id,status,expires_at,created_at,updated_at)
+VALUES (?,?,?,?,?,?,?,?)`).run("biz-device-owner","Otro negocio","otro negocio","installation-already-owned-0000001","active",
+ new Date(Date.now()+30*86400000).toISOString(),ownerTime,ownerTime);
+const occupied=await transfer(fixture.folio,fixture.code,"installation-already-owned-0000001");
+assert.equal(occupied.status,409);
+assert.equal(db.prepare("SELECT installation_id FROM businesses WHERE id=?").get(fixture.businessId).installation_id,"installation-new-device-00000002");
+const invalidated=await addTransferFixture("invalidated",{invalidated:true});
+assert.equal((await transfer(invalidated.folio,invalidated.code,"installation-new-device-00000003")).status,409);
+const unconsumed=await addTransferFixture("unconsumed",{consumed:false});
+assert.equal((await transfer(unconsumed.folio,unconsumed.code,"installation-new-device-00000004")).status,409);
+const expired=await addTransferFixture("expired",{expiryDays:-1});
+assert.equal((await transfer(expired.folio,expired.code,"installation-new-device-00000005")).status,403);
+const locked=await addTransferFixture("locked");
+for(let i=0;i<5;i++) assert.equal((await transfer(locked.folio,"BBBBBBBBBB","installation-new-device-00000006")).status,401);
+assert.equal((await transfer(locked.folio,locked.code,"installation-new-device-00000006")).status,429);
+assert.equal(db.prepare("SELECT installation_id FROM businesses WHERE id=?").get(locked.businessId).installation_id,locked.oldDevice);
+console.log("SERVER-SENE device-transfer E2E OK: consumed-code validation, wrong-code attempts/lockout, one-device reassignment, session revocation, same-device idempotency, repeat transfer with same folio/code, occupied device rejection, and preservation of license dates/status.");
+
+// Las rutas antiguas de recuperación quedan deshabilitadas: la transferencia solo usa
+// el folio y código originales de una licencia ya activada.
+assert.equal((await post("/account/recovery/request",{
+ business_name:"Negocio de prueba",whatsapp:"5215555555555",installation_id:"installation-recovery-test-0001"
+})).status,404);
+assert.equal((await post("/account/recovery/complete",{
+ folio:"TRAS-20261123-ABC123",code:"ABCDEFGHJK",installation_id:"installation-recovery-test-0001"
+})).status,404);
 console.log("SERVER-SENE sync E2E OK: one-time pairing, RSA public-key exchange, real RSA-OAEP/AES-256-GCM report encryption/decryption, compact payroll/attendance/inventory/report transport, ACK round-trip, decisions, and safe 10-item retention.");

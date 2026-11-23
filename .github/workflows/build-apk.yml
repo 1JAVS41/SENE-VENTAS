@@ -1,7 +1,7 @@
 name: Compilar APK SENE VENTAS
 on:
   push:
-    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge, work/shared-inventory-sene, work/worker-onboarding-payroll-v2, fix/no-nested-inventario-sene, ui/modern-sene-ventas, fix/payroll-attendance-sync-2026-11, feature/loan-consumption-approval-client, feature/server-sene-complete-api]
+    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge, work/shared-inventory-sene, work/worker-onboarding-payroll-v2, fix/no-nested-inventario-sene, ui/modern-sene-ventas, fix/payroll-attendance-sync-2026-11, feature/loan-consumption-approval-client, feature/server-sene-complete-api, review/server-sene-prices-20261122]
   pull_request:
     branches: [main, sene-ventas-rebuild, work/shared-inventory-sene]
   workflow_dispatch:

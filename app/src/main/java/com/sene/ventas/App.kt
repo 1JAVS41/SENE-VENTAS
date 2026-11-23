@@ -525,7 +525,17 @@ private object InventoryReader {
  }
 
 }
-private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
+private fun whatsapp(a:Activity,body:String,after:()->Unit={}){
+ val raw=Store.phone(a).filter{it.isDigit()}
+ val target=when{
+  raw.length==10 -> "52"+raw
+  raw.startsWith("521")&&raw.length==13 -> "52"+raw.substring(3)
+  else -> raw
+ }
+ if(target.length !in 11..15){a.msg("Configura un número válido del patrón con lada y código de país.");return}
+ val u="https://wa.me/"+target+"?text="+URLEncoder.encode(body,"UTF-8")
+ try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}
+}
 
 class InicioTurnoActivity:FragmentActivity(){
  private var internet="Consultando internet…"
@@ -544,9 +554,9 @@ class InicioTurnoActivity:FragmentActivity(){
   }
   internetClockHandler.postDelayed(this,1000L)
  }}
- private var pendingStartAfterWhatsApp=false
+ private var pendingOpenSalesAfterShift=false
  private var refreshAfterPatron=false
- override fun onResume(){super.onResume();if(::internetLabel.isInitialized)enforceLicenseGate(this){};if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
+ override fun onResume(){super.onResume();if(::internetLabel.isInitialized)enforceLicenseGate(this){};if(pendingOpenSalesAfterShift){pendingOpenSalesAfterShift=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
  private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return@enforceLicenseGate};if(currentPatronPin(this).isBlank()||currentPatronPin(this)==LEGACY_DEFAULT_PIN){forceDefaultPinChange{draw();consultInternetTime()}}else{draw();consultInternetTime()}}}
  private fun consultInternetTime(){
@@ -671,9 +681,9 @@ class InicioTurnoActivity:FragmentActivity(){
      progress.progress=5
      progress.dismiss()
      shiftPreparationRunning=false
-     pendingStartAfterWhatsApp=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
+     pendingOpenSalesAfterShift=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
      if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
-     if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
+     if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
      else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
      else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SERVER-SENE; no se usa WhatsApp.")
     }
@@ -842,7 +852,7 @@ class MainActivity:FragmentActivity(){
   if(active.optBoolean("reportReminderShown",false))return
   active.put("reportReminderShown",true)
   Store.saveShift(this,active)
-  reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}
+  reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Sincroniza tus movimientos con SERVER-SENE para continuar trabajando. El reporte se envía de forma segura y automática; no se usa WhatsApp.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}
  }
  private var selectedPrinterAddress:String?=null
  private var printerSocket:BluetoothSocket?=null
@@ -1126,7 +1136,7 @@ class MainActivity:FragmentActivity(){
   val shift=Store.shift(this)?:return
   val reason=input("Especifica el motivo obligatorio",false).apply{inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES}
   val dialog=AlertDialog.Builder(this).setTitle("CAMBIAR DE PERFIL")
-   .setMessage("Al continuar se cerrará tu turno actual, se generará tu reporte y se avisará al patrón por WhatsApp. Este cierre se reflejará en tu nómina.")
+   .setMessage("Al continuar se cerrará tu turno actual y se enviará el reporte de forma segura a SERVER-SENE. Este cierre se reflejará en tu nómina.")
    .setView(reason).setPositiveButton("CONTINUAR",null).setNegativeButton("CANCELAR",null).create()
   dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
    val why=reason.text.toString().trim()
@@ -1160,6 +1170,21 @@ class MainActivity:FragmentActivity(){
   }}
   dialog.show()
  }
+ private fun sendPatronMessage(){
+  val target=Store.phone(this).filter{it.isDigit()}
+  if(target.length !in 10..15){msg("El patrón debe configurar un número de WhatsApp válido en SOY PATRÓN.");return}
+  val message=input("Escribe tu mensaje para el patrón").apply{
+   minLines=3
+   maxLines=6
+   inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+  }
+  AlertDialog.Builder(this).setTitle("COMUNICACIÓN CON EL PATRÓN").setMessage("Este canal es exclusivamente para mensajes. No envía reportes ni documentos de movimientos.")
+   .setView(message).setPositiveButton("ABRIR WHATSAPP"){_,_-> 
+    val text=message.text.toString().trim()
+    if(text.isBlank()){msg("Escribe un mensaje antes de continuar.");return@setPositiveButton}
+    whatsapp(this,text)
+   }.setNegativeButton("CANCELAR",null).show()
+ }
  private fun showMyTurnMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   val dialog=AlertDialog.Builder(this).setTitle("MI TURNO").setView(ScrollView(this).apply{addView(panel)}).setNegativeButton("CERRAR",null).create()
@@ -1173,7 +1198,8 @@ class MainActivity:FragmentActivity(){
   option("SOLICITA","Registrar un consumo o solicitar un préstamo"){startActivity(Intent(this,PayrollRequestActivity::class.java))}
   option("MI NÓMINA","Consultar sueldo, descuentos e historial"){startActivity(Intent(this,PayrollEmployeeActivity::class.java))}
   option("MI JORNADA LABORAL","Consultar entrada, salida estimada y tiempo restante"){showWorkday()}
-  option("CAMBIAR DE PERFIL","Cerrar tu turno antes de tiempo, indicar el motivo y avisar al patrón"){requestEarlyProfileChange()}
+  option("COMUNICACIÓN","Enviar un mensaje de texto al patrón por WhatsApp"){sendPatronMessage()}
+  option("CAMBIAR DE PERFIL","Cerrar tu turno antes de tiempo y registrar el motivo"){requestEarlyProfileChange()}
   dialog.show()
  }
  private fun showToolsMenu(){
@@ -1759,7 +1785,7 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("CAMBIAR PIN DE SOY PATRÓN","Actualiza tu clave privada"){changePatronPin()})
   v.addView(adminTag("HACER PRIMER INVENTARIO","Registrar el inventario inicial",0xFF25845A.toInt()){openFirstInventory()})
   v.addView(adminTag("AGREGAR O MODIFICAR PRODUCTO","Editar productos y existencias"){product()})
-  v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número para recibir reportes"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
+  v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número del patrón para recibir mensajes de COMUNICACIÓN"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para COMUNICACIÓN").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
   v.addView(adminTag("CIFRADO AUTOMÁTICO","Protección local y reportes seguros mediante SERVER-SENE"){ReportKeySetup.change(this){draw()}})
   v.addView(adminTag("CONSULTAR NÓMINA","Revisar nóminas de los trabajadores"){startActivity(Intent(this,PayrollAdminActivity::class.java))})
   v.addView(adminTag("VINCULAR SENE ADMIN","Generar código temporal para conectar este negocio",0xFF25845A.toInt()){createAdminPairing()})
@@ -1796,8 +1822,17 @@ class PatronActivity:FragmentActivity(){
       val box=LinearLayout(this).apply{orientation=1;setPadding(dp(20),dp(10),dp(20),dp(10))}
       box.addView(TextView(this).apply{text=code;textSize=30f;gravity=Gravity.CENTER;letterSpacing=.18f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF173A78.toInt());setPadding(0,dp(14),0,dp(14))})
       box.addView(TextView(this).apply{text="Código de un solo uso. Caduca: "+expiry.ifBlank{"en unos minutos"}+"\\n\\nAbre SeneAdmin, selecciona VINCULAR NEGOCIO e ingresa este código.";textSize=14f;setTextColor(0xFF586581.toInt())})
-      AlertDialog.Builder(this).setTitle("CÓDIGO PARA SENE ADMIN").setView(box)
-       .setPositiveButton("ENTENDIDO",null).show()
+      val codeDialog=AlertDialog.Builder(this).setTitle("CÓDIGO PARA SENE ADMIN").setView(box)
+       .setPositiveButton("ENTENDIDO",null)
+       .setNeutralButton("COPIAR CÓDIGO",null).create()
+      codeDialog.setOnShowListener {
+       codeDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+        val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Código para vincular SeneAdmin",code))
+        Toast.makeText(this,"Código copiado. Pégalo en SeneAdmin.",Toast.LENGTH_LONG).show()
+       }
+      }
+      codeDialog.show()
      }
     }).start()
    }.setNegativeButton("CANCELAR",null).show()
@@ -1847,6 +1882,7 @@ class PatronActivity:FragmentActivity(){
    }
  }
  private var pendingFirstInventory=false
+ private var savingFirstInventory=false
  private var firstInventoryCode:EditText?=null
  private val firstInventoryItems=JSONArray()
  private fun openFirstInventory(){
@@ -1875,9 +1911,38 @@ class PatronActivity:FragmentActivity(){
    code.setText("");name.setText("");qty.setText("");price.setText("");aisle.setText("");shelf.setText("");code.requestFocus()
   })
   root.addView(button("GUARDAR INVENTARIO"){
+   if(savingFirstInventory){msg("El inventario ya se está guardando. Espera a que termine.");return@button}
    if(firstInventoryItems.length()==0){msg("Agrega por lo menos un producto antes de guardar");return@button}
    AlertDialog.Builder(this).setTitle("Guardar inventario").setMessage("Se guardarán "+firstInventoryItems.length()+" productos en INVENTARIO SENE con la fecha y hora actuales. ¿Continuar?")
-    .setPositiveButton("GUARDAR"){_,_->try{if(InventoryArchive.save(this,firstInventoryItems)){Store.saveProducts(this,firstInventoryItems);getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).apply();msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}else msg("No se pudo guardar. Verifica el acceso a INVENTARIO SENE.")}catch(e:Exception){msg("Error al guardar: "+(e.message?:"desconocido"))}}
+    .setPositiveButton("GUARDAR"){_,_->
+     if(savingFirstInventory)return@setPositiveButton
+     savingFirstInventory=true
+     val products=try{JSONArray(firstInventoryItems.toString())}catch(e:Exception){savingFirstInventory=false;msg("No se pudo preparar el inventario: "+(e.message?:"error"));return@setPositiveButton}
+     val progressLayout=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(this@PatronActivity.dp(24),this@PatronActivity.dp(18),this@PatronActivity.dp(24),this@PatronActivity.dp(18))}
+     progressLayout.addView(ProgressBar(this@PatronActivity),LinearLayout.LayoutParams(this@PatronActivity.dp(36),this@PatronActivity.dp(36)))
+     progressLayout.addView(TextView(this@PatronActivity).apply{text="Guardando inventario local y respaldo…";textSize=15f;setPadding(this@PatronActivity.dp(16),0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
+     val progress=AlertDialog.Builder(this).setTitle("GUARDANDO INVENTARIO").setView(progressLayout).setCancelable(false).create()
+     progress.show()
+     Thread{
+      var failure:String?=null
+      var backupWarning:String?=null
+      try{
+       val backedUp=InventoryArchive.save(this,products)
+       Store.saveProducts(this,products)
+       getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).apply()
+       if(!backedUp)backupWarning="El inventario quedó guardado en este teléfono, pero no se pudo actualizar la copia de la carpeta INVENTARIO SENE."
+      }catch(e:Exception){failure=e.message?:e.javaClass.simpleName}
+      runOnUiThread{
+       savingFirstInventory=false
+       if(!isFinishing&&!isDestroyed){
+        progress.dismiss()
+        if(failure==null&&backupWarning==null){msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}
+        else if(failure==null)AlertDialog.Builder(this).setTitle("INVENTARIO GUARDADO EN EL TELÉFONO").setMessage(backupWarning+"\n\nPuedes continuar; el inventario local está disponible y no necesitas volver a capturarlo.").setPositiveButton("CONTINUAR"){_,_->draw()}.show()
+        else AlertDialog.Builder(this).setTitle("No se pudo guardar el inventario local").setMessage(failure+"\n\nLos productos siguen en esta pantalla. No cierres la aplicación; puedes volver a intentar guardar.").setPositiveButton("ENTENDIDO",null).show()
+       }
+      }
+     }.start()
+    }
     .setNegativeButton("Revisar",null).show()
   })
   root.addView(button("VOLVER",false){draw()});display(root)
@@ -2242,38 +2307,6 @@ private fun saveTextBackup(activity:Activity,tree:Uri,prefix:String,body:String,
  resolver.openOutputStream(target,"w")?.use{it.write(encryptedReportBackup(activity,body.toByteArray(Charsets.UTF_8)))}?:throw java.io.IOException("No se pudo guardar el TXT de respaldo")
  return target
 }
-private fun openWhatsAppText(activity:Activity,body:String):Boolean {
- var target=Store.phone(activity).filter{it.isDigit()}
- if(target.isBlank()){activity.msg("Configura primero el número de WhatsApp del patrón en Soy Patrón");return false}
- if(target.length==10)target="52"+target
- if(target.startsWith("521")&&target.length==13)target="52"+target.substring(3)
- if(target.length<12){activity.msg("El número de WhatsApp del patrón no parece válido. Incluye lada y código de país.");return false}
- if(body.startsWith("SENE-ADMIN-REPORT|1") && body.length>55000){activity.msg("El reporte cifrado supera el límite seguro para enviarlo como texto de WhatsApp. No se enviará incompleto.");return false}
- val safeBody=if(body.length>55000)body.take(55000)+"\n\n[Reporte recortado. El respaldo TXT contiene el reporte completo.]" else body
- val encoded=URLEncoder.encode(safeBody,"UTF-8")
- val links=listOf(
-  Uri.parse("https://api.whatsapp.com/send?phone="+target+"&text="+encoded),
-  Uri.parse("https://wa.me/"+target+"?text="+encoded)
- )
- for(pkg in listOf("com.whatsapp","com.whatsapp.w4b")){
-  for(link in links){
-   try{
-    val intent=Intent(Intent.ACTION_VIEW,link).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    activity.startActivity(intent);return true
-   }catch(_:Exception){}
-  }
- }
- // Último intento: dejar que Android resuelva el enlace al chat con WhatsApp o navegador.
- try {
-  activity.startActivity(Intent(Intent.ACTION_VIEW,links.last()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-  return true
- } catch(_:Exception) {}
- activity.msg("No se pudo abrir el chat del patrón. Verifica que WhatsApp esté instalado y que el número de Soy Patrón incluya lada y código de país.")
- return false
-}
-
-private fun openWhatsAppDocument(activity:Activity,uri:Uri,subject:String){ openWhatsAppText(activity,subject+REPORT_BACKUP_NOTE) }
-
 object ReportFile {
  @Synchronized fun update(c:android.content.Context, root:org.json.JSONObject?=null):java.io.File {
   val data=root ?: run { val pref=c.getSharedPreferences("sene_ventas_local",0).getString("datos",null); try{if(pref==null)org.json.JSONObject() else org.json.JSONObject(pref)}catch(_:Exception){org.json.JSONObject()} }
@@ -2385,11 +2418,9 @@ class WelcomeActivity:Activity(){
     checking=false
     if(isFinishing||isDestroyed)return@runOnUiThread
     if(active){
-     AccountLoginActivity.ensureReportWhatsApp(this) {
-      if (!isFinishing && !isDestroyed) {
-       startActivity(Intent(this,InicioTurnoActivity::class.java))
-       finish()
-      }
+     if (!isFinishing && !isDestroyed) {
+      startActivity(Intent(this,InicioTurnoActivity::class.java))
+      finish()
      }
     }
    }
