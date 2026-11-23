@@ -2401,11 +2401,9 @@ class WelcomeActivity:Activity(){
     checking=false
     if(isFinishing||isDestroyed)return@runOnUiThread
     if(active){
-     AccountLoginActivity.ensureReportWhatsApp(this) {
-      if (!isFinishing && !isDestroyed) {
-       startActivity(Intent(this,InicioTurnoActivity::class.java))
-       finish()
-      }
+     if (!isFinishing && !isDestroyed) {
+      startActivity(Intent(this,InicioTurnoActivity::class.java))
+      finish()
      }
     }
    }
