@@ -147,8 +147,8 @@ object ActivationApi {
             .put("installation_id", installationId(context)))
     }
 
-    // Transferencia de licencia desde YA SOY CLIENTE SENE.
-    // El endpoint se implementará en SERVER-SENE en la siguiente etapa.
+    // Transferencia exclusiva desde YA SOY CLIENTE SENE / INICIAR SESIÓN.
+    // Reutiliza el folio y el código ya consumido; no solicita ni genera credenciales nuevas.
     fun transferAccountDevice(context: Context, folio: String, code: String): JSONObject {
         return post("/account/device/transfer", JSONObject()
             .put("folio", folio.trim().uppercase())
