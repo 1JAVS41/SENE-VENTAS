@@ -488,8 +488,8 @@ async function transferAccountDevice(request, env) {
   const results = await db.batch([
     db.prepare("UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=? AND status='active' AND expires_at>? AND EXISTS (SELECT 1 FROM activation_codes WHERE id=? AND consumed_at IS NOT NULL AND invalidated_at IS NULL)")
       .bind(installationId, transferredAt, row.business_id, row.installation_id, transferredAt, row.code_id),
-    db.prepare("UPDATE admin_sessions SET revoked_at=? WHERE business_id=? AND revoked_at IS NULL")
-      .bind(transferredAt, row.business_id)
+    db.prepare("UPDATE admin_sessions SET revoked_at=? WHERE business_id=? AND revoked_at IS NULL AND EXISTS (SELECT 1 FROM businesses WHERE id=? AND installation_id=? AND updated_at=?)")
+      .bind(transferredAt, row.business_id, row.business_id, installationId, transferredAt)
   ]);
   if (!results[0]?.meta || results[0].meta.changes !== 1) {
     return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR", message: "La cuenta cambió mientras se procesaba la transferencia. Vuelve a intentarlo." }, 409);
