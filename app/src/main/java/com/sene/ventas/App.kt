@@ -842,7 +842,7 @@ class MainActivity:FragmentActivity(){
   if(active.optBoolean("reportReminderShown",false))return
   active.put("reportReminderShown",true)
   Store.saveShift(this,active)
-  reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Envía el documento de movimientos por WhatsApp para continuar trabajando.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}
+  reportDialog=AlertDialog.Builder(this).setTitle("REPORTE CADA 3 HORAS").setMessage("Sincroniza tus movimientos con SERVER-SENE para continuar trabajando. El reporte se envía de forma segura y automática; no se usa WhatsApp.").setCancelable(false).setPositiveButton("ENVIAR"){_,_->sendReport(false)}.create().also{it.setCanceledOnTouchOutside(false);it.show();it.window?.setLayout(-1,-2)}
  }
  private var selectedPrinterAddress:String?=null
  private var printerSocket:BluetoothSocket?=null
@@ -1126,7 +1126,7 @@ class MainActivity:FragmentActivity(){
   val shift=Store.shift(this)?:return
   val reason=input("Especifica el motivo obligatorio",false).apply{inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES}
   val dialog=AlertDialog.Builder(this).setTitle("CAMBIAR DE PERFIL")
-   .setMessage("Al continuar se cerrará tu turno actual, se generará tu reporte y se avisará al patrón por WhatsApp. Este cierre se reflejará en tu nómina.")
+   .setMessage("Al continuar se cerrará tu turno actual y se enviará el reporte de forma segura a SERVER-SENE. Este cierre se reflejará en tu nómina.")
    .setView(reason).setPositiveButton("CONTINUAR",null).setNegativeButton("CANCELAR",null).create()
   dialog.setOnShowListener{dialog.getButton(-1).setOnClickListener{
    val why=reason.text.toString().trim()
@@ -1160,6 +1160,21 @@ class MainActivity:FragmentActivity(){
   }}
   dialog.show()
  }
+ private fun sendPatronMessage(){
+  val target=Store.phone(this).filter{it.isDigit()}
+  if(target.length !in 10..15){msg("El patrón debe configurar un número de WhatsApp válido en SOY PATRÓN.");return}
+  val message=input("Escribe tu mensaje para el patrón").apply{
+   minLines=3
+   maxLines=6
+   inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+  }
+  AlertDialog.Builder(this).setTitle("COMUNICACIÓN CON EL PATRÓN").setMessage("Este canal es exclusivamente para mensajes. No envía reportes ni documentos de movimientos.")
+   .setView(message).setPositiveButton("ABRIR WHATSAPP"){_,_-> 
+    val text=message.text.toString().trim()
+    if(text.isBlank()){msg("Escribe un mensaje antes de continuar.");return@setPositiveButton}
+    whatsapp(this,text)
+   }.setNegativeButton("CANCELAR",null).show()
+ }
  private fun showMyTurnMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   val dialog=AlertDialog.Builder(this).setTitle("MI TURNO").setView(ScrollView(this).apply{addView(panel)}).setNegativeButton("CERRAR",null).create()
@@ -1173,7 +1188,8 @@ class MainActivity:FragmentActivity(){
   option("SOLICITA","Registrar un consumo o solicitar un préstamo"){startActivity(Intent(this,PayrollRequestActivity::class.java))}
   option("MI NÓMINA","Consultar sueldo, descuentos e historial"){startActivity(Intent(this,PayrollEmployeeActivity::class.java))}
   option("MI JORNADA LABORAL","Consultar entrada, salida estimada y tiempo restante"){showWorkday()}
-  option("CAMBIAR DE PERFIL","Cerrar tu turno antes de tiempo, indicar el motivo y avisar al patrón"){requestEarlyProfileChange()}
+  option("COMUNICACIÓN","Enviar un mensaje de texto al patrón por WhatsApp"){sendPatronMessage()}
+  option("CAMBIAR DE PERFIL","Cerrar tu turno antes de tiempo y registrar el motivo"){requestEarlyProfileChange()}
   dialog.show()
  }
  private fun showToolsMenu(){
@@ -1759,7 +1775,7 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("CAMBIAR PIN DE SOY PATRÓN","Actualiza tu clave privada"){changePatronPin()})
   v.addView(adminTag("HACER PRIMER INVENTARIO","Registrar el inventario inicial",0xFF25845A.toInt()){openFirstInventory()})
   v.addView(adminTag("AGREGAR O MODIFICAR PRODUCTO","Editar productos y existencias"){product()})
-  v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número para recibir reportes"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
+  v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número del patrón para recibir mensajes de COMUNICACIÓN"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para COMUNICACIÓN").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
   v.addView(adminTag("CIFRADO AUTOMÁTICO","Protección local y reportes seguros mediante SERVER-SENE"){ReportKeySetup.change(this){draw()}})
   v.addView(adminTag("CONSULTAR NÓMINA","Revisar nóminas de los trabajadores"){startActivity(Intent(this,PayrollAdminActivity::class.java))})
   v.addView(adminTag("VINCULAR SENE ADMIN","Generar código temporal para conectar este negocio",0xFF25845A.toInt()){createAdminPairing()})
