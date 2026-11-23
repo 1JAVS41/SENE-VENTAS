@@ -156,32 +156,6 @@ object ActivationApi {
             .put("installation_id", installationId(context)))
     }
 
-    fun requestAccountRecovery(context: Context, business: String, whatsapp: String): JSONObject {
-        return post("/account/recovery/request", JSONObject()
-            .put("business_name", business.trim())
-            .put("whatsapp", whatsapp.filter { it.isDigit() })
-            .put("installation_id", installationId(context)))
-    }
-
-    fun completeAccountRecovery(context: Context, folio: String, code: String): JSONObject {
-        return post("/account/recovery/complete", JSONObject()
-            .put("folio", folio.trim().uppercase())
-            .put("code", code.trim().uppercase())
-            .put("installation_id", installationId(context)))
-    }
-
-    fun savePendingRecovery(context: Context, folio: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("pending_recovery_folio", folio.trim().uppercase()).apply()
-    }
-
-    fun pendingRecoveryFolio(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("pending_recovery_folio", "").orEmpty()
-
-    fun clearPendingRecovery(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("pending_recovery_folio").apply()
-    }
-
     fun savePending(context: Context, folio: String, amountCents: Int, expiresAt: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("pending_folio", folio)
