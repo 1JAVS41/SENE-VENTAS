@@ -44,6 +44,7 @@ jobs:
           );
           """)
           db.executescript(Path("server-sene/migrations/0001_complete_sync.sql").read_text())
+          db.executescript(Path("server-sene/migrations/0002_retention.sql").read_text())
           expected = {
               "admin_pairing_codes", "admin_sessions", "admin_public_keys",
               "payroll_requests", "attendance_events", "inventory_events",
@@ -62,4 +63,6 @@ jobs:
       - name: Guard against the removed undefined cursor reference
         run: |
           ! grep -n "n:nextCursor" server-sene/worker.js
-          grep -q "asArray(body.q)" server-sene/worker.js
+          grep -q "asArray(body.q ?? body.r)" server-sene/worker.js
+          grep -q "cleanupRetainedHistory" server-sene/worker.js
+          grep -q "delivered_at IS NOT NULL" server-sene/worker.js
