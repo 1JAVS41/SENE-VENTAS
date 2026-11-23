@@ -61,19 +61,19 @@ object PayrollRequestSync {
                         .put("k", entry.periodKey))
                 }
                 val payload = JSONObject()
-                    .put("v", SeneWireProtocol.VERSION)
-                    .put("t", SeneWireProtocol.SYNC)
-                    .put("i", ActivationApi.installationId(app))
-                    .put("c", prefs.getString(CURSOR, "").orEmpty())
-                    .put("r", requests)
-                    .put("h", AttendanceEventOutbox.pending(app))
-                    .put("g", InventoryEventOutbox.pending(app))
-                    .put("b", ReportEventOutbox.pending(app))
+                    .put(SeneWireProtocol.FIELD_VERSION, SeneWireProtocol.VERSION)
+                    .put(SeneWireProtocol.FIELD_TYPE, SeneWireProtocol.SYNC)
+                    .put(SeneWireProtocol.FIELD_INSTALLATION_ID, ActivationApi.installationId(app))
+                    .put(SeneWireProtocol.FIELD_CURSOR, prefs.getString(CURSOR, "").orEmpty())
+                    .put(SeneWireProtocol.FIELD_REQUESTS, requests)
+                    .put(SeneWireProtocol.FIELD_ATTENDANCE_EVENTS, AttendanceEventOutbox.pending(app))
+                    .put(SeneWireProtocol.FIELD_INVENTORY_EVENTS, InventoryEventOutbox.pending(app))
+                    .put(SeneWireProtocol.FIELD_REPORT_EVENTS, ReportEventOutbox.pending(app))
                 prefs.edit().putLong(LAST_ATTEMPT, now).commit()
                 val response = ActivationApi.post("/payroll/requests/sync", payload)
                 val status = response.optInt("_http_status", 0)
                 if (status !in 200..299) return@Thread
-                if(response.optInt("v",SeneWireProtocol.VERSION)!=SeneWireProtocol.VERSION)return@Thread
+                if(response.optInt(SeneWireProtocol.FIELD_VERSION,SeneWireProtocol.VERSION)!=SeneWireProtocol.VERSION)return@Thread
                 val reportPublicKey = response.optString("rp", response.optString("report_public_key"))
                 if (reportPublicKey.isNotBlank()) ReportPublicKeyStore.saveFromServer(app, reportPublicKey)
                 val decisions = response.optJSONArray("d") ?: response.optJSONArray("decisions") ?: JSONArray()
@@ -94,13 +94,13 @@ object PayrollRequestSync {
                         decision.optString("by", decision.optString("decided_by")), decidedAt,
                         decision.optString("rr", decision.optString("rejection_reason")))
                 }
-                val attendanceAcks = response.optJSONArray("ha") ?: response.optJSONArray("attendance_acks") ?: JSONArray()
+                val attendanceAcks = response.optJSONArray(SeneWireProtocol.FIELD_ATTENDANCE_ACKS) ?: response.optJSONArray("attendance_acks") ?: JSONArray()
                 AttendanceEventOutbox.acknowledge(app, attendanceAcks)
-                val inventoryAcks = response.optJSONArray("ga") ?: response.optJSONArray("inventory_acks") ?: JSONArray()
+                val inventoryAcks = response.optJSONArray(SeneWireProtocol.FIELD_SALES_INVENTORY_ACKS) ?: response.optJSONArray("inventory_acks") ?: JSONArray()
                 InventoryEventOutbox.acknowledge(app, inventoryAcks)
-                val reportAcks = response.optJSONArray("ba") ?: response.optJSONArray("report_acks")
+                val reportAcks = response.optJSONArray(SeneWireProtocol.FIELD_REPORT_ACKS) ?: response.optJSONArray("report_acks")
                 ReportEventOutbox.acknowledge(app, reportAcks)
-                val cursor = response.optString("n", response.optString("next_cursor"))
+                val cursor = response.optString(SeneWireProtocol.FIELD_NEXT_CURSOR, response.optString("next_cursor"))
                 if (cursor.isNotBlank()) prefs.edit().putString(CURSOR, cursor).commit()
             } catch (_: Exception) {
                 // La solicitud permanece pendiente y se reintentará en la siguiente sincronización.
