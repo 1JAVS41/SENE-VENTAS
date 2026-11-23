@@ -77,7 +77,9 @@ object Store {
   val scope=if(shift(c)==null)"M" else "S"
   val syncPrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
   val bootstrapKey="full_snapshot_acked_"+scope
-  if(!syncPrefs.getBoolean(bootstrapKey,false)&&!InventoryEventOutbox.hasPendingFullSnapshot(c,scope)){
+  val bootstrapAcked=syncPrefs.getBoolean(bootstrapKey,false)
+  var bootstrapReady=bootstrapAcked||InventoryEventOutbox.hasPendingFullSnapshot(c,scope)
+  if(!bootstrapReady){
    val full=JSONArray()
    for(i in 0 until a.length()){
     val item=a.optJSONObject(i)?:continue
@@ -88,11 +90,13 @@ object Store {
      .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
    }
    // No marcar como completado hasta recibir el ACK real del servidor.
-   // Si falla la cola o se pierde el evento, el siguiente guardado vuelve a intentar.
-   InventoryEventOutbox.enqueue(c,scope,full,now,true)
+   // Si falla la cola, no se envían deltas sin base; el siguiente guardado reintenta el snapshot.
+   bootstrapReady=InventoryEventOutbox.enqueue(c,scope,full,now,true)
   }
-  if(changes.length()>0)InventoryEventOutbox.enqueue(c,scope,changes,now)
-  if(changes.length()>0||!syncPrefs.getBoolean(bootstrapKey,false))PayrollRequestSync.sync(c,true)
+  // Nunca adelantar deltas a la fotografía inicial de esta categoría.
+  if(bootstrapReady&&changes.length()>0)InventoryEventOutbox.enqueue(c,scope,changes,now)
+  if(bootstrapReady&&!bootstrapAcked)PayrollRequestSync.sync(c,true)
+  else if(bootstrapReady&&changes.length()>0)PayrollRequestSync.sync(c,true)
  }
  @Synchronized fun applyApprovedConsumption(c:Context,requestId:String,code:String,quantity:Int,amount:Double,worker:String,employeeId:String,description:String):Boolean {
   if(requestId.isBlank()||code.isBlank()||quantity<=0)return false
