@@ -1918,9 +1918,9 @@ class PatronActivity:FragmentActivity(){
      if(savingFirstInventory)return@setPositiveButton
      savingFirstInventory=true
      val products=try{JSONArray(firstInventoryItems.toString())}catch(e:Exception){savingFirstInventory=false;msg("No se pudo preparar el inventario: "+(e.message?:"error"));return@setPositiveButton}
-     val progressLayout=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(24),dp(18),dp(24),dp(18))}
-     progressLayout.addView(ProgressBar(this@PatronActivity),LinearLayout.LayoutParams(dp(36),dp(36)))
-     progressLayout.addView(TextView(this@PatronActivity).apply{text="Guardando inventario local y respaldo…";textSize=15f;setPadding(dp(16),0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
+     val progressLayout=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(this@PatronActivity.dp(24),this@PatronActivity.dp(18),this@PatronActivity.dp(24),this@PatronActivity.dp(18))}
+     progressLayout.addView(ProgressBar(this@PatronActivity),LinearLayout.LayoutParams(this@PatronActivity.dp(36),this@PatronActivity.dp(36)))
+     progressLayout.addView(TextView(this@PatronActivity).apply{text="Guardando inventario local y respaldo…";textSize=15f;setPadding(this@PatronActivity.dp(16),0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
      val progress=AlertDialog.Builder(this).setTitle("GUARDANDO INVENTARIO").setView(progressLayout).setCancelable(false).create()
      progress.show()
      Thread{
