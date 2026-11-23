@@ -21,6 +21,8 @@ jobs:
           node-version: "22"
       - name: Check Worker JavaScript syntax
         run: node --check server-sene/worker.js
+      - name: End-to-end sync, ACK, pairing, and retention tests
+        run: node --experimental-sqlite --experimental-default-type=module server-sene/tests/worker-sync-e2e.mjs
       - name: Validate additive D1 migration with SQLite
         run: |
           python - <<'PY'
