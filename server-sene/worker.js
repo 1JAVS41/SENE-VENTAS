@@ -654,7 +654,7 @@ async function payrollSync(request, env) {
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
+  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body[WIRE.ATTENDANCE]).slice(0,100), inventory=asArray(body[WIRE.INVENTORY]).slice(0,100), reports=asArray(body[WIRE.REPORTS]).slice(0,100);
   const statements=[];
   for (const item of requests) {
     const id=eventId(item), worker=eventWorker(item) || String(body.w || "").trim();
@@ -700,16 +700,16 @@ async function payrollSync(request, env) {
 }
 async function adminPayrollSync(request, env) {
   const body=await readJson(request);
-  if(Number(body?.v)!==1 || body?.t!=="[SYNC]") return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
-  const session=await adminSession(env.DB,String(body?.a||""));
+  if(Number(body?.[WIRE.VERSION])!==1 || body?.[WIRE.TYPE]!==WIRE.SYNC) return json({ok:false,error:"PROTOCOLO_INVALIDO"},400);
+  const session=await adminSession(env.DB,String(body?.[WIRE.ADMIN_TOKEN]||""));
   if(!session) return json({ok:false,error:"ADMIN_NO_AUTORIZADO"},401);
   const db=env.DB,businessId=session.business_id,now=nowIso();
-  const publicKey=String(body?.rp||"").trim();
+  const publicKey=String(body?.[WIRE.REPORT_PUBLIC_KEY]||"").trim();
   if(publicKey.length>=200 && publicKey.length<=12000 && /^[A-Za-z0-9_+/-]+={0,2}$/.test(publicKey) && await validReportPublicKey(publicKey)) {
     await db.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
       .bind(businessId,session.admin_installation_id,publicKey,now).run();
   }
-  const decisions=asArray(body.d), statements=[];
+  const decisions=asArray(body[WIRE.DECISIONS]), statements=[];
   for(const d of decisions) {
     const id=eventId(d), state=String(d.x||"").toUpperCase();
     if(!id || !["[OK]","[NO]","APPROVED","REJECTED"].includes(state)) continue;
