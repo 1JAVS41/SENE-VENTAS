@@ -222,7 +222,7 @@ async function addTransferFixture(tag, options={}) {
   options.invalidated ? createdAt : null,
   options.attempts || 0,options.locked ? createdAt : null
  );
- return {businessId,oldDevice,code,folio:"SENE-TRANSFER-"+tag.toUpperCase(),expiry,requestId,codeId};
+ return {businessId,oldDevice,code,folio:"SENE-TRANSFER-"+tag.toUpperCase(),createdAt,expiry,requestId,codeId};
 }
 const transfer=async(folio,code,installation_id)=>post("/account/device/transfer",{folio,code,installation_id});
 const fixture=await addTransferFixture("valid");
@@ -241,7 +241,7 @@ let preserved=db.prepare("SELECT installation_id,status,activated_at,expires_at 
 assert.equal(preserved.installation_id,"installation-new-device-00000001");
 assert.equal(preserved.status,"active");
 assert.equal(preserved.expires_at,fixture.expiry,"La transferencia no debe modificar el vencimiento");
-assert.equal(preserved.activated_at,now,"La transferencia no debe modificar la fecha de activación");
+assert.equal(preserved.activated_at,fixture.createdAt,"La transferencia no debe modificar la fecha de activación");
 assert.equal(db.prepare("SELECT folio,status FROM activation_requests WHERE id=?").get(fixture.requestId).folio,fixture.folio);
 assert.equal(db.prepare("SELECT revoked_at FROM admin_sessions WHERE id='session-transfer-valid'").get().revoked_at!==null,true);
 const sameDevice=await transfer(fixture.folio,fixture.code,"installation-new-device-00000001");
