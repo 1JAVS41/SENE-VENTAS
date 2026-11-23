@@ -288,7 +288,7 @@ private fun Activity.pin(ok:()->Unit){
  }}
  dialog.show()
 }
-private object InventoryCrypto {
+internal object InventoryCrypto {
  private const val ALIAS="SENE_INVENTORY_AES_KEY"
  private val MAGIC="SENEENC1".toByteArray(Charsets.US_ASCII)
  private const val IV_SIZE=12
@@ -673,7 +673,9 @@ class InicioTurnoActivity:FragmentActivity(){
      if(!pendingFolder.exists()&&!pendingFolder.mkdirs())throw java.io.IOException("No se pudo crear el almacenamiento local de reportes pendientes")
      val safeEvent=startEventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
      val pendingFile=java.io.File(pendingFolder,"$safeEvent.sene")
-     pendingFile.writeBytes(InventoryCrypto.encrypt(body.toByteArray(Charsets.UTF_8)))
+     val pendingEnvelope=JSONObject().put("e",startEventKey).put("w",workerId)
+      .put("k",SeneWireProtocol.IN_PROGRESS).put("b",body)
+     pendingFile.writeBytes(InventoryCrypto.encrypt(pendingEnvelope.toString().toByteArray(Charsets.UTF_8)))
      if(!pendingFile.isFile||pendingFile.length()==0L)throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
     }
     runOnUiThread{
@@ -686,6 +688,12 @@ class InicioTurnoActivity:FragmentActivity(){
      if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
      else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
      else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SERVER-SENE; no se usa WhatsApp.")
+     // La preparación termina mientras esta pantalla sigue en primer plano; no se puede
+     // depender de onResume para abrir ventas porque Android no lo vuelve a disparar aquí.
+     if(pendingOpenSalesAfterShift){
+      startActivity(Intent(this,MainActivity::class.java))
+      finish()
+     }
     }
    }catch(e:Exception){
     runOnUiThread{
