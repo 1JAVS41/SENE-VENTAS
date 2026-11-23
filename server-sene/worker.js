@@ -763,7 +763,8 @@ export default {
       await env.DB.prepare(
         "UPDATE businesses SET status='expired',updated_at=? WHERE status='active' AND expires_at IS NOT NULL AND expires_at<=?"
       ).bind(now, now).run();
-      await cleanupRetainedHistory(env.DB);
+      // El Cron puede ejecutarse diariamente; el marcador D1 limita la limpieza real a cada 30 días.
+      await maybeCleanupRetainedHistory(env.DB);
     })());
   },
 
