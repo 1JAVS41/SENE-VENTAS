@@ -554,9 +554,9 @@ class InicioTurnoActivity:FragmentActivity(){
   }
   internetClockHandler.postDelayed(this,1000L)
  }}
- private var pendingStartAfterWhatsApp=false
+ private var pendingOpenSalesAfterShift=false
  private var refreshAfterPatron=false
- override fun onResume(){super.onResume();if(::internetLabel.isInitialized)enforceLicenseGate(this){};if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
+ override fun onResume(){super.onResume();if(::internetLabel.isInitialized)enforceLicenseGate(this){};if(pendingOpenSalesAfterShift){pendingOpenSalesAfterShift=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
  private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return@enforceLicenseGate};if(currentPatronPin(this).isBlank()||currentPatronPin(this)==LEGACY_DEFAULT_PIN){forceDefaultPinChange{draw();consultInternetTime()}}else{draw();consultInternetTime()}}}
  private fun consultInternetTime(){
@@ -681,9 +681,9 @@ class InicioTurnoActivity:FragmentActivity(){
      progress.progress=5
      progress.dismiss()
      shiftPreparationRunning=false
-     pendingStartAfterWhatsApp=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
+     pendingOpenSalesAfterShift=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
      if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
-     if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
+     if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
      else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
      else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SERVER-SENE; no se usa WhatsApp.")
     }
