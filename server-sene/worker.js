@@ -26,22 +26,25 @@ const sha256 = async value => {
 };
 const validText = (v, min, max) => typeof v === "string" && v.trim().length >= min && v.trim().length <= max;
 
+// Precios vigentes de SENE VENTAS, expresados en centavos MXN.
+const PRICE_CENTS = Object.freeze({ activation: 29900, renewal: 10000 });
+
 async function telegram(env, message) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) throw new Error("Telegram secrets missing");
+  const chatId = env.TELEGRAM_CHAT_ID || env.ID_DE_CHAT_DE_TELEGRAM;
+  if (!env.TELEGRAM_BOT_TOKEN || !chatId) throw new Error("Telegram secrets missing");
   const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: message })
+    body: JSON.stringify({ chat_id: chatId, text: message })
   });
   if (!response.ok) throw new Error("Telegram notification failed");
   const result = await response.json();
   if (!result.ok) throw new Error("Telegram notification rejected");
 }
 
-async function getAmount(db) {
-  const row = await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='amount_cents'").first();
-  const amount = Number(row?.setting_value);
-  if (!Number.isSafeInteger(amount) || amount < 1) throw new Error("amount_cents is not configured");
+async function getAmount(type) {
+  const amount = PRICE_CENTS[type];
+  if (!Number.isSafeInteger(amount) || amount < 1) throw new Error("TIPO_DE_PAGO_INVALIDO");
   return amount;
 }
 
@@ -108,7 +111,7 @@ async function createRequest(request, env) {
     ]);
   }
 
-  const amount = await getAmount(db);
+  const amount = await getAmount(type);
   const requestId = crypto.randomUUID();
   const folio = "SENE-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + crypto.randomUUID().slice(0, 6).toUpperCase();
   const code = randomCode();
@@ -777,8 +780,9 @@ export default {
         return json({ servidor: "SERVER-SENE", estado: "funcionando", base_de_datos: check?.ok === 1 ? "conectada" : "sin respuesta" });
       }
       if (request.method === "GET" && url.pathname === "/config") {
-        const amount = await getAmount(env.DB);
-        return json({ ok: true, amount_cents: amount, currency: "MXN" });
+        const activationAmount = await getAmount("activation");
+        const renewalAmount = await getAmount("renewal");
+        return json({ ok: true, amount_cents: activationAmount, activation_amount_cents: activationAmount, renewal_amount_cents: renewalAmount, currency: "MXN" });
       }
       if (request.method === "POST" && url.pathname === "/requests") return await createRequest(request, env);
       if (request.method === "POST" && url.pathname === "/redeem") return await redeemCode(request, env);
