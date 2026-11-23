@@ -605,7 +605,7 @@ async function payrollSync(request, env) {
   // No se devuelve un cursor aquí: esta ruta no pagina decisiones y no debe
   // depender de una variable inexistente que interrumpa la sincronización.
   const responseDecisions=(decisions.results||[]).map(x=>({
-    e:x.event_id,x:x.status,by:x.decision_by||"",r:x.decision_reason||"",at:x.decided_at||""
+    e:x.event_id,x:x.status,by:x.decision_by||"",rr:x.decision_reason||"",r:x.decision_reason||"",at:x.decided_at||""
   }));
   return json({
     v:1,d:responseDecisions,
