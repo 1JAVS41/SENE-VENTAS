@@ -211,7 +211,7 @@ async function addTransferFixture(tag, options={}) {
  db.prepare(`INSERT INTO activation_requests
  (id,folio,business_id,request_type,status,amount_cents,created_at,expires_at)
  VALUES (?,?,?,?,?,?,?,?)`).run(
-  requestId,"SENE-TRANSFER-"+tag,businessId,"activation","completed",29900,createdAt,
+  requestId,"SENE-TRANSFER-"+tag.toUpperCase(),businessId,"activation","completed",29900,createdAt,
   new Date(Date.now()-86400000).toISOString()
  );
  db.prepare(`INSERT INTO activation_codes
@@ -222,7 +222,7 @@ async function addTransferFixture(tag, options={}) {
   options.invalidated ? createdAt : null,
   options.attempts || 0,options.locked ? createdAt : null
  );
- return {businessId,oldDevice,code,folio:"SENE-TRANSFER-"+tag,expiry,requestId,codeId};
+ return {businessId,oldDevice,code,folio:"SENE-TRANSFER-"+tag.toUpperCase(),expiry,requestId,codeId};
 }
 const transfer=async(folio,code,installation_id)=>post("/account/device/transfer",{folio,code,installation_id});
 const fixture=await addTransferFixture("valid");
