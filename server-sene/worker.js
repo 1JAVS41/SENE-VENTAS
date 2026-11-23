@@ -792,6 +792,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/admin/payroll/requests/sync") return await adminPayrollSync(request, env);
       return json({ ok: false, error: "RUTA_NO_ENCONTRADA" }, 404);
     } catch (error) {
+      console.error("SERVER-SENE API error:", error?.message || error);
       return json({ ok: false, error: "ERROR_INTERNO" }, 500);
     }
   }
