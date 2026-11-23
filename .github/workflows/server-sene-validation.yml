@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/server-sene-complete-api
+      - review/server-sene-prices-20261122
     paths:
       - "server-sene/**"
       - ".github/workflows/server-sene-validation.yml"
