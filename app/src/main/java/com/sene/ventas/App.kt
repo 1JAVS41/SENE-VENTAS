@@ -52,9 +52,9 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 
 private const val GREEN=0xFF168B45.toInt()
-private const val DEFAULT_PIN="2910"
+private const val LEGACY_DEFAULT_PIN="2910"
 private const val PATRON_PREFS="sene_patron_security"
-private fun currentPatronPin(c:Context)=c.getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).getString("pin",DEFAULT_PIN)?:DEFAULT_PIN
+private fun currentPatronPin(c:Context)=c.getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).getString("pin","")?: ""
 private fun configuredWorkHours(c:Context):Int { val employeeId=Store.shift(c)?.optString("employeeId").orEmpty(); if(employeeId.isBlank())return 0; return EmployeePayroll.config(c,employeeId)?.dailyHours?.takeIf{it in 1..24}?:0 }
 private fun stamp()=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date())
 private fun parseAmount(raw:String):Double? {
@@ -215,18 +215,18 @@ private fun Activity.forceDefaultPinChange(onSaved:()->Unit){
  val confirm=input("Confirma tu nuevo PIN",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
  val box=LinearLayout(this).apply{orientation=1;setPadding(dp(18),dp(8),dp(18),dp(8));addView(next);addView(confirm)}
  val dialog=AlertDialog.Builder(this)
-  .setTitle("🚨🚨 ALERTA CRÍTICA DE SEGURIDAD 🚨🚨")
-  .setMessage("ATENCIÓN: ESTÁS UTILIZANDO EL PIN DE FÁBRICA 2910. CUALQUIER PERSONA QUE LO CONOZCA PODRÍA ENTRAR A SOY PATRÓN Y ACCEDER A LA ADMINISTRACIÓN DEL NEGOCIO. DEBES REEMPLAZARLO AHORA POR UN PIN NUEVO, PRIVADO Y QUE SOLO TÚ, COMO DUEÑO, DEBES CONOCER. NO LO COMPARTAS NI LO ANOTES A LA VISTA.\n\nPor seguridad, no podrás continuar hasta crear y confirmar tu nuevo PIN.")
-  .setView(box).setCancelable(false).setPositiveButton("CAMBIAR PIN AHORA",null).create()
+  .setTitle("CREA TU PIN DE SEGURIDAD")
+  .setMessage("Antes de continuar, establece un PIN privado. No existe un PIN predeterminado.")
+  .setView(box).setCancelable(false).setPositiveButton("GUARDAR PIN",null).create()
  dialog.setOnShowListener{
   dialog.setCanceledOnTouchOutside(false)
   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
    val a=next.text.toString();val b=confirm.text.toString()
    if(a.length<4||a.length>12||a.any{!it.isDigit()}){next.error="Usa de 4 a 12 dígitos";return@setOnClickListener}
-   if(a==DEFAULT_PIN){next.error="No puedes conservar el PIN predeterminado 2910";return@setOnClickListener}
+   
    if(a!=b){confirm.error="Los PIN no coinciden";return@setOnClickListener}
    val saved=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE).edit()
-    .putString("pin",a).putBoolean("default_pin_warning_shown",true).commit()
+    .putString("pin",a).commit()
    if(!saved){msg("No se pudo guardar el nuevo PIN. Inténtalo nuevamente.");return@setOnClickListener}
    dialog.dismiss()
    AlertDialog.Builder(this).setTitle("PIN actualizado")
@@ -247,7 +247,7 @@ private fun Activity.pin(ok:()->Unit){
   dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener{dialog.dismiss();finish()}
   dialog.setOnCancelListener{finish()}
   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
-   if(e.text.toString()==currentPatronPin(this)){dialog.dismiss();if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ok()}else ok()}else{e.text?.clear();e.error="PIN incorrecto"}
+   if(e.text.toString()==currentPatronPin(this)){dialog.dismiss();ok()}else{e.text?.clear();e.error="PIN incorrecto"}
   }
   dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener{
    if(!biometricEnabled){dialog.dismiss();finish();return@setOnClickListener}
@@ -256,7 +256,7 @@ private fun Activity.pin(ok:()->Unit){
    val manager=BiometricManager.from(host)
    if(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)!=BiometricManager.BIOMETRIC_SUCCESS){msg("La huella no está disponible. Puedes entrar con tu PIN.");return@setOnClickListener}
    val prompt=BiometricPrompt(host,ContextCompat.getMainExecutor(host),object:BiometricPrompt.AuthenticationCallback(){
-    override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){dialog.dismiss();if(currentPatronPin(host)==DEFAULT_PIN)forceDefaultPinChange{ok()}else ok()}
+    override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){dialog.dismiss();ok()}
     override fun onAuthenticationError(errorCode:Int,errString:CharSequence){msg("No se pudo autenticar. Puedes usar tu PIN.")}
     override fun onAuthenticationFailed(){msg("Huella no reconocida. Intenta de nuevo o usa tu PIN.")}
    })
@@ -526,7 +526,7 @@ class InicioTurnoActivity:FragmentActivity(){
  private var refreshAfterPatron=false
  override fun onResume(){super.onResume();if(::internetLabel.isInitialized)enforceLicenseGate(this){};if(pendingStartAfterWhatsApp){pendingStartAfterWhatsApp=false;startActivity(Intent(this,MainActivity::class.java));finish()}else if(refreshAfterPatron){refreshAfterPatron=false;draw()}}
  override fun onCreate(b:Bundle?){super.onCreate(b);Protection.requireActivation(this){continueAfterAuthorization()}}
- private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return@enforceLicenseGate};draw();consultInternetTime()}}
+ private fun continueAfterAuthorization(){enforceLicenseGate(this){if(Store.shift(this)!=null){startActivity(Intent(this,MainActivity::class.java));finish();return@enforceLicenseGate};if(currentPatronPin(this).isBlank()||currentPatronPin(this)==LEGACY_DEFAULT_PIN){forceDefaultPinChange{draw();consultInternetTime()}}else{draw();consultInternetTime()}}}
  private fun consultInternetTime(){
   internet="Consultando hora de Internet…"
   if(::internetLabel.isInitialized)internetLabel.text="Internet: "+internet
@@ -718,8 +718,8 @@ class InicioTurnoActivity:FragmentActivity(){
   v.addView(deviceLabel)
   internetLabel=txt("Hora de Internet: "+internet,15f)
   v.addView(internetLabel)
-  v.addView(button("INICIAR TURNO",true){if(currentPatronPin(this)==DEFAULT_PIN){AlertDialog.Builder(this).setMessage("DIRÍGETE A SOY PATRÓN").setPositiveButton("ENTENDIDO",null).show()}else{chooseWorker()}})
-  v.addView(button("SOY PATRÓN",false){refreshAfterPatron=true;val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE);if(currentPatronPin(this)==DEFAULT_PIN&&!prefs.getBoolean("default_pin_warning_shown",false)){forceDefaultPinChange{pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}}}else{pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}}})
+  v.addView(button("INICIAR TURNO",true){chooseWorker()})
+  v.addView(button("SOY PATRÓN",false){refreshAfterPatron=true;val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE);pin{startActivity(Intent(this,PatronActivity::class.java).putExtra("authorized_from_home",true))}})
   Protection.addBlindButton(this,v)
   v.addView(button("HISTORIAL DE TURNO",false){showWorkHistory()})
   deviceClockHandler.removeCallbacks(deviceClockTick)
@@ -1693,7 +1693,7 @@ class AgregarInventarioActivity:Activity(){
 
 class PatronActivity:FragmentActivity(){
  private var pendingInventorySave=false
- override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){ensureOwnerKeyThenDraw()}else pin{if(currentPatronPin(this)==DEFAULT_PIN)forceDefaultPinChange{ensureOwnerKeyThenDraw()}else ensureOwnerKeyThenDraw()}}}
+ override fun onCreate(b:Bundle?){super.onCreate(b);enforceLicenseGate(this){if(intent.getBooleanExtra("authorized_from_home",false)){ensureOwnerKeyThenDraw()}else pin{if(currentPatronPin(this).isBlank()||currentPatronPin(this)==LEGACY_DEFAULT_PIN)forceDefaultPinChange{ensureOwnerKeyThenDraw()}else ensureOwnerKeyThenDraw()}}}
  private fun ensureOwnerKeyThenDraw(){ReportKeySetup.ensureConfigured(this){draw()}}
  private fun adminTag(label:String,sub:String,accent:Int=0xFF365BA4.toInt(),action:()->Unit):View {
   val tag=LinearLayout(this).apply{
