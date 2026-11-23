@@ -80,7 +80,7 @@ const reportHeader = [
  "NUMBER=1",
  "TYPE=[SYNC]",
  "ALG=RSA-OAEP-SHA256+A256GCM"
-].join("\\n");
+].join("\n");
 const contentKey = crypto.getRandomValues(new Uint8Array(32));
 const iv = crypto.getRandomValues(new Uint8Array(12));
 const aesKey = await crypto.subtle.importKey("raw",contentKey,{name:"AES-GCM"},false,["encrypt"]);
@@ -90,7 +90,7 @@ const encryptedReport = new Uint8Array(await crypto.subtle.encrypt({
 },aesKey,new TextEncoder().encode(plaintext)));
 const wrappedKey = new Uint8Array(await crypto.subtle.encrypt({name:"RSA-OAEP"},pair.publicKey,contentKey));
 const b64 = value => Buffer.from(value).toString("base64url");
-const reportEnvelope = reportHeader+"\\nWRAPPED_KEY="+b64(wrappedKey)+"\\nIV="+b64(iv)+"\\nDATA="+b64(encryptedReport);
+const reportEnvelope = reportHeader+"\nWRAPPED_KEY="+b64(wrappedKey)+"\nIV="+b64(iv)+"\nDATA="+b64(encryptedReport);
 const salesEvents = {
  v:1,t:"[SYNC]",i:"installation-sales-00000001",c:"",
  r:[{v:1,t:"[P$]",e:"loan-1",w:"worker-1",a:12500,n:"Ana",z:"Prueba de préstamo",i:eventTime}],
@@ -116,9 +116,9 @@ assert.equal(adminSync.body.g[0].e,"inventory-1");
 assert.equal(adminSync.body.g[0].f,true);
 assert.equal(adminSync.body.b[0].e,"report-1");
 assert.equal(adminSync.body.b[0].b,reportEnvelope);
-const returnedLines = adminSync.body.b[0].b.split("\\n");
+const returnedLines = adminSync.body.b[0].b.split("\n");
 assert.equal(returnedLines[0],"SENE-ADMIN-REPORT|2");
-const returnedHeader = returnedLines.slice(0,8).join("\\n");
+const returnedHeader = returnedLines.slice(0,8).join("\n");
 const privateKey = await crypto.subtle.importKey("pkcs8",pkcs8,{name:"RSA-OAEP",hash:"SHA-256"},false,["decrypt"]);
 const unwrapped = await crypto.subtle.decrypt({name:"RSA-OAEP"},privateKey,Buffer.from(returnedLines.find(x=>x.startsWith("WRAPPED_KEY=")).slice(12),"base64url"));
 const recoveredAes = await crypto.subtle.importKey("raw",unwrapped,{name:"AES-GCM"},false,["decrypt"]);
