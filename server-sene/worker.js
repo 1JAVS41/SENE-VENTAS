@@ -569,7 +569,7 @@ async function payrollSync(request, env) {
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.q).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
+  const requests=asArray(body.q ?? body.r).slice(0,100), attendance=asArray(body.h).slice(0,100), inventory=asArray(body.g).slice(0,100), reports=asArray(body.b).slice(0,100);
   const statements=[];
   for (const item of requests) {
     const id=eventId(item), worker=eventWorker(item) || String(body.w || "").trim();
@@ -660,15 +660,54 @@ async function adminPayrollSync(request, env) {
   });
 }
 
+async function cleanupRetainedHistory(db) {
+  // Solo elimina historial ya entregado/resuelto, nunca colas pendientes de ACK.
+  // Conserva los 10 registros más recientes por negocio y categoría, aunque tengan más de 30 días.
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  await db.batch([
+    db.prepare(`
+      DELETE FROM payroll_requests
+      WHERE seq IN (
+        SELECT seq FROM (
+          SELECT seq, created_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY business_id, COALESCE(json_extract(payload, '$.t'), 'OTROS')
+              ORDER BY created_at DESC, seq DESC
+            ) AS rn
+          FROM payroll_requests
+          WHERE status IN ('APPROVED','REJECTED')
+        )
+        WHERE rn > 10 AND created_at < ?
+      )
+    `).bind(cutoff),
+    db.prepare(`
+      DELETE FROM report_events
+      WHERE seq IN (
+        SELECT seq FROM (
+          SELECT seq, created_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY business_id, COALESCE(json_extract(envelope, '$.k'), 'OTROS')
+              ORDER BY created_at DESC, seq DESC
+            ) AS rn
+          FROM report_events
+          WHERE delivered_at IS NOT NULL
+        )
+        WHERE rn > 10 AND created_at < ?
+      )
+    `).bind(cutoff)
+  ]);
+}
+
 export default {
-  // Ejecución automática programada: marca vencidas las licencias al pasar su fecha.
+  // Ejecución automática programada: vence licencias y limpia solo historial ya confirmado.
   async scheduled(controller, env, ctx) {
     const now = nowIso();
-    ctx.waitUntil(
-      env.DB.prepare(
+    ctx.waitUntil((async () => {
+      await env.DB.prepare(
         "UPDATE businesses SET status='expired',updated_at=? WHERE status='active' AND expires_at IS NOT NULL AND expires_at<=?"
-      ).bind(now, now).run()
-    );
+      ).bind(now, now).run();
+      await cleanupRetainedHistory(env.DB);
+    })());
   },
 
   async fetch(request, env) {
