@@ -1882,6 +1882,7 @@ class PatronActivity:FragmentActivity(){
    }
  }
  private var pendingFirstInventory=false
+ private var savingFirstInventory=false
  private var firstInventoryCode:EditText?=null
  private val firstInventoryItems=JSONArray()
  private fun openFirstInventory(){
@@ -1910,9 +1911,35 @@ class PatronActivity:FragmentActivity(){
    code.setText("");name.setText("");qty.setText("");price.setText("");aisle.setText("");shelf.setText("");code.requestFocus()
   })
   root.addView(button("GUARDAR INVENTARIO"){
+   if(savingFirstInventory){msg("El inventario ya se está guardando. Espera a que termine.");return@button}
    if(firstInventoryItems.length()==0){msg("Agrega por lo menos un producto antes de guardar");return@button}
    AlertDialog.Builder(this).setTitle("Guardar inventario").setMessage("Se guardarán "+firstInventoryItems.length()+" productos en INVENTARIO SENE con la fecha y hora actuales. ¿Continuar?")
-    .setPositiveButton("GUARDAR"){_,_->try{if(InventoryArchive.save(this,firstInventoryItems)){Store.saveProducts(this,firstInventoryItems);getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).apply();msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}else msg("No se pudo guardar. Verifica el acceso a INVENTARIO SENE.")}catch(e:Exception){msg("Error al guardar: "+(e.message?:"desconocido"))}}
+    .setPositiveButton("GUARDAR"){_,_->
+     if(savingFirstInventory)return@setPositiveButton
+     savingFirstInventory=true
+     val products=try{JSONArray(firstInventoryItems.toString())}catch(e:Exception){savingFirstInventory=false;msg("No se pudo preparar el inventario: "+(e.message?:"error"));return@setPositiveButton}
+     val progressLayout=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(24),dp(18),dp(24),dp(18))}
+     progressLayout.addView(ProgressBar(this),LinearLayout.LayoutParams(dp(36),dp(36)))
+     progressLayout.addView(TextView(this).apply{text="Guardando inventario local y respaldo…";textSize=15f;setPadding(dp(16),0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
+     val progress=AlertDialog.Builder(this).setTitle("GUARDANDO INVENTARIO").setView(progressLayout).setCancelable(false).create()
+     progress.show()
+     Thread{
+      var failure:String?=null
+      try{
+       if(!InventoryArchive.save(this,products))throw java.io.IOException("No se pudo escribir el respaldo en la carpeta INVENTARIO SENE. El guardado local se conserva.")
+       Store.saveProducts(this,products)
+       getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).apply()
+      }catch(e:Exception){failure=e.message?:e.javaClass.simpleName}
+      runOnUiThread{
+       savingFirstInventory=false
+       if(!isFinishing&&!isDestroyed){
+        progress.dismiss()
+        if(failure==null){msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}
+        else AlertDialog.Builder(this).setTitle("No se completó el respaldo").setMessage(failure+"\n\nLos productos siguen en esta pantalla. No cierres la aplicación; puedes volver a intentar guardar.").setPositiveButton("ENTENDIDO",null).show()
+       }
+      }
+     }.start()
+    }
     .setNegativeButton("Revisar",null).show()
   })
   root.addView(button("VOLVER",false){draw()});display(root)
