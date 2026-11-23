@@ -597,7 +597,6 @@ class InicioTurnoActivity:FragmentActivity(){
   // Cada perfil recupera su propio inventario más reciente; si aún no tiene uno,
   // el primer turno parte del inventario general existente.
   val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}
-  profile?.let{WorkerArchive.ensureProfileFolders(this,it.id,it.name)}
   val hasLocalProfileInventory=profile?.let{WorkerArchive.localInventoryFolder(this,it.id,it.name).listFiles()?.any{f->f.isFile&&f.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}==true}==true
   if(localProducts.length()>0 || !saved.isNullOrBlank() || hasLocalProfileInventory){
    createShiftReport(workerId,worker,phone,cash,saved?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)})
@@ -631,10 +630,8 @@ class InicioTurnoActivity:FragmentActivity(){
     val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?:throw java.io.IOException("No se encontró el perfil del trabajador")
     if(!workerProfileReady(profile))throw java.io.IOException("El perfil del trabajador está incompleto. El patrón debe completar celular, PIN, horas, sueldo, días laborales y día de pago.")
     val profileName=profile.name
-    ArchiveRetention.cleanupIfDue(this,savedTree,ReportCrypto.ownerKey(this))
     step(1,"Revisando el inventario maestro y los respaldos…")
     val snapshot=try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}
-    WorkerArchive.ensureProfileFolders(this,workerId,profileName)
     val latest=snapshot?.folder?: "INVENTARIO SENE"
     val prefs=getSharedPreferences("sene_ventas_local",0)
     val newest=snapshot?.file?:prefs.getString("inventory_source_file","Inventario maestro local")!!
@@ -683,6 +680,13 @@ class InicioTurnoActivity:FragmentActivity(){
      progress.progress=5
      progress.dismiss()
      shiftPreparationRunning=false
+     // Las tareas de mantenimiento y creación de carpetas compartidas no deben retrasar
+     // la entrada del trabajador a ventas. Se ejecutan después, fuera del flujo crítico.
+     val appContext=applicationContext
+     Thread{
+      try{WorkerArchive.ensureProfileFolders(appContext,workerId,profileName)}catch(_:Exception){}
+      try{ArchiveRetention.cleanupIfDue(appContext,savedTree,ReportCrypto.ownerKey(appContext))}catch(_:Exception){}
+     }.start()
      pendingOpenSalesAfterShift=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
      if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
      if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
