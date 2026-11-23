@@ -1822,8 +1822,17 @@ class PatronActivity:FragmentActivity(){
       val box=LinearLayout(this).apply{orientation=1;setPadding(dp(20),dp(10),dp(20),dp(10))}
       box.addView(TextView(this).apply{text=code;textSize=30f;gravity=Gravity.CENTER;letterSpacing=.18f;typeface=Typeface.DEFAULT_BOLD;setTextColor(0xFF173A78.toInt());setPadding(0,dp(14),0,dp(14))})
       box.addView(TextView(this).apply{text="Código de un solo uso. Caduca: "+expiry.ifBlank{"en unos minutos"}+"\\n\\nAbre SeneAdmin, selecciona VINCULAR NEGOCIO e ingresa este código.";textSize=14f;setTextColor(0xFF586581.toInt())})
-      AlertDialog.Builder(this).setTitle("CÓDIGO PARA SENE ADMIN").setView(box)
-       .setPositiveButton("ENTENDIDO",null).show()
+      val codeDialog=AlertDialog.Builder(this).setTitle("CÓDIGO PARA SENE ADMIN").setView(box)
+       .setPositiveButton("ENTENDIDO",null)
+       .setNeutralButton("COPIAR CÓDIGO",null).create()
+      codeDialog.setOnShowListener {
+       codeDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+        val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Código para vincular SeneAdmin",code))
+        Toast.makeText(this,"Código copiado. Pégalo en SeneAdmin.",Toast.LENGTH_LONG).show()
+       }
+      }
+      codeDialog.show()
      }
     }).start()
    }.setNegativeButton("CANCELAR",null).show()
