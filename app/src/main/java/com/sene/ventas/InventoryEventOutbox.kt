@@ -12,7 +12,7 @@ object InventoryEventOutbox {
 
     @Synchronized
     fun enqueue(context:Context,scope:String,changed:JSONArray,ts:Long,fullSnapshot:Boolean=false):Boolean {
-        if(scope !in setOf("M","S")||changed.length()==0)return false
+        if(scope !in setOf("M","S")||(changed.length()==0&&!fullSnapshot))return false
         val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
         val events=try{JSONArray(prefs.getString(KEY,"[]")?:"[]")}catch(_:Exception){JSONArray()}
         events.put(JSONObject().put("v",SeneWireProtocol.VERSION).put("t",SeneWireProtocol.INVENTORY_SYNC).put("e",UUID.randomUUID().toString())
@@ -32,10 +32,27 @@ object InventoryEventOutbox {
         val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
         val old=try{JSONArray(prefs.getString(KEY,"[]")?:"[]")}catch(_:Exception){JSONArray()}
         val keep=JSONArray()
+        val edit=prefs.edit()
         for(i in 0 until old.length()){
             val event=old.optJSONObject(i)?:continue
-            if(event.optString("e") !in accepted)keep.put(event)
+            val eventId=event.optString("e")
+            if(eventId in accepted) {
+                if(event.optBoolean("f",false)) {
+                    val scope=event.optString("g")
+                    if(scope in setOf("M","S")) edit.putBoolean("full_snapshot_acked_"+scope,true)
+                }
+            } else keep.put(event)
         }
-        prefs.edit().putString(KEY,keep.toString()).commit()
+        edit.putString(KEY,keep.toString()).commit()
+    }
+
+    @Synchronized fun hasPendingFullSnapshot(context:Context,scope:String):Boolean {
+        if(scope !in setOf("M","S"))return false
+        val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        val events=try{JSONArray(prefs.getString(KEY,"[]")?:"[]")}catch(_:Exception){JSONArray()}
+        return (0 until events.length()).any { i ->
+            val event=events.optJSONObject(i)
+            event!=null && event.optBoolean("f",false) && event.optString("g")==scope
+        }
     }
 }
