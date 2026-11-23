@@ -30,11 +30,11 @@ const validText = (v, min, max) => typeof v === "string" && v.trim().length >= m
 const PRICE_CENTS = Object.freeze({ activation: 29900, renewal: 10000 });
 
 async function telegram(env, message) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) throw new Error("Telegram secrets missing");
+  const chatId = env.ID_DE_CHAT_DE_TELEGRAM || env.TELEGRAM_CHAT_ID;\n  if (!env.TELEGRAM_BOT_TOKEN || !chatId) throw new Error("Telegram secrets missing");
   const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: message })
+    body: JSON.stringify({ chat_id: chatId, text: message })
   });
   if (!response.ok) throw new Error("Telegram notification failed");
   const result = await response.json();
@@ -431,6 +431,76 @@ async function completeAccountRecovery(request, env) {
       : "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
 }
 
+
+async function transferAccountDevice(request, env) {
+  const body = await request.json();
+  const folio = typeof body.folio === "string" ? body.folio.trim().toUpperCase() : "";
+  const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
+  const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
+  if (!validText(folio, 8, 50) || !/^[A-HJ-NP-Z2-9]{10}$/.test(code) ||
+      !validText(installationId, 20, 100)) {
+    return json({ ok: false, error: "DATOS_INVALIDOS" }, 400);
+  }
+
+  const db = env.DB;
+  const row = await db.prepare(`
+    SELECT ar.id AS request_id, ar.business_id, ar.status AS request_status,
+           ar.request_type, ar.expires_at AS request_expires,
+           ac.id AS code_id, ac.code_hash, ac.consumed_at, ac.invalidated_at,
+           ac.attempt_count, ac.locked_at,
+           b.installation_id, b.status AS business_status, b.expires_at AS business_expires
+    FROM activation_requests ar
+    JOIN activation_codes ac ON ac.request_id=ar.id
+    JOIN businesses b ON b.id=ar.business_id
+    WHERE ar.folio=?
+    ORDER BY ac.created_at DESC LIMIT 1
+  `).bind(folio).first();
+
+  if (!row) return json({ ok: false, error: "FOLIO_NO_ENCONTRADO" }, 404);
+  if (row.request_status !== "completed" || !row.consumed_at || row.invalidated_at) {
+    return json({ ok: false, error: "LICENCIA_NO_TRANSFERIBLE", message: "La transferencia requiere el folio y código de una licencia ya activada." }, 409);
+  }
+  if (row.locked_at || Number(row.attempt_count) >= 5) {
+    return json({ ok: false, error: "CODIGO_BLOQUEADO" }, 429);
+  }
+  if (row.business_status !== "active" || !row.business_expires ||
+      new Date(row.business_expires).getTime() <= Date.now()) {
+    return json({ ok: false, error: "LICENCIA_NO_ACTIVA" }, 403);
+  }
+  if (row.installation_id === installationId) {
+    return json({ ok: true, status: "already_linked", message: "Este dispositivo ya está autorizado." });
+  }
+
+  const owner = await db.prepare(
+    "SELECT id FROM businesses WHERE installation_id=? AND id<>? LIMIT 1"
+  ).bind(installationId, row.business_id).first();
+  if (owner) return json({ ok: false, error: "DISPOSITIVO_OCUPADO" }, 409);
+
+  const suppliedHash = await sha256(code);
+  if (suppliedHash !== row.code_hash) {
+    await db.prepare("UPDATE activation_codes SET attempt_count=attempt_count+1, locked_at=CASE WHEN attempt_count+1>=5 THEN ? ELSE locked_at END WHERE id=? AND consumed_at IS NOT NULL AND invalidated_at IS NULL")
+      .bind(nowIso(), row.code_id).run();
+    return json({ ok: false, error: "CODIGO_INCORRECTO" }, 401);
+  }
+
+  const transferredAt = nowIso();
+  const results = await db.batch([
+    db.prepare("UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=? AND status='active' AND expires_at>? AND EXISTS (SELECT 1 FROM activation_codes WHERE id=? AND consumed_at IS NOT NULL AND invalidated_at IS NULL)")
+      .bind(installationId, transferredAt, row.business_id, row.installation_id, transferredAt, row.code_id),
+    db.prepare("UPDATE admin_sessions SET revoked_at=? WHERE business_id=? AND revoked_at IS NULL")
+      .bind(transferredAt, row.business_id)
+  ]);
+  if (!results[0]?.meta || results[0].meta.changes !== 1) {
+    return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR", message: "La cuenta cambió mientras se procesaba la transferencia. Vuelve a intentarlo." }, 409);
+  }
+
+  return json({
+    ok: true,
+    status: "transferred",
+    message: "Dispositivo autorizado. Se conservó el mismo folio, la licencia y su fecha de vencimiento."
+  });
+}
+
 async function subscriptionStatus(request, env) {
   const body = await request.json();
   const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
@@ -787,7 +857,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/redeem") return await redeemCode(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
-      if (request.method === "POST" && url.pathname === "/account/device/transfer") return await completeAccountRecovery(request, env);
+      if (request.method === "POST" && url.pathname === "/account/device/transfer") return await transferAccountDevice(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
       if (request.method === "POST" && url.pathname === "/admin/pairing/create") return await createAdminPairing(request, env);
       if (request.method === "POST" && url.pathname === "/admin/pairing/claim") return await claimAdminPairing(request, env);
