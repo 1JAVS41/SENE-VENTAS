@@ -654,16 +654,28 @@ class InicioTurnoActivity:FragmentActivity(){
     val attendanceSaved=EmployeePayroll.recordShiftStart(this,workerId,now)
     step(4,"Guardando el reporte en la cola segura para SENE SERVER…")
     val startEventKey=shift.optString("shiftId")+":START"
-    val encryptedStart=ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey)
+    // El inicio del turno y su respaldo local nunca dependen de haber vinculado SERVER-SENE.
+    // Solo se crea el sobre RSA del servidor cuando la clave pública ya está disponible.
+    val serverLinked=ReportPublicKeyStore.hasKey(this)
+    val encryptedStart=if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null
+    if(encryptedStart==null){
+     val pendingFolder=java.io.File(filesDir,"REPORTES-PENDIENTES-SERVER")
+     if(!pendingFolder.exists()&&!pendingFolder.mkdirs())throw java.io.IOException("No se pudo crear el almacenamiento local de reportes pendientes")
+     val safeEvent=startEventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
+     val pendingFile=java.io.File(pendingFolder,"$safeEvent.sene")
+     pendingFile.writeBytes(InventoryCrypto.encrypt(body.toByteArray(Charsets.UTF_8)))
+     if(!pendingFile.isFile||pendingFile.length()==0L)throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
+    }
     runOnUiThread{
      if(isFinishing||isDestroyed){shiftPreparationRunning=false;progress.dismiss();return@runOnUiThread}
      progress.progress=5
      progress.dismiss()
      shiftPreparationRunning=false
-     pendingStartAfterWhatsApp=ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart)
+     pendingStartAfterWhatsApp=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
      if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
-     if(!pendingStartAfterWhatsApp)msg("No se pudo guardar el reporte en la cola segura. El turno quedó registrado; vuelve a intentar la sincronización.")
-     else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SENE SERVER; no se usa WhatsApp.")
+     if(!pendingStartAfterWhatsApp)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
+     else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
+     else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SERVER-SENE; no se usa WhatsApp.")
     }
    }catch(e:Exception){
     runOnUiThread{
