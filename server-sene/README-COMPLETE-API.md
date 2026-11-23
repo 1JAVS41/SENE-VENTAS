@@ -63,7 +63,7 @@ Los sobres de reportes se almacenan y transportan como texto cifrado; el Worker 
 - Probar idempotencia, reintentos, decisiones y ACK de extremo a extremo.
 - Revisar límites de tamaño y paginación con cargas reales.
 - Revisar autenticación, revocación y rotación del vínculo de SeneAdmin.
-- Retención automática cada 30 días: conserva los 10 préstamos/consumos resueltos más recientes por tipo y los 10 reportes entregados más recientes por categoría. Nunca elimina solicitudes pendientes, eventos sin ACK ni reportes sin confirmar entrega.
-- Las tablas de asistencia e inventario conservan en el servidor únicamente eventos pendientes de ACK; se eliminan al confirmar su aplicación local en SeneAdmin.
+- Retención automática cada 30 días: conserva los 10 préstamos/consumos resueltos más recientes por tipo, los 10 reportes entregados por categoría y los 10 eventos de inventario/asistencia entregados por categoría. Nunca elimina solicitudes pendientes, eventos sin ACK ni reportes sin confirmar entrega.
+- Las tablas de asistencia e inventario conservan el historial entregado; el ACK marca la entrega y la limpieza programada conserva los 10 más recientes por categoría y 30 días. Los eventos sin ACK nunca se eliminan.
 
 **No desplegar este Worker ni ejecutar la migración en producción hasta que se complete y apruebe la validación.**
