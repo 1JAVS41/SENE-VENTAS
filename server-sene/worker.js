@@ -30,7 +30,8 @@ const validText = (v, min, max) => typeof v === "string" && v.trim().length >= m
 const PRICE_CENTS = Object.freeze({ activation: 29900, renewal: 10000 });
 
 async function telegram(env, message) {
-  const chatId = env.ID_DE_CHAT_DE_TELEGRAM || env.TELEGRAM_CHAT_ID;\n  if (!env.TELEGRAM_BOT_TOKEN || !chatId) throw new Error("Telegram secrets missing");
+  const chatId = env.ID_DE_CHAT_DE_TELEGRAM || env.TELEGRAM_CHAT_ID;
+  if (!env.TELEGRAM_BOT_TOKEN || !chatId) throw new Error("Telegram secrets missing");
   const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
