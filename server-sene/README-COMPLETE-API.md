@@ -56,6 +56,16 @@ Se conserva el protocolo v1 y sus códigos existentes. El servidor no inventa c�
 
 Los sobres de reportes se almacenan y transportan como texto cifrado; el Worker no posee ni necesita la clave privada de SeneAdmin. Los reportes no se envían por WhatsApp.
 
+## Activación de la limpieza programada en Cloudflare
+
+Después de desplegar este Worker (y solo tras aprobar las pruebas), abrir el Worker existente `server-sene-api` en Cloudflare:
+
+1. Entrar en **Settings → Triggers → Cron Triggers**.
+2. Agregar el cron `0 4 * * *` (una vez al día, UTC).
+3. Guardar y verificar que el trigger aparece asociado al Worker.
+
+El manejador programado revisa diariamente el vencimiento de licencias, pero la limpieza de historial usa el marcador `server_sync_state` y solo se ejecuta cuando han transcurrido 30 días desde la limpieza anterior. Si el cron aún no está configurado, la misma comprobación de retención se intenta durante la sincronización normal.
+
 ## Pendiente antes de producción
 
 - Ejecutar pruebas integrales con una D1 de prueba y APK instaladas.
