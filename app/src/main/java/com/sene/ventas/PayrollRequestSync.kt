@@ -16,6 +16,24 @@ object PayrollRequestSync {
     private const val LAST_ATTEMPT = "last_attempt"
     private val running = AtomicBoolean(false)
 
+    /** SERVER-SENE devuelve decided_at en ISO-8601 UTC; acepta también epoch legado. */
+    private fun parseDecisionTimestamp(value: Any?): Long = when (value) {
+        is Number -> value.toLong().let { if (it in 1L until 100000000000L) it * 1000L else it }
+        is String -> {
+            val raw = value.trim()
+            raw.toLongOrNull()?.let { if (it in 1L until 100000000000L) it * 1000L else it }
+                ?: try {
+                    val pattern = if (raw.contains(".")) "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+                        else "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                    java.text.SimpleDateFormat(pattern, java.util.Locale.US).apply {
+                        isLenient = false
+                        timeZone = java.util.TimeZone.getTimeZone("UTC")
+                    }.parse(raw)?.time ?: 0L
+                } catch (_: Exception) { 0L }
+        }
+        else -> 0L
+    }
+
     fun sync(context: Context, force: Boolean = false) {
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -63,16 +81,15 @@ object PayrollRequestSync {
                     val decision = decisions.optJSONObject(i) ?: continue
                     val id = decision.optString("e", decision.optString("request_id"))
                     val state = when(decision.optString("x", decision.optString("status")).uppercase()) {
-                        SeneWireProtocol.APPROVED -> "APPROVED"
-                        SeneWireProtocol.REJECTED -> "REJECTED"
-                        else -> decision.optString("status").uppercase()
+                        SeneWireProtocol.APPROVED, "APPROVED" -> "APPROVED"
+                        SeneWireProtocol.REJECTED, "REJECTED" -> "REJECTED"
+                        else -> ""
                     }
                     if (id.isBlank() || state !in setOf("APPROVED", "REJECTED")) continue
-                    val decidedAt = when (val raw = decision.opt("at")?.takeIf { it !is org.json.JSONObject && it != JSONObject.NULL } ?: decision.opt("decided_at")) {
-                        is Number -> raw.toLong().let { if (it < 100000000000L) it * 1000L else it }
-                        is String -> raw.toLongOrNull() ?: 0L
-                        else -> 0L
-                    }
+                    val decidedAt = parseDecisionTimestamp(
+                        decision.opt("at")?.takeIf { it !is org.json.JSONObject && it != JSONObject.NULL }
+                            ?: decision.opt("decided_at")
+                    )
                     EmployeePayroll.applyDecision(app, id, state == "APPROVED",
                         decision.optString("by", decision.optString("decided_by")), decidedAt,
                         decision.optString("rr", decision.optString("rejection_reason")))
