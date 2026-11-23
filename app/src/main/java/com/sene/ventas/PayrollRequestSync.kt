@@ -16,6 +16,50 @@ object PayrollRequestSync {
     private const val LAST_ATTEMPT = "last_attempt"
     private val running = AtomicBoolean(false)
 
+    /**
+     * Convierte reportes que se guardaron localmente antes de recibir la clave pública.
+     * El archivo original solo se elimina después de persistir el sobre RSA en la cola SQLite.
+     */
+    private fun migrateLocalPendingReports(app: Context): Boolean {
+        if (!ReportPublicKeyStore.hasKey(app)) return false
+        val folder = java.io.File(app.filesDir, "REPORTES-PENDIENTES-SERVER")
+        val files = folder.listFiles { file -> file.isFile && file.extension.equals("sene", true) }
+            ?.sortedBy { it.name } ?: return false
+        var migrated = false
+        for (file in files) {
+            try {
+                val plain = InventoryCrypto.decrypt(file.readBytes()).toString(Charsets.UTF_8)
+                val stored = try { JSONObject(plain) } catch (_: Exception) { null }
+                val eventId = stored?.optString("e").orEmpty().ifBlank {
+                    file.nameWithoutExtension.replace("_START", ":START")
+                }
+                val activeShift = Store.shift(app)
+                val workerId = stored?.optString("w").orEmpty().ifBlank {
+                    val shiftId = eventId.substringBefore(":")
+                    if (activeShift?.optString("shiftId") == shiftId) activeShift.optString("employeeId") else ""
+                }
+                val reportType = stored?.optString("k").orEmpty().ifBlank { SeneWireProtocol.IN_PROGRESS }
+                val body = stored?.optString("b").orEmpty().ifBlank {
+                    // Compatibilidad con respaldos creados por APK anteriores.
+                    if (stored == null) plain else ""
+                }
+                if (eventId.isBlank() || workerId.isBlank() || body.isBlank()) continue
+                val encrypted = ReportCrypto.prepare(app, workerId, reportType, body, eventId)
+                if (ReportEventOutbox.enqueue(app, eventId, workerId, reportType, encrypted) && file.delete()) {
+                    migrated = true
+                } else if (ReportEventOutbox.pending(app).let { queue ->
+                    (0 until queue.length()).any { queue.optJSONObject(it)?.optString("e") == eventId }
+                }) {
+                    // La cola durable ya tiene el evento; el archivo local puede retirarse sin perderlo.
+                    if (file.delete()) migrated = true
+                }
+            } catch (_: Exception) {
+                // Un archivo que no se pueda descifrar o convertir permanece intacto para recuperación.
+            }
+        }
+        return migrated
+    }
+
     /** SERVER-SENE devuelve decided_at en ISO-8601 UTC; acepta también epoch legado. */
     private fun parseDecisionTimestamp(value: Any?): Long = when (value) {
         is Number -> value.toLong().let { if (it in 1L until 100000000000L) it * 1000L else it }
@@ -41,7 +85,9 @@ object PayrollRequestSync {
         if (!force && now - prefs.getLong(LAST_ATTEMPT, 0L) < 15L * 60L * 1000L) return
         if (!running.compareAndSet(false, true)) return
         Thread {
+            var retryAfterKey = false
             try {
+                migrateLocalPendingReports(app)
                 val pending = EmployeePayroll.entries(app).filter {
                     it.status == "PENDING" && !it.settled &&
                         (it.type == EmployeePayroll.TYPE_LOAN || it.type == EmployeePayroll.TYPE_CONSUMPTION)
@@ -75,7 +121,12 @@ object PayrollRequestSync {
                 if (status !in 200..299) return@Thread
                 if(response.optInt(SeneWireProtocol.FIELD_VERSION,SeneWireProtocol.VERSION)!=SeneWireProtocol.VERSION)return@Thread
                 val reportPublicKey = response.optString("rp", response.optString("report_public_key"))
-                if (reportPublicKey.isNotBlank()) ReportPublicKeyStore.saveFromServer(app, reportPublicKey)
+                if (reportPublicKey.isNotBlank()) {
+                    ReportPublicKeyStore.saveFromServer(app, reportPublicKey)
+                    // Si esta respuesta acaba de entregar la clave, sube los respaldos
+                    // anteriores en una segunda sincronización inmediata, sin esperar 15 minutos.
+                    if (ReportPublicKeyStore.hasKey(app)) retryAfterKey = migrateLocalPendingReports(app)
+                }
                 val decisions = response.optJSONArray("d") ?: response.optJSONArray("decisions") ?: JSONArray()
                 for (i in 0 until decisions.length()) {
                     val decision = decisions.optJSONObject(i) ?: continue
@@ -106,6 +157,7 @@ object PayrollRequestSync {
                 // La solicitud permanece pendiente y se reintentará en la siguiente sincronización.
             } finally {
                 running.set(false)
+                if (retryAfterKey) sync(app, true)
             }
         }.start()
     }
