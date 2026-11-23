@@ -554,13 +554,8 @@ class InicioTurnoActivity:FragmentActivity(){
  private fun startShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
   val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}
   if(profile==null||!workerProfileReady(profile)){msg("No se puede iniciar turno: el patrón debe completar todos los datos del trabajador.");return}
-  // El trabajador nunca debe recibir el diálogo de clave del propietario.
-  if(!ReportCrypto.hasKey(this)){
-   AlertDialog.Builder(this).setTitle("CONFIGURACIÓN DEL PATRÓN PENDIENTE")
-    .setMessage("El patrón debe abrir SOY PATRÓN y configurar la clave compartida antes de iniciar turnos.")
-    .setPositiveButton("ENTENDIDO",null).show()
-   return
-  }
+  // El cifrado del reporte se prepara automáticamente; no debe bloquear el inicio del turno
+  // ni pedir al trabajador una clave de cifrado manual.
   continueStartShiftWithLatestInventory(workerId,worker,phone,cash)
  }
  private fun continueStartShiftWithLatestInventory(workerId:String,worker:String,phone:String,cash:String){
