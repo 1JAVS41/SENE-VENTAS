@@ -634,20 +634,26 @@ async function adminPayrollSync(request, env) {
   const attendanceAcks=asArray(body.ha).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   const inventoryAcks=asArray(body.gi).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   const reportAcks=asArray(body.ba).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  for(const id of attendanceAcks) statements.push(db.prepare("DELETE FROM attendance_events WHERE business_id=? AND event_id=?").bind(businessId,id));
-  for(const id of inventoryAcks) statements.push(db.prepare("DELETE FROM inventory_events WHERE business_id=? AND event_id=?").bind(businessId,id));
+  for(const id of attendanceAcks) statements.push(db.prepare("UPDATE attendance_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
+  for(const id of inventoryAcks) statements.push(db.prepare("UPDATE inventory_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   if(statements.length) await db.batch(statements);
 
   const requestCursor=parseCursor(body.c);
   const reqRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
     .bind(businessId,requestCursor).all();
-  const reqs=(reqRows.results||[]).map(row=>{
+  // Las decisiones resueltas se vuelven a entregar aunque su seq sea anterior al cursor.
+  // El cliente las aplica idempotentemente y deja de reenviar su decisión local al recibirlas.
+  const decisionRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') ORDER BY updated_at DESC,seq DESC LIMIT 300")
+    .bind(businessId).all();
+  const mergedRows=new Map();
+  for(const row of [...(reqRows.results||[]),...(decisionRows.results||[])]) mergedRows.set(row.event_id,row);
+  const reqs=[...mergedRows.values()].sort((a,b)=>a.seq-b.seq).map(row=>{
     const p=(()=>{try{return JSON.parse(row.payload)}catch(_){return {}}})();
     return {...p,e:row.event_id,x:row.status,by:row.decision_by||"",rr:row.decision_reason||"",at:row.decided_at||""};
   });
-  const hRows=await db.prepare("SELECT seq,payload FROM attendance_events WHERE business_id=? ORDER BY seq LIMIT 300").bind(businessId).all();
-  const gRows=await db.prepare("SELECT seq,payload FROM inventory_events WHERE business_id=? ORDER BY seq LIMIT 300").bind(businessId).all();
+  const hRows=await db.prepare("SELECT seq,payload FROM attendance_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 300").bind(businessId).all();
+  const gRows=await db.prepare("SELECT seq,payload FROM inventory_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 300").bind(businessId).all();
   const bRows=await db.prepare("SELECT seq,event_id,envelope FROM report_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 100").bind(businessId).all();
   const maxSeq=reqRows.results?.length?reqRows.results[reqRows.results.length-1].seq:requestCursor;
   const parsePayload=rows=>(rows||[]).map(r=>{try{return JSON.parse(r.payload)}catch(_){return null}}).filter(Boolean);
@@ -690,6 +696,36 @@ async function cleanupRetainedHistory(db) {
               ORDER BY created_at DESC, seq DESC
             ) AS rn
           FROM report_events
+          WHERE delivered_at IS NOT NULL
+        )
+        WHERE rn > 10 AND created_at < ?
+      )
+    `).bind(cutoff),
+    db.prepare(`
+      DELETE FROM inventory_events
+      WHERE seq IN (
+        SELECT seq FROM (
+          SELECT seq, created_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY business_id, COALESCE(json_extract(payload, '$.g'), 'OTROS')
+              ORDER BY created_at DESC, seq DESC
+            ) AS rn
+          FROM inventory_events
+          WHERE delivered_at IS NOT NULL
+        )
+        WHERE rn > 10 AND created_at < ?
+      )
+    `).bind(cutoff),
+    db.prepare(`
+      DELETE FROM attendance_events
+      WHERE seq IN (
+        SELECT seq FROM (
+          SELECT seq, created_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY business_id, COALESCE(json_extract(payload, '$.t'), 'OTROS')
+              ORDER BY created_at DESC, seq DESC
+            ) AS rn
+          FROM attendance_events
           WHERE delivered_at IS NOT NULL
         )
         WHERE rn > 10 AND created_at < ?
