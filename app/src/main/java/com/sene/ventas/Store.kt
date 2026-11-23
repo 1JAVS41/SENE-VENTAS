@@ -76,8 +76,8 @@ object Store {
   put(c,r)
   val scope=if(shift(c)==null)"M" else "S"
   val syncPrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
-  val bootstrapKey="full_snapshot_queued_"+scope
-  if(a.length()>0&&!syncPrefs.getBoolean(bootstrapKey,false)){
+  val bootstrapKey="full_snapshot_acked_"+scope
+  if(!syncPrefs.getBoolean(bootstrapKey,false)&&!InventoryEventOutbox.hasPendingFullSnapshot(c,scope)){
    val full=JSONArray()
    for(i in 0 until a.length()){
     val item=a.optJSONObject(i)?:continue
@@ -87,11 +87,12 @@ object Store {
      .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
      .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
    }
-   if(full.length()>0&&InventoryEventOutbox.enqueue(c,scope,full,now,true))
-    syncPrefs.edit().putBoolean(bootstrapKey,true).commit()
+   // No marcar como completado hasta recibir el ACK real del servidor.
+   // Si falla la cola o se pierde el evento, el siguiente guardado vuelve a intentar.
+   InventoryEventOutbox.enqueue(c,scope,full,now,true)
   }
   if(changes.length()>0)InventoryEventOutbox.enqueue(c,scope,changes,now)
-  if(changes.length()>0||syncPrefs.getBoolean(bootstrapKey,false))PayrollRequestSync.sync(c,true)
+  if(changes.length()>0||!syncPrefs.getBoolean(bootstrapKey,false))PayrollRequestSync.sync(c,true)
  }
  @Synchronized fun applyApprovedConsumption(c:Context,requestId:String,code:String,quantity:Int,amount:Double,worker:String,employeeId:String,description:String):Boolean {
   if(requestId.isBlank()||code.isBlank()||quantity<=0)return false
