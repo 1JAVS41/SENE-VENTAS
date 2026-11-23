@@ -1925,17 +1925,20 @@ class PatronActivity:FragmentActivity(){
      progress.show()
      Thread{
       var failure:String?=null
+      var backupWarning:String?=null
       try{
-       if(!InventoryArchive.save(this,products))throw java.io.IOException("No se pudo escribir el respaldo en la carpeta INVENTARIO SENE. El guardado local se conserva.")
+       val backedUp=InventoryArchive.save(this,products)
        Store.saveProducts(this,products)
        getSharedPreferences("sene_ventas_local",0).edit().putBoolean("first_inventory_created",true).apply()
+       if(!backedUp)backupWarning="El inventario quedó guardado en este teléfono, pero no se pudo actualizar la copia de la carpeta INVENTARIO SENE."
       }catch(e:Exception){failure=e.message?:e.javaClass.simpleName}
       runOnUiThread{
        savingFirstInventory=false
        if(!isFinishing&&!isDestroyed){
         progress.dismiss()
-        if(failure==null){msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}
-        else AlertDialog.Builder(this).setTitle("No se completó el respaldo").setMessage(failure+"\n\nLos productos siguen en esta pantalla. No cierres la aplicación; puedes volver a intentar guardar.").setPositiveButton("ENTENDIDO",null).show()
+        if(failure==null&&backupWarning==null){msg("Inventario guardado correctamente en INVENTARIO SENE");draw()}
+        else if(failure==null)AlertDialog.Builder(this).setTitle("INVENTARIO GUARDADO EN EL TELÉFONO").setMessage(backupWarning+"\n\nPuedes continuar; el inventario local está disponible y no necesitas volver a capturarlo.").setPositiveButton("CONTINUAR"){_,_->draw()}.show()
+        else AlertDialog.Builder(this).setTitle("No se pudo guardar el inventario local").setMessage(failure+"\n\nLos productos siguen en esta pantalla. No cierres la aplicación; puedes volver a intentar guardar.").setPositiveButton("ENTENDIDO",null).show()
        }
       }
      }.start()
