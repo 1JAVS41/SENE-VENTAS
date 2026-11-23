@@ -597,6 +597,7 @@ async function payrollSync(request, env) {
     acceptedB.push(id);
   }
   if (statements.length) await db.batch(statements);
+  await maybeCleanupRetainedHistory(db);
   const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') ORDER BY seq LIMIT 300")
     .bind(business.id).all();
   const key=await db.prepare("SELECT public_key FROM admin_public_keys WHERE business_id=?").bind(business.id).first();
@@ -638,6 +639,7 @@ async function adminPayrollSync(request, env) {
   for(const id of inventoryAcks) statements.push(db.prepare("UPDATE inventory_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   if(statements.length) await db.batch(statements);
+  await maybeCleanupRetainedHistory(db);
 
   const requestCursor=parseCursor(body.c);
   const reqRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
@@ -732,6 +734,25 @@ async function cleanupRetainedHistory(db) {
       )
     `).bind(cutoff)
   ]);
+}
+
+async function maybeCleanupRetainedHistory(db) {
+  // Respaldo automático incluso si el Worker aún no tiene Cron Trigger configurado.
+  // La limpieza se evalúa en la actividad de sincronización y se ejecuta como máximo cada 30 días.
+  try {
+    const last = await db.prepare(
+      "SELECT updated_at FROM server_sync_state WHERE business_id='__SYSTEM__' AND channel='retention' LIMIT 1"
+    ).first();
+    const previous = last?.updated_at ? new Date(last.updated_at).getTime() : 0;
+    if (previous > 0 && Date.now() - previous < 30 * 24 * 60 * 60 * 1000) return;
+    await cleanupRetainedHistory(db);
+    const now = nowIso();
+    await db.prepare(
+      "INSERT INTO server_sync_state (business_id,channel,last_seq,updated_at) VALUES ('__SYSTEM__','retention',0,?) ON CONFLICT(business_id,channel) DO UPDATE SET updated_at=excluded.updated_at"
+    ).bind(now).run();
+  } catch (_) {
+    // La limpieza nunca debe interrumpir la sincronización normal.
+  }
 }
 
 export default {
