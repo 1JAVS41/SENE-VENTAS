@@ -5,7 +5,7 @@
 Esta implementación está en `feature/server-sene-complete-api`. No está desplegada en Cloudflare y no reemplaza todavía el Worker productivo.
 
 - Worker completo: `server-sene/worker.js`
-- Migración aditiva: `server-sene/migrations/0001_complete_sync.sql`
+- Migraciones aditivas: `0001_complete_sync.sql` y `0002_retention.sql`
 - Diagnóstico de esquema: `server-sene/diagnose-schema.sql`
 
 ## Infraestructura que se conserva
@@ -21,7 +21,7 @@ No crear otra base de datos, no cambiar el binding, no regenerar secretos y no e
 
 1. Revisar el diff de esta rama.
 2. Hacer respaldo/bookmark de la D1.
-3. Ejecutar una sola vez `migrations/0001_complete_sync.sql` en la D1 existente.
+3. Ejecutar una sola vez `migrations/0001_complete_sync.sql` y después `migrations/0002_retention.sql` en la D1 existente.
 4. Confirmar que las tablas nuevas aparecen y que las tablas antiguas conservan sus registros.
 5. Validar el Worker en un entorno de prueba con una copia de D1.
 6. Solo después de aprobar las pruebas, reemplazar el contenido del Worker y desplegar.
@@ -63,6 +63,7 @@ Los sobres de reportes se almacenan y transportan como texto cifrado; el Worker 
 - Probar idempotencia, reintentos, decisiones y ACK de extremo a extremo.
 - Revisar límites de tamaño y paginación con cargas reales.
 - Revisar autenticación, revocación y rotación del vínculo de SeneAdmin.
-- Confirmar que los respaldos y reglas de retención se mantienen.
+- Retención automática cada 30 días: conserva los 10 préstamos/consumos resueltos más recientes por tipo y los 10 reportes entregados más recientes por categoría. Nunca elimina solicitudes pendientes, eventos sin ACK ni reportes sin confirmar entrega.
+- Las tablas de asistencia e inventario conservan en el servidor únicamente eventos pendientes de ACK; se eliminan al confirmar su aplicación local en SeneAdmin.
 
 **No desplegar este Worker ni ejecutar la migración en producción hasta que se complete y apruebe la validación.**
