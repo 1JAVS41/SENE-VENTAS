@@ -17,8 +17,15 @@ class D1Mock {
   constructor(db) { this.db = db; }
   prepare(sql) { return new D1Statement(this.db, sql); }
   batch(statements) {
-    const run = this.db.transaction(() => statements.map(statement => statement.run()));
-    return Promise.resolve(run());
+    this.db.exec("BEGIN");
+    try {
+      const results = statements.map(statement => statement.run());
+      this.db.exec("COMMIT");
+      return Promise.resolve(results);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 }
 const db = new DatabaseSync(":memory:");
