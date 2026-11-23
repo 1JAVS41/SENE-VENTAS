@@ -238,32 +238,54 @@ private fun Activity.forceDefaultPinChange(onSaved:()->Unit){
 }
 private fun Activity.pin(ok:()->Unit){
  val prefs=getSharedPreferences(PATRON_PREFS,Context.MODE_PRIVATE)
- val biometricEnabled=prefs.getBoolean("biometric_enabled",false)
- val e=input("PIN del patrón",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
- val dialog=AlertDialog.Builder(this).setTitle("Soy Patrón").setMessage(if(biometricEnabled)"Puedes entrar con tu huella o con tu PIN." else "Introduce tu PIN para continuar.").setView(e)
-  .setPositiveButton("ENTRAR",null).setNegativeButton("CANCELAR",null)
-  .setNeutralButton(if(biometricEnabled)"USAR HUELLA" else "CERRAR",null).setCancelable(false).create()
- dialog.setOnShowListener{
-  dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener{dialog.dismiss();finish()}
-  dialog.setOnCancelListener{finish()}
-  dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
-   if(e.text.toString()==currentPatronPin(this)){dialog.dismiss();ok()}else{e.text?.clear();e.error="PIN incorrecto"}
-  }
-  dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener{
-   if(!biometricEnabled){dialog.dismiss();finish();return@setOnClickListener}
-   val host=this
-   if(host !is FragmentActivity){msg("La autenticación biométrica no está disponible en esta pantalla");return@setOnClickListener}
-   val manager=BiometricManager.from(host)
-   if(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)!=BiometricManager.BIOMETRIC_SUCCESS){msg("La huella no está disponible. Puedes entrar con tu PIN.");return@setOnClickListener}
-   val prompt=BiometricPrompt(host,ContextCompat.getMainExecutor(host),object:BiometricPrompt.AuthenticationCallback(){
-    override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){dialog.dismiss();ok()}
-    override fun onAuthenticationError(errorCode:Int,errString:CharSequence){msg("No se pudo autenticar. Puedes usar tu PIN.")}
-    override fun onAuthenticationFailed(){msg("Huella no reconocida. Intenta de nuevo o usa tu PIN.")}
+ fun showPin(){
+  if(isFinishing||isDestroyed)return
+  val e=input("PIN del patrón",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+  val dialog=AlertDialog.Builder(this).setTitle("SOY PATRÓN")
+   .setMessage("Huella no reconocida. Intenta con tu PIN.")
+   .setView(e).setPositiveButton("ENTRAR",null).setNegativeButton("CANCELAR"){_,_->finish()}
+   .setCancelable(false).create()
+  dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+   if(e.text.toString()==currentPatronPin(this)&&currentPatronPin(this).isNotBlank()){dialog.dismiss();ok()}
+   else{e.text?.clear();e.error="PIN incorrecto"}
+  }}
+  dialog.show()
+ }
+ if(prefs.getBoolean("biometric_enabled",false)){
+  val host=this
+  if(host !is FragmentActivity){showPin();return}
+  val status=BiometricManager.from(host).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+  if(status==BiometricManager.BIOMETRIC_SUCCESS){
+   var failed=0
+   var fallback=false
+   lateinit var prompt:BiometricPrompt
+   prompt=BiometricPrompt(host,ContextCompat.getMainExecutor(host),object:BiometricPrompt.AuthenticationCallback(){
+    override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){if(!fallback)ok()}
+    override fun onAuthenticationFailed(){
+     failed++
+     if(failed>=5&&!fallback){
+      fallback=true
+      msg("Huella no reconocida. Intenta con tu PIN.")
+      prompt.cancelAuthentication()
+      host.window.decorView.post{showPin()}
+     }
+    }
+    override fun onAuthenticationError(errorCode:Int,errString:CharSequence){
+     if(!fallback){fallback=true;host.window.decorView.post{showPin()}}
+    }
    })
-   val info=BiometricPrompt.PromptInfo.Builder().setTitle("Entrar a Soy Patrón").setSubtitle("Confirma tu identidad con la huella").setNegativeButtonText("CANCELAR").build()
-   prompt.authenticate(info)
+   prompt.authenticate(BiometricPrompt.PromptInfo.Builder().setTitle("Entrar a Soy Patrón")
+    .setSubtitle("Confirma tu identidad con la huella").setNegativeButtonText("USAR PIN").build())
+   return
   }
  }
+ val e=input("PIN del patrón",true).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}
+ val dialog=AlertDialog.Builder(this).setTitle("SOY PATRÓN").setMessage("Introduce tu PIN para continuar.")
+  .setView(e).setPositiveButton("ENTRAR",null).setNegativeButton("CANCELAR"){_,_->finish()}.setCancelable(false).create()
+ dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+  if(e.text.toString()==currentPatronPin(this)&&currentPatronPin(this).isNotBlank()){dialog.dismiss();ok()}
+  else{e.text?.clear();e.error="PIN incorrecto"}
+ }}
  dialog.show()
 }
 private object InventoryCrypto {
