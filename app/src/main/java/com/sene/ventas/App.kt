@@ -525,7 +525,17 @@ private object InventoryReader {
  }
 
 }
-private fun whatsapp(a:Activity,body:String,after:()->Unit={}){val u="https://wa.me/"+Store.phone(a)+"?text="+URLEncoder.encode(body,"UTF-8");try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}}
+private fun whatsapp(a:Activity,body:String,after:()->Unit={}){
+ val raw=Store.phone(a).filter{it.isDigit()}
+ val target=when{
+  raw.length==10 -> "52"+raw
+  raw.startsWith("521")&&raw.length==13 -> "52"+raw.substring(3)
+  else -> raw
+ }
+ if(target.length !in 11..15){a.msg("Configura un número válido del patrón con lada y código de país.");return}
+ val u="https://wa.me/"+target+"?text="+URLEncoder.encode(body,"UTF-8")
+ try{a.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(u)));after()}catch(e:Exception){a.msg("No se pudo abrir WhatsApp")}
+}
 
 class InicioTurnoActivity:FragmentActivity(){
  private var internet="Consultando internet…"
