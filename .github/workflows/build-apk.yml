@@ -27,7 +27,13 @@ jobs:
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          SDKMANAGER="$(find "$SDK_ROOT" /usr/local/lib/android/sdk -type f -name sdkmanager 2>/dev/null | head -n 1)"
+          SDKMANAGER=""
+          for candidate in "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$SDK_ROOT/cmdline-tools/bin/sdkmanager" "$SDK_ROOT/tools/bin/sdkmanager"; do
+            if [ -x "$candidate" ]; then SDKMANAGER="$candidate"; break; fi
+          done
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT" /usr/local/lib/android/sdk -type f -name sdkmanager 2>/dev/null | head -n 1)"
+          fi
           if [ -z "$SDKMANAGER" ]; then
             echo "No se encontró sdkmanager. Directorios SDK disponibles:"
             ls -la "$SDK_ROOT" || true
@@ -54,6 +60,9 @@ jobs:
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/SENE-VENTAS.apk
+          test -s dist/SENE-VENTAS.apk
+          unzip -t dist/SENE-VENTAS.apk >/dev/null
+          sha256sum dist/SENE-VENTAS.apk
       - uses: actions/upload-artifact@v4
         with:
           name: SENE-VENTAS
