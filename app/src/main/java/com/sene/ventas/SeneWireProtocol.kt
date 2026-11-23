@@ -9,6 +9,29 @@ import org.json.JSONObject
 object SeneWireProtocol {
     const val VERSION = 1
 
+    // Campos compactos compartidos por ambas APK y SERVER-SENE (Wire v1).
+    const val FIELD_VERSION = "v"
+    const val FIELD_TYPE = "t"
+    const val FIELD_EVENT_ID = "e"
+    const val FIELD_WORKER_ID = "w"
+    const val FIELD_AMOUNT_CENTS = "a"
+    const val FIELD_INSTALLATION_ID = "i"
+    const val FIELD_CURSOR = "c"
+    const val FIELD_REQUESTS = "r"
+    const val FIELD_ATTENDANCE_EVENTS = "h"
+    const val FIELD_INVENTORY_EVENTS = "g"
+    const val FIELD_REPORT_EVENTS = "b"
+    const val FIELD_DECISIONS = "d"
+    const val FIELD_ADMIN_TOKEN = "a"
+    const val FIELD_ATTENDANCE_ACKS = "ha"
+    const val FIELD_INVENTORY_ACKS = "gi"
+    const val FIELD_REPORT_ACKS = "ba"
+    const val FIELD_ATTENDANCE_ACK_CONFIRMATIONS = "haa"
+    const val FIELD_INVENTORY_ACK_CONFIRMATIONS = "gaa"
+    const val FIELD_REPORT_ACK_CONFIRMATIONS = "baa"
+    const val FIELD_NEXT_CURSOR = "n"
+    const val FIELD_REPORT_PUBLIC_KEY = "rp"
+
     // Controles de transporte: nunca se presentan como texto literal en la interfaz.
     const val SYNC = "[SYNC]"
     const val ATTENDANCE_SYNC = "[AT_SYNC]"
@@ -83,8 +106,8 @@ object SeneWireProtocol {
     fun request(type: String, eventId: String, workerId: String, amountCents: Long): JSONObject {
         require(type == LOAN || type == CONSUMPTION)
         require(eventId.isNotBlank() && workerId.isNotBlank() && amountCents >= 0)
-        return JSONObject().put("v", VERSION).put("t", type).put("e", eventId)
-            .put("w", workerId).put("a", amountCents)
+        return JSONObject().put(FIELD_VERSION, VERSION).put(FIELD_TYPE, type).put(FIELD_EVENT_ID, eventId)
+            .put(FIELD_WORKER_ID, workerId).put(FIELD_AMOUNT_CENTS, amountCents)
     }
 
     fun isKnown(code: String): Boolean = code in labels || code in setOf(SYNC, ATTENDANCE_SYNC, INVENTORY_SYNC) ||
