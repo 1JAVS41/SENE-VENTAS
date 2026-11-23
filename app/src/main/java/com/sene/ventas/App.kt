@@ -466,6 +466,44 @@ private object InventoryReader {
   for(item in candidates.sortedByDescending{it.second})try{snapshots.add(readSnapshot(activity,item.third,item.second,item.first))}catch(_:Exception){}
   return snapshots
  }
+ private fun listMasterSnapshots(activity:Activity,tree:Uri):List<InventorySnapshot> {
+  val resolver=activity.contentResolver
+  val rootId=DocumentsContract.getTreeDocumentId(tree)
+  val root=DocumentsContract.buildDocumentUriUsingTree(tree,rootId)
+  val candidates=mutableListOf<Triple<String,String,Uri>>()
+  val visited=mutableSetOf<String>()
+  fun collect(parent:Uri,label:String,depth:Int){
+   if(depth>8)return
+   val parentId=DocumentsContract.getDocumentId(parent)
+   if(!visited.add(parentId))return
+   val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,parentId)
+   resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE),null,null,null)?.use{cur->
+    val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+    val name=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+    val mime=cur.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+    while(cur.moveToNext()){
+     if(id<0||name<0||mime<0)continue
+     val childName=cur.getString(name)?:continue
+     // Los reportes y los archivos por trabajador no pueden ser inventario maestro.
+     if(childName.equals("TRABAJADORES",true)||childName.equals("REPORTES",true))continue
+     val childUri=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+     val childPath=if(label.isBlank())childName else "$label / $childName"
+     if(cur.getString(mime)==DocumentsContract.Document.MIME_TYPE_DIR){
+      collect(childUri,childPath,depth+1)
+     }else if(childName.endsWith(".txt",true)||childName.endsWith(".sene",true)){
+      candidates.add(Triple(label.ifBlank{"INVENTARIO SENE"},childName,childUri))
+     }
+    }
+   }
+  }
+  collect(root,"",0)
+  val snapshots=mutableListOf<InventorySnapshot>()
+  for(item in candidates.sortedByDescending{it.second})try{
+   val snapshot=readSnapshot(activity,item.third,item.second,item.first)
+   if(snapshot.products.length()>0)snapshots.add(snapshot)
+  }catch(_:Exception){}
+  return snapshots
+ }
  fun latest(activity:Activity,tree:Uri):InventorySnapshot {
   val snapshots=listSnapshots(activity,tree)
   val formatter=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX"))
@@ -495,11 +533,10 @@ private object InventoryReader {
    }catch(_:Exception){}
   }
   if(tree!=null)try{
-   val snapshots=listSnapshots(activity,tree)
+   val snapshots=listMasterSnapshots(activity,tree)
    val master=snapshots.filter{it.folder.contains("INVENTARIO-MAESTRO",true)}
    if(master.isNotEmpty())return master.maxByOrNull{it.updated}
-   val shared=snapshots.filter{!it.folder.contains("TRABAJADORES",true)}
-   if(shared.isNotEmpty())return shared.maxByOrNull{it.updated}
+   if(snapshots.isNotEmpty())return snapshots.maxByOrNull{it.updated}
   }catch(_:Exception){}
   return localCandidates.maxByOrNull{it.updated}
  }
