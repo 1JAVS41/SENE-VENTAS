@@ -14,7 +14,25 @@ object PayrollRequestSync {
     private const val PREFS = "sene_payroll_request_sync"
     private const val CURSOR = "server_cursor"
     private const val LAST_ATTEMPT = "last_attempt"
+    private const val ACKED_REQUESTS = "acked_request_ids"
     private val running = AtomicBoolean(false)
+
+    private fun acknowledgedRequests(prefs: android.content.SharedPreferences): Set<String> =
+        try {
+            val values = JSONArray(prefs.getString(ACKED_REQUESTS, "[]") ?: "[]")
+            buildSet { for (i in 0 until values.length()) values.optString(i).takeIf { it.isNotBlank() }?.let(::add) }
+        } catch (_: Exception) { emptySet() }
+
+    private fun saveRequestAcknowledgements(prefs: android.content.SharedPreferences, ids: JSONArray?) {
+        if (ids == null || ids.length() == 0) return
+        val accepted = acknowledgedRequests(prefs).toMutableSet()
+        for (i in 0 until ids.length()) {
+            val item = ids.opt(i)
+            val id = if (item is JSONObject) item.optString("e", item.optString("id")) else item?.toString().orEmpty()
+            if (id.isNotBlank()) accepted.add(id)
+        }
+        prefs.edit().putString(ACKED_REQUESTS, JSONArray(accepted.toList()).toString()).commit()
+    }
 
     /**
      * Respalda cualquier reporte localmente cuando aún no está disponible la clave pública
@@ -149,8 +167,9 @@ object PayrollRequestSync {
                 // Si el inventario ya existía antes de activar el protocolo compacto,
                 // envía su fotografía inicial en esta misma sincronización.
                 ensureInventorySnapshots(app)
+                val acknowledged = acknowledgedRequests(prefs)
                 val pending = EmployeePayroll.entries(app).filter {
-                    it.status == "PENDING" && !it.settled &&
+                    it.status == "PENDING" && !it.settled && it.id !in acknowledged &&
                         (it.type == EmployeePayroll.TYPE_LOAN || it.type == EmployeePayroll.TYPE_CONSUMPTION)
                 }
                 val requests = JSONArray()
@@ -188,6 +207,9 @@ object PayrollRequestSync {
                     // anteriores en una segunda sincronización inmediata, sin esperar 15 minutos.
                     if (ReportPublicKeyStore.hasKey(app)) retryAfterKey = migrateLocalPendingReports(app)
                 }
+                val requestAcks = response.optJSONArray(SeneWireProtocol.FIELD_REQUEST_ACKS)
+                    ?: response.optJSONArray("request_acks") ?: JSONArray()
+                saveRequestAcknowledgements(prefs, requestAcks)
                 val decisions = response.optJSONArray("d") ?: response.optJSONArray("decisions") ?: JSONArray()
                 for (i in 0 until decisions.length()) {
                     val decision = decisions.optJSONObject(i) ?: continue
