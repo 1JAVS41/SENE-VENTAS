@@ -104,7 +104,6 @@ class PayrollRequestActivity:FragmentActivity(){
        description=found.optString("name")+" x$q",employeeId=workerId,productCode=found.optString("code"),quantity=q)
      if(entry==null){Toast.makeText(this,"No se pudo guardar la solicitud. Revisa el límite.",Toast.LENGTH_LONG).show();return@setPositiveButton}
      Toast.makeText(this,"Solicitud guardada. Intentando sincronizar con el servidor.",Toast.LENGTH_LONG).show()
-     PayrollRequestSync.sync(this,true)
      draw()
     }.setNegativeButton("VOLVER",null).show()
    d.dismiss()
