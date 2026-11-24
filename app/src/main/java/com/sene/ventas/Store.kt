@@ -37,6 +37,13 @@ object Store {
  private fun root(c:Context):JSONObject { val raw=c.getSharedPreferences(PREF,0).getString(KEY,null); return try { if(raw==null) JSONObject() else JSONObject(raw) } catch(e:Exception){ JSONObject() } }
  private fun put(c:Context,r:JSONObject){ c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).apply(); try{ReportFile.update(c,r)}catch(_:Exception){} }
  fun products(c:Context)=root(c).optJSONArray("products")?:JSONArray()
+ fun inventoryWireDirty(c:Context,scope:String):Boolean =
+  scope in setOf("M","S") && root(c).optBoolean("inventory_wire_dirty_"+scope,false)
+ fun clearInventoryWireDirty(c:Context,scope:String):Boolean {
+  if(scope !in setOf("M","S"))return false
+  val r=root(c);r.put("inventory_wire_dirty_"+scope,false)
+  return c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).commit()
+ }
  fun masterProducts(c:Context):JSONArray{val prefs=c.getSharedPreferences(PREF,0);val saved=prefs.getString("master_products",null);if(!saved.isNullOrBlank())return try{JSONArray(saved)}catch(_:Exception){JSONArray()};val current=products(c);if(shift(c)==null)prefs.edit().putString("master_products",current.toString()).apply();return current}
  fun sales(c:Context)=db(c).all("sales")
  fun moves(c:Context)=db(c).all("moves")
