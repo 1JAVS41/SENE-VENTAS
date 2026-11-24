@@ -76,9 +76,10 @@ object PayrollRequestSync {
      * de SeneAdmin. El formato es el mismo que migra migrateLocalPendingReports().
      */
     fun saveLocalPendingReport(
-        context: Context, eventId: String, workerId: String, reportType: String, body: String
+        context: Context, eventId: String, workerId: String, reportType: String, body: String,
+        contentType: String = reportType
     ): Boolean {
-        if (eventId.isBlank() || workerId.isBlank() || reportType.isBlank() || body.isBlank()) return false
+        if (eventId.isBlank() || workerId.isBlank() || reportType.isBlank() || contentType.isBlank() || body.isBlank()) return false
         return try {
             val folder = java.io.File(context.applicationContext.filesDir, "REPORTES-PENDIENTES-SERVER")
             if (!folder.exists() && !folder.mkdirs()) return false
@@ -92,7 +93,7 @@ object PayrollRequestSync {
                 return false
             }
             val envelope = JSONObject().put("e", eventId).put("w", workerId)
-                .put("k", reportType).put("b", body)
+                .put("k", reportType).put("r", contentType).put("b", body)
             val temp = java.io.File(folder, "$safeEvent.sene.tmp")
             temp.writeBytes(InventoryCrypto.encrypt(envelope.toString().toByteArray(Charsets.UTF_8)))
             val verified = JSONObject(InventoryCrypto.decrypt(temp.readBytes()).toString(Charsets.UTF_8))
@@ -131,12 +132,19 @@ object PayrollRequestSync {
                     if (activeShift?.optString("shiftId") == shiftId) activeShift.optString("employeeId") else ""
                 }
                 val reportType = stored?.optString("k").orEmpty().ifBlank { SeneWireProtocol.IN_PROGRESS }
+                val contentType = stored?.optString("r").orEmpty().ifBlank {
+                    when(reportType) {
+                        SeneWireProtocol.IN_PROGRESS -> "INICIO_TURNO"
+                        SeneWireProtocol.FULL_SHIFT, SeneWireProtocol.EARLY_CLOSE, SeneWireProtocol.ADMIN_CLOSE -> "CIERRE_TURNO"
+                        else -> reportType
+                    }
+                }
                 val body = stored?.optString("b").orEmpty().ifBlank {
                     // Compatibilidad con respaldos creados por APK anteriores.
                     if (stored == null) plain else ""
                 }
                 if (eventId.isBlank() || workerId.isBlank() || body.isBlank()) continue
-                val encrypted = ReportCrypto.prepare(app, workerId, reportType, body, eventId)
+                val encrypted = ReportCrypto.prepare(app, workerId, contentType, body, eventId)
                 if (ReportEventOutbox.enqueue(app, eventId, workerId, reportType, encrypted) && file.delete()) {
                     migrated = true
                 } else if (ReportEventOutbox.pending(app).let { queue ->
