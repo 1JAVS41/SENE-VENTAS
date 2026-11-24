@@ -382,7 +382,10 @@ object EmployeePayroll {
     @Synchronized fun addRequest(c:Context,type:String,amountCents:Long,reason:String="",description:String="",absences:Int=0,
         timestamp:Long=System.currentTimeMillis(),employeeId:String=activeId(c),productCode:String="",quantity:Int=0):Entry?{
         if(type!=TYPE_LOAN&&type!=TYPE_CONSUMPTION||amountCents<=0||employeeId.isBlank())return null
-        val cfg=config(c,employeeId)?:return null;val cap=capacity(c,employeeId,timestamp);if(amountCents>cap.availableCents)return null
+        val cfg=config(c,employeeId)?:return null
+        val paid=try{JSONObject(prefs(c).getString(PAID_PAYROLLS,"{}")?:"{}").optJSONObject(employeeId)?.has(periodKey(timestamp,cfg.payDay))==true}catch(_:Exception){false}
+        if(paid)return null
+        val cap=capacity(c,employeeId,timestamp);if(amountCents>cap.availableCents)return null
         val entry=Entry(UUID.randomUUID().toString(),cfg.employee,type,amountCents,reason.trim(),description.trim(),timestamp,periodKey(timestamp,cfg.payDay),false,employeeId,"PENDING",0L,"","",productCode.trim(),quantity.coerceAtLeast(0))
         val saved=saveEntries(c,entries(c)+entry)
         if(!saved)return null
