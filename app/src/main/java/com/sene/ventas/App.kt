@@ -1718,8 +1718,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    msg("No se pudo guardar el reporte en la cola segura. El turno permanece protegido; vuelve a intentar.")
    return
   }
-  // Primero se confirma la cola cifrada y durable. Después se publican inventarios y
-  // respaldos SAF en segundo plano, sin mantener bloqueado el cierre ni la pantalla.
+  // Primero se confirma la cola cifrada y durable. El inventario maestro y los
+  // snapshots se guardaron antes de cerrar; solo el TXT compartido queda en segundo plano.
   val backupTree=pendingBackupTree
   val backupFile=pendingBackupFile
   val backupEmployeeId=pendingBackupEmployeeId
