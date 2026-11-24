@@ -1759,10 +1759,6 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }.start()
  }
  private fun launchPendingReportShare(){
-  val body=pendingReportText
-  val shift=Store.shift(this)
-  val workerId=shift?.optString("employeeId").orEmpty()
-  val reportType=if(!pendingFinalShare) SeneWireProtocol.SYNC else when(shift?.optString("closingType")){ "EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE; "ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE; else->SeneWireProtocol.FULL_SHIFT }
   val outboxQueued=pendingReportOutboxQueued
   val queued=outboxQueued||PayrollRequestSync.hasLocalPendingReport(this,pendingReportEventKey)
   if(!queued){
