@@ -110,13 +110,43 @@ object Store {
    for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;if(p.optString("code")==code){found=p;break}}
    val product=found?:return false
    if(product.optInt("stock")<quantity)return false
-   product.put("stock",product.optInt("stock")-quantity)
+   val previousStock=product.optInt("stock",0).coerceAtLeast(0)
+   val nextStock=previousStock-quantity
+   if(nextStock<0)return false
+   product.put("stock",nextStock)
    applied.put(requestId,true)
-   r.put("products",products).put("approved_consumption_requests",applied).put("stockUpdatedAt",System.currentTimeMillis())
+   val changedAt=System.currentTimeMillis()
+   r.put("products",products).put("approved_consumption_requests",applied).put("stockUpdatedAt",changedAt)
+   val isMaster=r.optJSONObject("shift")==null
    val edit=c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString())
-   if(shift(c)==null)edit.putString("master_products",products.toString())
+   if(isMaster)edit.putString("master_products",products.toString())
    if(!edit.commit())return false
    try{ReportFile.update(c,r)}catch(_:Exception){}
+   // La autorización de consumo también cambia existencias. Debe viajar al servidor
+   // como delta, respetando primero la fotografía inicial de cada inventario.
+   val scope=if(isMaster)"M" else "S"
+   val wirePrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
+   val snapshotAcked=wirePrefs.getBoolean("full_snapshot_acked_"+scope,false)
+   val snapshotPending=InventoryEventOutbox.hasPendingFullSnapshot(c,scope)
+   val queued=if(!snapshotAcked&&!snapshotPending) {
+    val full=JSONArray()
+    for(i in 0 until products.length()) {
+     val item=products.optJSONObject(i)?:continue
+     val itemCode=item.optString("code")
+     if(itemCode.isBlank())continue
+     full.put(JSONObject().put("c",itemCode).put("n",item.optString("name"))
+      .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+      .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+    }
+    InventoryEventOutbox.enqueue(c,scope,full,changedAt,true)
+   } else {
+    val delta=JSONArray().put(JSONObject().put("c",code).put("n",product.optString("name"))
+     .put("a",(product.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+     .put("s",nextStock).put("q",-quantity).put("x",SeneWireProtocol.STOCK_OUT)
+     .put("l",product.optString("aisle")).put("h",product.optString("shelf")))
+    InventoryEventOutbox.enqueue(c,scope,delta,changedAt)
+   }
+   if(queued)PayrollRequestSync.sync(c,true)
   }
   if(!moveExists)addMove(c,JSONObject().put("requestId",requestId).put("type","EMPLOYEE_CONSUMPTION")
    .put("ts",System.currentTimeMillis()).put("time",java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date()))
