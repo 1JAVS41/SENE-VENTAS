@@ -18,7 +18,7 @@ const WIRE = Object.freeze({
   INSTALLATION: "i", CURSOR: "c", REQUESTS: "r", ATTENDANCE: "h",
   INVENTORY: "g", REPORTS: "b", DECISIONS: "d", ADMIN_TOKEN: "a",
   ATTENDANCE_ACKS: "ha", SALES_INVENTORY_ACKS: "ga", INVENTORY_ACKS: "gi",
-  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
+  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", DECISION_ACKS: "da", DECISION_ACK_CONFIRMATIONS: "daa", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
   INVENTORY_ACK_CONFIRMATIONS: "gaa", REPORT_ACK_CONFIRMATIONS: "baa",
   NEXT_CURSOR: "n", REPORT_PUBLIC_KEY: "rp", SYNC: "[SYNC]"
 });
@@ -517,8 +517,18 @@ async function payrollSync(request, env) {
     acceptedB.push(id);
   }
   if (statements.length) await db.batch(statements);
+  const decisionAcks=asArray(body[WIRE.DECISION_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const confirmedDecisionAcks=[];
+  if(decisionAcks.length) {
+    const ackResults=await db.batch(decisionAcks.map(id=>db.prepare(
+      "UPDATE payroll_requests SET payload=json_set(payload,'$.sda',1),updated_at=? WHERE business_id=? AND event_id=? AND status IN ('APPROVED','REJECTED')"
+    ).bind(now,business.id,id)));
+    for(let i=0;i<decisionAcks.length;i++) {
+      if(ackResults[i]?.meta?.changes>0) confirmedDecisionAcks.push(decisionAcks[i]);
+    }
+  }
   await maybeCleanupRetainedHistory(db);
-  const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') ORDER BY seq LIMIT 300")
+  const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') AND COALESCE(json_extract(payload,'$.sda'),0)=0 ORDER BY seq LIMIT 300")
     .bind(business.id).all();
   const key=await db.prepare("SELECT public_key FROM admin_public_keys WHERE business_id=?").bind(business.id).first();
   // Las decisiones se reenvían de forma idempotente en cada sincronización.
@@ -529,7 +539,7 @@ async function payrollSync(request, env) {
   }));
   return json({
     v:1,d:responseDecisions,
-    ra:acceptedR,ha:acceptedH,ga:acceptedG,ba:acceptedB,
+    ra:acceptedR,daa:confirmedDecisionAcks,ha:acceptedH,ga:acceptedG,ba:acceptedB,
     rp:key?.public_key||""
   });
 }
@@ -604,6 +614,7 @@ async function cleanupRetainedHistory(db) {
             ) AS rn
           FROM payroll_requests
           WHERE status IN ('APPROVED','REJECTED')
+            AND COALESCE(json_extract(payload, '$.sda'), 0) = 1
         )
         WHERE rn > 10
       )
