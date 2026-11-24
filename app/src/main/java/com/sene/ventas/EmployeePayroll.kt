@@ -353,7 +353,25 @@ object EmployeePayroll {
     fun earlyExitDeductionCents(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Long =
         calculateCurrentPeriod(c,employeeId,ts).earlyExitDeductionCents
 
+    /** Conserva todas las solicitudes del ciclo hasta que termina el día de pago.
+     * Al iniciar el día siguiente retira únicamente los movimientos temporales del ciclo vencido.
+     * Los comprobantes de nómina pagada (PAID_PAYROLLS) se conservan como historial protegido.
+     */
+    @Synchronized private fun cleanupExpiredPayrollCycles(c:Context,ts:Long=System.currentTimeMillis()) {
+        val today=dateKey(ts)
+        val raw=prefs(c).getString(ENTRIES,"[]") ?: "[]"
+        val parsed=try{JSONArray(raw)}catch(_:Exception){return}
+        val kept=JSONArray();var changed=false
+        for(i in 0 until parsed.length()){
+            val item=parsed.optJSONObject(i) ?: continue
+            val end=item.optString("periodKey")
+            if(end.length==10 && end<today) changed=true else kept.put(item)
+        }
+        if(changed) prefs(c).edit().putString(ENTRIES,kept.toString()).commit()
+    }
+
     fun entries(c:Context,employeeId:String?=null):List<Entry>{
+        cleanupExpiredPayrollCycles(c)
         val raw=prefs(c).getString(ENTRIES,"[]")?: "[]"
         return try{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue
             val e=Entry(x.optString("id"),x.optString("employee"),x.optString("type"),x.optLong("amountCents").coerceAtLeast(0),
@@ -420,7 +438,15 @@ object EmployeePayroll {
         }
         return true
     }
-    fun pendingRequests(c:Context,employeeId:String=activeId(c)):List<Entry> = entries(c,employeeId).filter{it.status=="PENDING"}
+    /** MIS SOLICITUDES muestra todos los estados del ciclo, no solo los pendientes.
+     * El cierre del turno no oculta ni finaliza solicitudes; permanecen hasta pasar el día de pago.
+     */
+    fun pendingRequests(c:Context,employeeId:String=activeId(c),ts:Long=System.currentTimeMillis()):List<Entry> {
+        val cfg=config(c,employeeId) ?: return emptyList()
+        val key=periodKey(ts,cfg.payDay)
+        return entries(c,employeeId).filter{it.periodKey==key}
+            .sortedByDescending{it.timestamp}
+    }
     fun markSettled(c:Context,period:String,employeeId:String):Boolean{
         if(period.isBlank()||employeeId.isBlank())return false
         val root=try{JSONObject(prefs(c).getString(PAID_PAYROLLS,"{}")?:"{}")}catch(_:Exception){JSONObject()}
