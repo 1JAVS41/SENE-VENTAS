@@ -559,13 +559,24 @@ private object InventoryReader {
     if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";localCandidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
    }catch(_:Exception){}
   }
+  fun updatedMillis(value:String):Long {
+   val patterns=listOf("dd/MM/yyyy HH:mm:ss","yyyy-MM-dd HH:mm:ss","yyyy-MM-dd'T'HH:mm:ss","dd/MM/yyyy HH:mm")
+   for(pattern in patterns)try{
+    return SimpleDateFormat(pattern,Locale("es","MX")).apply{isLenient=false}.parse(value.trim())?.time?:continue
+   }catch(_:Exception){}
+   return 0L
+  }
+  fun fileNumber(value:String):Long =
+   Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(value)?.groupValues?.get(1)?.toLongOrNull()?:0L
+  fun newest(items:List<InventorySnapshot>):InventorySnapshot? =
+   items.maxWithOrNull(compareBy<InventorySnapshot>{updatedMillis(it.updated)}.thenBy{fileNumber(it.file)})
   if(tree!=null)try{
    val snapshots=listMasterSnapshots(activity,tree)
    val master=snapshots.filter{it.folder.contains("INVENTARIO-MAESTRO",true)}
-   if(master.isNotEmpty())return master.maxByOrNull{it.updated}
-   if(snapshots.isNotEmpty())return snapshots.maxByOrNull{it.updated}
+   if(master.isNotEmpty())return newest(master)
+   if(snapshots.isNotEmpty())return newest(snapshots)
   }catch(_:Exception){}
-  return localCandidates.maxByOrNull{it.updated}
+  return newest(localCandidates)
  }
  fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
   val key=WorkerArchive.profileKey(employeeId,workerName)
