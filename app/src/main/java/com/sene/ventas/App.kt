@@ -2533,19 +2533,26 @@ object ReportFile {
  /** Encola el reporte completo de movimientos; viaja cifrado y no usa WhatsApp. */
  @Synchronized fun queueMovementReport(c:android.content.Context,file:java.io.File,movement:org.json.JSONObject){
   if(!file.exists()||file.length()==0L)return
-  val shift=Store.shift(c)
+  val app=c.applicationContext
+  val shift=Store.shift(app)
   val workerId=movement.optString("employeeId").ifBlank{shift?.optString("employeeId").orEmpty()}
   val eventId=java.util.UUID.randomUUID().toString()
-  val body=file.readText(Charsets.UTF_8)
-  val localSaved=PayrollRequestSync.saveLocalPendingReport(c,eventId,workerId,SeneWireProtocol.SYNC,body,SeneWireProtocol.SYNC)
-  if(!localSaved)return
-  val encrypted=try {
-   if(ReportPublicKeyStore.hasKey(c))ReportCrypto.prepare(c,workerId,SeneWireProtocol.SYNC,body,eventId) else null
-  } catch(_:Exception) { null }
-  val outboxQueued=!encrypted.isNullOrBlank()&&ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
-  if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(c,eventId)
-  // Si SQLite no acepta el sobre, el respaldo cifrado local sigue en la cola pendiente.
-  if(!outboxQueued)PayrollRequestSync.sync(c,true)
+  // La generación/cifrado del reporte no debe bloquear una venta o devolución.
+  Thread{
+   try {
+    if(!file.isFile||file.length()==0L)return@Thread
+    val body=file.readText(Charsets.UTF_8)
+    val localSaved=PayrollRequestSync.saveLocalPendingReport(app,eventId,workerId,SeneWireProtocol.SYNC,body,SeneWireProtocol.SYNC)
+    if(!localSaved)return@Thread
+    val encrypted=try {
+     if(ReportPublicKeyStore.hasKey(app))ReportCrypto.prepare(app,workerId,SeneWireProtocol.SYNC,body,eventId) else null
+    } catch(_:Exception) { null }
+    val outboxQueued=!encrypted.isNullOrBlank()&&ReportEventOutbox.enqueue(app,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
+    if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(app,eventId)
+    // Si SQLite no acepta el sobre, el respaldo cifrado local sigue en la cola pendiente.
+    if(!outboxQueued)PayrollRequestSync.sync(app,true)
+   } catch(_:Exception) { }
+  }.start()
  }
 }
 
