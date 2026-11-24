@@ -2626,9 +2626,11 @@ class WelcomeActivity:Activity(){
     checking=false
     if(isFinishing||isDestroyed)return@runOnUiThread
     if(active){
-     if (!isFinishing && !isDestroyed) {
-      startActivity(Intent(this,InicioTurnoActivity::class.java))
-      finish()
+     ensureOwnerWhatsApp(this) {
+      if (!isFinishing && !isDestroyed) {
+       startActivity(Intent(this,InicioTurnoActivity::class.java))
+       finish()
+      }
      }
     }
    }
