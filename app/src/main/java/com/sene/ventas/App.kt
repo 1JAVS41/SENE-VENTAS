@@ -561,9 +561,10 @@ private object InventoryReader {
   }
   fun updatedMillis(value:String):Long {
    val patterns=listOf("dd/MM/yyyy HH:mm:ss","yyyy-MM-dd HH:mm:ss","yyyy-MM-dd'T'HH:mm:ss","dd/MM/yyyy HH:mm")
-   for(pattern in patterns)try{
-    return SimpleDateFormat(pattern,Locale("es","MX")).apply{isLenient=false}.parse(value.trim())?.time?:continue
-   }catch(_:Exception){}
+   for(pattern in patterns){
+    val parsed=try{SimpleDateFormat(pattern,Locale("es","MX")).apply{isLenient=false}.parse(value.trim())?.time}catch(_:Exception){null}
+    if(parsed!=null)return parsed
+   }
    return 0L
   }
   fun fileNumber(value:String):Long =
