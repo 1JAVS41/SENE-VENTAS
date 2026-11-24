@@ -50,6 +50,7 @@ object Store {
  fun shift(c:Context)=root(c).optJSONObject("shift")
  fun phone(c:Context)=root(c).optString("phone","523311337592")
  fun setPhone(c:Context,p:String){ val r=root(c);r.put("phone",p);put(c,r) }
+ fun hasConfiguredPhone(c:Context):Boolean { val r=root(c);val p=r.optString("phone").filter{it.isDigit()};return r.has("phone")&&p.length in 10..15 }
  fun saveProducts(c:Context,a:JSONArray,saveAsMaster:Boolean=true){
   val previous=products(c)
   val oldByCode=mutableMapOf<String,JSONObject>()
