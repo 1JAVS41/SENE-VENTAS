@@ -17,11 +17,17 @@ object PayrollRequestSync {
     private const val ACKED_REQUESTS = "acked_request_ids"
     private val running = AtomicBoolean(false)
 
-    private fun acknowledgedRequests(prefs: android.content.SharedPreferences): Set<String> =
-        try {
+    private fun acknowledgedRequests(prefs: android.content.SharedPreferences): Set<String> {
+        return try {
             val values = JSONArray(prefs.getString(ACKED_REQUESTS, "[]") ?: "[]")
-            buildSet { for (i in 0 until values.length()) values.optString(i).takeIf { it.isNotBlank() }?.let(::add) }
+            val result = mutableSetOf<String>()
+            for (i in 0 until values.length()) {
+                val id = values.optString(i)
+                if (id.isNotBlank()) result.add(id)
+            }
+            result
         } catch (_: Exception) { emptySet() }
+    }
 
     private fun saveRequestAcknowledgements(prefs: android.content.SharedPreferences, ids: JSONArray?) {
         if (ids == null || ids.length() == 0) return
