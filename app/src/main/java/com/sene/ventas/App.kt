@@ -751,9 +751,10 @@ class InicioTurnoActivity:FragmentActivity(){
     // Solo se crea el sobre RSA del servidor cuando la clave pública ya está disponible.
     val serverLinked=ReportPublicKeyStore.hasKey(this)
     val encryptedStart=try{if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null}catch(_:Exception){null}
-    if(encryptedStart==null && !PayrollRequestSync.saveLocalPendingReport(
-      this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body,"INICIO_TURNO"
-     )) throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
+    val localStartSaved=PayrollRequestSync.saveLocalPendingReport(
+     this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body,"INICIO_TURNO"
+    )
+    if(!localStartSaved)throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
     runOnUiThread{
      if(isFinishing||isDestroyed){shiftPreparationRunning=false;progress.dismiss();return@runOnUiThread}
      progress.progress=5
@@ -766,14 +767,18 @@ class InicioTurnoActivity:FragmentActivity(){
       try{WorkerArchive.ensureProfileFolders(appContext,workerId,profileName)}catch(_:Exception){}
       try{ArchiveRetention.cleanupIfDue(appContext,savedTree,ReportCrypto.ownerKey(appContext))}catch(_:Exception){}
      }.start()
-     pendingOpenSalesAfterShift=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
+     val startOutboxQueued=if(encryptedStart!=null)
+      ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart)
+      else false
+     if(startOutboxQueued)PayrollRequestSync.removeLocalPendingReport(this,startEventKey)
+     pendingOpenSalesAfterShift=startOutboxQueued||localStartSaved
      // Incluso si todavía no llegó la clave pública del administrador, consulta al servidor
      // ahora: si ya existe una vinculación, recibirá la clave y migrará el reporte local
      // pendiente en el segundo envío automático, sin esperar a abrir de nuevo la aplicación.
      PayrollRequestSync.sync(this,true)
      if(!attendanceSaved)msg("Aviso: no se pudo confirmar el registro de asistencia y su envío seguro. El turno y su respaldo permanecen guardados localmente.")
      if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
-     else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
+     else if(!startOutboxQueued)msg("Inicio de turno guardado. El reporte quedó respaldado y cifrado localmente; se enviará a SERVER-SENE cuando la cola y la conexión estén disponibles.")
      else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SERVER-SENE; no se usa WhatsApp.")
      // La preparación termina mientras esta pantalla sigue en primer plano; no se puede
      // depender de onResume para abrir ventas porque Android no lo vuelve a disparar aquí.
