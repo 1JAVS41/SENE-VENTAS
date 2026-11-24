@@ -28,6 +28,8 @@ object SeneWireProtocol {
     const val FIELD_SALES_INVENTORY_ACKS = "ga"
     const val FIELD_REPORT_ACKS = "ba"
     const val FIELD_REQUEST_ACKS = "ra"
+    const val FIELD_DECISION_ACKS = "da"
+    const val FIELD_DECISION_ACK_CONFIRMATIONS = "daa"
     const val FIELD_ATTENDANCE_ACK_CONFIRMATIONS = "haa"
     const val FIELD_INVENTORY_ACK_CONFIRMATIONS = "gaa"
     const val FIELD_REPORT_ACK_CONFIRMATIONS = "baa"
