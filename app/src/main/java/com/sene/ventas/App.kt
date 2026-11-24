@@ -1707,10 +1707,11 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val eventKey=if(final) "$stableShiftId:CLOSE" else "$stableShiftId:REPORT:${s.optInt("reportCount",0)}"
    pendingReportEventKey=eventKey
    val workerId=s.optString("employeeId")
-   val wireType=if(final) when(s.optString("closingType")) {
-    "EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE
-    "ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE
-    else->SeneWireProtocol.FULL_SHIFT
+   val wireType=if(final) when {
+    s.optString("closingType")=="EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE
+    s.optString("closingType")=="ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE
+    s.optBoolean("completedWorkday",false)->SeneWireProtocol.FULL_SHIFT
+    else->SeneWireProtocol.EARLY_CLOSE
    } else SeneWireProtocol.SYNC
    // Primero se guarda siempre un respaldo local cifrado. Si SQLite o la red fallan,
    // el turno puede cerrarse sin perder el reporte; después se migra a la cola RSA.
