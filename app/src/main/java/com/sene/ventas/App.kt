@@ -2573,7 +2573,9 @@ class WelcomeActivity:Activity(){
  private var checking=false
  private var keySetupReady=false
  override fun onCreate(savedInstanceState:Bundle?){
-  super.onCreate(savedInstanceState);showWelcome()
+  super.onCreate(savedInstanceState)
+  SeneSyncScheduler.ensureScheduled(this)
+  showWelcome()
   if(ReportCrypto.hasKey(this))keySetupReady=true
   else ReportKeySetup.ensureConfigured(this){keySetupReady=true;checkExistingSession()}
  }
