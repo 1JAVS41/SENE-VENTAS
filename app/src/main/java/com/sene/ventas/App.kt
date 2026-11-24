@@ -750,7 +750,7 @@ class InicioTurnoActivity:FragmentActivity(){
     // El inicio del turno y su respaldo local nunca dependen de haber vinculado SERVER-SENE.
     // Solo se crea el sobre RSA del servidor cuando la clave pública ya está disponible.
     val serverLinked=ReportPublicKeyStore.hasKey(this)
-    val encryptedStart=if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null
+    val encryptedStart=try{if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null}catch(_:Exception){null}
     if(encryptedStart==null && !PayrollRequestSync.saveLocalPendingReport(
       this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body
      )) throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
