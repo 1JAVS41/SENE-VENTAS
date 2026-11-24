@@ -18,7 +18,7 @@ const WIRE = Object.freeze({
   INSTALLATION: "i", CURSOR: "c", REQUESTS: "r", ATTENDANCE: "h",
   INVENTORY: "g", REPORTS: "b", DECISIONS: "d", ADMIN_TOKEN: "a",
   ATTENDANCE_ACKS: "ha", SALES_INVENTORY_ACKS: "ga", INVENTORY_ACKS: "gi",
-  REPORT_ACKS: "ba", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
+  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
   INVENTORY_ACK_CONFIRMATIONS: "gaa", REPORT_ACK_CONFIRMATIONS: "baa",
   NEXT_CURSOR: "n", REPORT_PUBLIC_KEY: "rp", SYNC: "[SYNC]"
 });
@@ -488,11 +488,14 @@ async function payrollSync(request, env) {
   const db=env.DB, now=nowIso();
   const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body[WIRE.ATTENDANCE]).slice(0,100), inventory=asArray(body[WIRE.INVENTORY]).slice(0,100), reports=asArray(body[WIRE.REPORTS]).slice(0,100);
   const statements=[];
+  const acceptedR=[];
   for (const item of requests) {
     const id=eventId(item), worker=eventWorker(item) || String(body.w || "").trim();
     if (!id || !worker || !["[P$]","[C$]"].includes(String(item.t||""))) continue;
     statements.push(db.prepare("INSERT INTO payroll_requests (event_id,business_id,worker_id,payload,status,created_at,updated_at) VALUES (?,?,?,?, 'PENDING',?,?) ON CONFLICT(business_id,event_id) DO NOTHING")
       .bind(id,business.id,worker,JSON.stringify(item),now,now));
+    // ACK solo después de que el lote D1 se haya confirmado más abajo.
+    acceptedR.push(id);
   }
   const acceptedH=[],acceptedG=[],acceptedB=[];
   for (const item of attendance) {
@@ -526,7 +529,7 @@ async function payrollSync(request, env) {
   }));
   return json({
     v:1,d:responseDecisions,
-    ha:acceptedH,ga:acceptedG,ba:acceptedB,
+    ra:acceptedR,ha:acceptedH,ga:acceptedG,ba:acceptedB,
     rp:key?.public_key||""
   });
 }
