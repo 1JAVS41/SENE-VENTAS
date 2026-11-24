@@ -517,7 +517,7 @@ async function payrollSync(request, env) {
     acceptedB.push(id);
   }
   if (statements.length) await db.batch(statements);
-  const decisionAcks=asArray(body[WIRE.DECISION_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const decisionAcks=asArray(body[WIRE.DECISION_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   const confirmedDecisionAcks=[];
   if(decisionAcks.length) {
     const ackResults=await db.batch(decisionAcks.map(id=>db.prepare(
