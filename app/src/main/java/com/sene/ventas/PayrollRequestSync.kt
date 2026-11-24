@@ -17,6 +17,43 @@ object PayrollRequestSync {
     private val running = AtomicBoolean(false)
 
     /**
+     * Respalda cualquier reporte localmente cuando aún no está disponible la clave pública
+     * de SeneAdmin. El formato es el mismo que migra migrateLocalPendingReports().
+     */
+    fun saveLocalPendingReport(
+        context: Context, eventId: String, workerId: String, reportType: String, body: String
+    ): Boolean {
+        if (eventId.isBlank() || workerId.isBlank() || reportType.isBlank() || body.isBlank()) return false
+        return try {
+            val folder = java.io.File(context.applicationContext.filesDir, "REPORTES-PENDIENTES-SERVER")
+            if (!folder.exists() && !folder.mkdirs()) return false
+            val safeEvent = eventId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val target = java.io.File(folder, "$safeEvent.sene")
+            if (target.isFile && target.length() > 0L) {
+                val existing = try {
+                    JSONObject(InventoryCrypto.decrypt(target.readBytes()).toString(Charsets.UTF_8))
+                } catch (_: Exception) { null }
+                if (existing?.optString("e") == eventId) return true
+                return false
+            }
+            val envelope = JSONObject().put("e", eventId).put("w", workerId)
+                .put("k", reportType).put("b", body)
+            val temp = java.io.File(folder, "$safeEvent.sene.tmp")
+            temp.writeBytes(InventoryCrypto.encrypt(envelope.toString().toByteArray(Charsets.UTF_8)))
+            val verified = JSONObject(InventoryCrypto.decrypt(temp.readBytes()).toString(Charsets.UTF_8))
+            if (verified.optString("e") != eventId || verified.optString("b").isBlank()) {
+                temp.delete()
+                return false
+            }
+            if (!temp.renameTo(target)) {
+                temp.delete()
+                return false
+            }
+            target.isFile && target.length() > 0L
+        } catch (_: Exception) { false }
+    }
+
+    /**
      * Convierte reportes que se guardaron localmente antes de recibir la clave pública.
      * El archivo original solo se elimina después de persistir el sobre RSA en la cola SQLite.
      */
