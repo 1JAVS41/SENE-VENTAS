@@ -1728,6 +1728,15 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     encryptedFile.writeText(pendingReportText!!,Charsets.UTF_8)
     if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
    }
+   // Insertar el sobre en SQLite fuera del hilo UI. El archivo local cifrado se conserva
+   // como respaldo si la transacción de la cola falla.
+   val outboxQueued=!pendingReportText.isNullOrBlank() &&
+    ReportEventOutbox.enqueue(this,eventKey,workerId,wireType,pendingReportText!!)
+   if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(this,eventKey)
+   pendingReportOutboxQueued=outboxQueued
+   if(!outboxQueued&&!PayrollRequestSync.hasLocalPendingReport(this,eventKey))
+    throw java.io.IOException("No se pudo confirmar ni la cola segura ni el respaldo local del reporte")
+
    // Se conservan referencias para crear los respaldos secundarios después de que el
    // reporte cifrado ya esté en la cola durable y el trabajador pueda salir del turno.
    pendingBackupTree=tree
@@ -1754,9 +1763,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   val shift=Store.shift(this)
   val workerId=shift?.optString("employeeId").orEmpty()
   val reportType=if(!pendingFinalShare) SeneWireProtocol.SYNC else when(shift?.optString("closingType")){ "EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE; "ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE; else->SeneWireProtocol.FULL_SHIFT }
-  val outboxQueued=!body.isNullOrBlank() &&
-   ReportEventOutbox.enqueue(this,pendingReportEventKey,workerId,reportType,body)
-  if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(this,pendingReportEventKey)
+  val outboxQueued=pendingReportOutboxQueued
   val queued=outboxQueued||PayrollRequestSync.hasLocalPendingReport(this,pendingReportEventKey)
   if(!queued){
    msg("No se pudo guardar el reporte en la cola segura. El turno permanece protegido; vuelve a intentar.")
@@ -1783,6 +1790,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   if(!outboxQueued)PayrollRequestSync.sync(this,true)
   pendingShareUri=null
   pendingReportText=null
+  pendingReportOutboxQueued=false
   val final=pendingFinalShare
   val current=Store.shift(this)
   if(final){
