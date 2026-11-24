@@ -260,7 +260,7 @@ object PayrollRequestSync {
                     .put(SeneWireProtocol.FIELD_DECISION_ACKS, firstBatch(decisionAcks(prefs)))
                     .put(SeneWireProtocol.FIELD_ATTENDANCE_EVENTS, firstBatch(AttendanceEventOutbox.pending(app)))
                     .put(SeneWireProtocol.FIELD_INVENTORY_EVENTS, firstBatch(InventoryEventOutbox.pending(app)))
-                    .put(SeneWireProtocol.FIELD_REPORT_EVENTS, firstBatch(ReportEventOutbox.pending(app)))
+                    .put(SeneWireProtocol.FIELD_REPORT_EVENTS, firstBatch(ReportEventOutbox.pending(app),10))
                 prefs.edit().putLong(LAST_ATTEMPT, now).commit()
                 val response = ActivationApi.post("/payroll/requests/sync", payload)
                 val status = response.optInt("_http_status", 0)
