@@ -752,7 +752,7 @@ class InicioTurnoActivity:FragmentActivity(){
     val serverLinked=ReportPublicKeyStore.hasKey(this)
     val encryptedStart=try{if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null}catch(_:Exception){null}
     if(encryptedStart==null && !PayrollRequestSync.saveLocalPendingReport(
-      this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body
+      this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body,"INICIO_TURNO"
      )) throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
     runOnUiThread{
      if(isFinishing||isDestroyed){shiftPreparationRunning=false;progress.dismiss();return@runOnUiThread}
@@ -1712,7 +1712,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
     else null
    } catch(_:Exception) { null }
    if(pendingReportText.isNullOrBlank()) {
-    if(!PayrollRequestSync.saveLocalPendingReport(this,eventKey,workerId,wireType,body))
+    val contentType=if(final)"CIERRE_TURNO" else "REPORTE_TURNO"
+    if(!PayrollRequestSync.saveLocalPendingReport(this,eventKey,workerId,wireType,body,contentType))
      throw java.io.IOException("No se pudo guardar el reporte cifrado local pendiente de envío")
    } else {
     val encryptedFolder=java.io.File(getExternalFilesDir(null)?:filesDir,"REPORTES-CIFRADOS")
@@ -2536,7 +2537,7 @@ object ReportFile {
   } catch(_:Exception) { null }
   val queued=if(!encrypted.isNullOrBlank())
    ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
-  else PayrollRequestSync.saveLocalPendingReport(c,eventId,workerId,SeneWireProtocol.SYNC,body)
+  else PayrollRequestSync.saveLocalPendingReport(c,eventId,workerId,SeneWireProtocol.SYNC,body,SeneWireProtocol.SYNC)
   if(queued)PayrollRequestSync.sync(c,true)
  }
 }
