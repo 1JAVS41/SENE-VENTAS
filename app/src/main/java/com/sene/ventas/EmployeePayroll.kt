@@ -301,8 +301,10 @@ object EmployeePayroll {
             else->SeneWireProtocol.EARLY_CLOSE
         }
         val eventId="ATT:$employeeId:$key:CLOSE:$ts"
-        val queued=AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source,eventId)
-        if(queued&&saved)ensureAttendanceEventsQueued(c)
+        // Si el registro local quedó guardado, encolar primero el inicio y luego el cierre.
+        // Si falló el guardado local, el evento de cierre todavía transporta ambas horas.
+        val queued=if(saved)ensureAttendanceEventsQueued(c)
+            else AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source,eventId)
         if(queued)PayrollRequestSync.sync(c,true)
         return saved&&queued
     }
