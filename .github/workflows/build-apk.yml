@@ -1,4 +1,5 @@
 name: Compilar APK SENE VENTAS
+# Recompilación solicitada tras configurar los secretos de firma permanente.
 # Recompilar tras la auditoría de colas, ACK y sincronización incremental.
 # Incluye también ACK de solicitudes/decisiones y reportes locales offline.
 # Incluye confirmación de entrega de decisiones y retención hasta ACK de ambas APK.
