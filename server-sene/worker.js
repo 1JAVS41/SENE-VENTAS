@@ -18,7 +18,7 @@ const WIRE = Object.freeze({
   INSTALLATION: "i", CURSOR: "c", REQUESTS: "r", ATTENDANCE: "h",
   INVENTORY: "g", REPORTS: "b", DECISIONS: "d", ADMIN_TOKEN: "a",
   ATTENDANCE_ACKS: "ha", SALES_INVENTORY_ACKS: "ga", INVENTORY_ACKS: "gi",
-  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", DECISION_ACKS: "da", DECISION_ACK_CONFIRMATIONS: "daa", ADMIN_DECISION_ACKS: "ada", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
+  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", DECISION_ACKS: "da", DECISION_ACK_CONFIRMATIONS: "daa", ADMIN_DECISION_ACKS: "ad", ADMIN_DECISION_ACK_CONFIRMATIONS: "adak", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
   INVENTORY_ACK_CONFIRMATIONS: "gaa", REPORT_ACK_CONFIRMATIONS: "baa",
   NEXT_CURSOR: "n", REPORT_PUBLIC_KEY: "rp", SYNC: "[SYNC]"
 });
@@ -577,6 +577,16 @@ async function adminPayrollSync(request, env) {
       confirmedAdminDecisions.push({e:d.id,x:d.state,by:"PATRON",rr:d.reason,at:now});
     }
   }
+  const adminDecisionAcks=asArray(body[WIRE.ADMIN_DECISION_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const confirmedAdminDecisionAcks=[];
+  if(adminDecisionAcks.length) {
+    const ackResults=await db.batch(adminDecisionAcks.map(id=>db.prepare(
+      "UPDATE payroll_requests SET payload=json_set(payload,'$.ada',1),updated_at=? WHERE business_id=? AND event_id=? AND status IN ('APPROVED','REJECTED')"
+    ).bind(now,businessId,id)));
+    for(let i=0;i<adminDecisionAcks.length;i++) {
+      if(ackResults[i]?.meta?.changes>0) confirmedAdminDecisionAcks.push(adminDecisionAcks[i]);
+    }
+  }
   await maybeCleanupRetainedHistory(db);
 
   const requestCursor=parseCursor(body[WIRE.CURSOR]);
@@ -594,7 +604,7 @@ async function adminPayrollSync(request, env) {
   const maxSeq=reqRows.results?.length?reqRows.results[reqRows.results.length-1].seq:requestCursor;
   const parsePayload=rows=>(rows||[]).map(r=>{try{return JSON.parse(r.payload)}catch(_){return null}}).filter(Boolean);
   return json({
-    v:1,items:reqs,ada:confirmedAdminDecisions,
+    v:1,items:reqs,ada:confirmedAdminDecisions,adak:confirmedAdminDecisionAcks,
     h:parsePayload(hRows.results),g:parsePayload(gRows.results),
     b:(bRows.results||[]).map(r=>{try{return JSON.parse(r.envelope)}catch(_){return {e:r.event_id,p:r.envelope}}}),
     haa:attendanceAcks,gaa:inventoryAcks,baa:reportAcks,
@@ -619,6 +629,7 @@ async function cleanupRetainedHistory(db) {
           FROM payroll_requests
           WHERE status IN ('APPROVED','REJECTED')
             AND COALESCE(json_extract(payload, '$.sda'), 0) = 1
+            AND COALESCE(json_extract(payload, '$.ada'), 0) = 1
         )
         WHERE rn > 10
       )
