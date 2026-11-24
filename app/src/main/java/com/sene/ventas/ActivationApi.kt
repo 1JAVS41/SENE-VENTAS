@@ -114,7 +114,13 @@ object ActivationApi {
     fun subscriptionStatus(context: Context): JSONObject {
         val result = post("/subscription/status", JSONObject().put("installation_id", installationId(context)))
         val reportPublicKey = result.optString("rp", result.optString("report_public_key"))
-        if (reportPublicKey.isNotBlank()) ReportPublicKeyStore.saveFromServer(context, reportPublicKey)
+        if (reportPublicKey.isNotBlank()) {
+            val previousKey = ReportPublicKeyStore.encoded(context)
+            val savedKey = ReportPublicKeyStore.saveFromServer(context, reportPublicKey)
+            // Cuando el patrón termina de vincular SeneAdmin, el primer chequeo de licencia
+            // recupera la clave nueva y dispara la migración de reportes locales pendientes.
+            if (savedKey && previousKey != reportPublicKey) PayrollRequestSync.sync(context, true)
+        }
         val expiry = result.optString("expires_at")
         if (expiry.isNotBlank()) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
