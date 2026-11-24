@@ -357,17 +357,11 @@ object EmployeePayroll {
      * Al iniciar el día siguiente retira únicamente los movimientos temporales del ciclo vencido.
      * Los comprobantes de nómina pagada (PAID_PAYROLLS) se conservan como historial protegido.
      */
+    /** Los movimientos de nómina se conservan como historial permanente.
+     * pendingRequests solo presenta el ciclo vigente; no se borran registros al pagar.
+     */
     @Synchronized private fun cleanupExpiredPayrollCycles(c:Context,ts:Long=System.currentTimeMillis()) {
-        val today=dateKey(ts)
-        val raw=prefs(c).getString(ENTRIES,"[]") ?: "[]"
-        val parsed=try{JSONArray(raw)}catch(_:Exception){return}
-        val kept=JSONArray();var changed=false
-        for(i in 0 until parsed.length()){
-            val item=parsed.optJSONObject(i) ?: continue
-            val end=item.optString("periodKey")
-            if(end.length==10 && end<today) changed=true else kept.put(item)
-        }
-        if(changed) prefs(c).edit().putString(ENTRIES,kept.toString()).commit()
+        // Intencionalmente no elimina ENTRIES: contiene historial de préstamos y consumos.
     }
 
     fun entries(c:Context,employeeId:String?=null):List<Entry>{
