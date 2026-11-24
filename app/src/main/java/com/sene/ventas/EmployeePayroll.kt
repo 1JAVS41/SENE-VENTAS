@@ -30,7 +30,7 @@ object EmployeePayroll {
         val decidedAt:Long = 0L,val decidedBy:String = "",val rejectionReason:String = "",
         val productCode:String = "",val quantity:Int = 0
     )
-    data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false)
+    data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false,val startWireQueued:Boolean=true,val closeWireQueued:Boolean=true)
 
     data class WeeklyDay(val day:String,val status:String,val started:String="",val closed:String="")
     data class PayrollCalculation(
@@ -215,7 +215,7 @@ object EmployeePayroll {
         val raw=prefs(c).getString(ATTENDANCE,"[]")?: "[]"
         return try{
             val a=JSONArray(raw)
-            val parsed=buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt"),x.optString("closureReason"),x.optString("closureSource"),x.optBoolean("completedWorkday",false)))}}
+            val parsed=buildList{for(i in 0 until a.length()){val x=a.optJSONObject(i)?:continue;add(Attendance(x.optString("employeeId"),x.optString("date"),x.optLong("startedAt"),x.optLong("closedAt"),x.optString("closureReason"),x.optString("closureSource"),x.optBoolean("completedWorkday",false),x.optBoolean("startWireQueued",true),x.optBoolean("closeWireQueued",true)))}}
             // Migra registros antiguos que guardaron el inicio un día y el cierre al día siguiente.
             // La asistencia pertenece al día en que comenzó el turno, no al día en que terminó.
             val merged=parsed.toMutableList()
@@ -237,35 +237,63 @@ object EmployeePayroll {
         }catch(_:Exception){emptyList()}
     }
     private fun saveAttendance(c:Context,items:List<Attendance>):Boolean{
-        val a=JSONArray();items.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("date",x.date).put("startedAt",x.startedAt).put("closedAt",x.closedAt).put("closureReason",x.closureReason).put("closureSource",x.closureSource).put("completedWorkday",x.completedWorkday))}
+        val a=JSONArray();items.forEach{x->a.put(JSONObject().put("employeeId",x.employeeId).put("date",x.date).put("startedAt",x.startedAt).put("closedAt",x.closedAt).put("closureReason",x.closureReason).put("closureSource",x.closureSource).put("completedWorkday",x.completedWorkday).put("startWireQueued",x.startWireQueued).put("closeWireQueued",x.closeWireQueued))}
         return prefs(c).edit().putString(ATTENDANCE,a.toString()).commit()
     }
-    @Synchronized fun recordShiftStart(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Boolean{
+    @Synchronized fun ensureAttendanceEventsQueued(c:Context):Boolean {
+        val all=attendance(c).toMutableList()
+        var changed=false
+        var success=true
+        for(index in all.indices) {
+            var item=all[index]
+            if(item.startedAt>0L&&!item.startWireQueued) {
+                val eventId="ATT:${item.employeeId}:${item.date}:START:${item.startedAt}"
+                val queued=AttendanceEventOutbox.enqueue(c,item.employeeId,item.date,SeneWireProtocol.IN_PROGRESS,
+                    item.startedAt,0L,"","TRABAJADOR",eventId)
+                if(queued) { item=item.copy(startWireQueued=true);changed=true } else success=false
+            }
+            if(item.closedAt>0L&&!item.closeWireQueued) {
+                val state=when {
+                    item.closureSource.equals("PATRÓN",true)||item.closureSource.equals("ADMIN_FORCED",true)||item.closureSource.equals("ADMINISTRATIVE",true)->SeneWireProtocol.ADMIN_CLOSE
+                    item.completedWorkday->SeneWireProtocol.FULL_SHIFT
+                    else->SeneWireProtocol.EARLY_CLOSE
+                }
+                val eventId="ATT:${item.employeeId}:${item.date}:CLOSE:${item.closedAt}"
+                val queued=AttendanceEventOutbox.enqueue(c,item.employeeId,item.date,state,item.startedAt,
+                    item.closedAt,item.closureReason,item.closureSource,eventId)
+                if(queued) { item=item.copy(closeWireQueued=true);changed=true } else success=false
+            }
+            all[index]=item
+        }
+        if(changed&&!saveAttendance(c,all))return false
+        return success
+    }
+
+    @Synchronized fun recordShiftStart(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Boolean {
         if(employeeId.isBlank())return false
-        val key=dateKey(ts);val all=attendance(c).toMutableList();val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(i>=0)all[i]=all[i].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="") else all.add(Attendance(employeeId,key,ts,0L))
-        val saved=saveAttendance(c,all)
-        if(!saved)return false
-        val queued=AttendanceEventOutbox.enqueue(c,employeeId,key,SeneWireProtocol.IN_PROGRESS,ts,0L,"","TRABAJADOR")
+        val key=dateKey(ts)
+        val all=attendance(c).toMutableList()
+        val index=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
+        if(index>=0)all[index]=all[index].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="",
+            startWireQueued=false,closeWireQueued=true)
+        else all.add(Attendance(employeeId,key,ts,0L,startWireQueued=false,closeWireQueued=true))
+        if(!saveAttendance(c,all))return false
+        val queued=ensureAttendanceEventsQueued(c)
         if(queued)PayrollRequestSync.sync(c,true)
         return queued
     }
-    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false,startedAt:Long=0L):Boolean{
+
+    @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false,startedAt:Long=0L):Boolean {
         if(employeeId.isBlank())return false
         val all=attendance(c).toMutableList()
         val start=if(startedAt>0L)startedAt else all.filter{it.employeeId==employeeId&&it.startedAt>0L&&it.closedAt==0L&&it.startedAt<ts}.maxByOrNull{it.startedAt}?.startedAt?:0L
         val key=dateKey(if(start>0L)start else ts)
-        val i=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(i>=0)all[i]=all[i].copy(closedAt=ts,closureReason=reason,closureSource=source,completedWorkday=completedWorkday)
-        else all.add(Attendance(employeeId,key,start,ts,reason,source,completedWorkday))
-        val saved=saveAttendance(c,all)
-        val state=when {
-            source.equals("PATRÓN",true)||source.equals("ADMIN_FORCED",true)||source.equals("ADMINISTRATIVE",true) -> SeneWireProtocol.ADMIN_CLOSE
-            completedWorkday -> SeneWireProtocol.FULL_SHIFT
-            else -> SeneWireProtocol.EARLY_CLOSE
-        }
-        if(!saved)return false
-        val queued=AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source)
+        val index=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
+        if(index>=0)all[index]=all[index].copy(closedAt=ts,closureReason=reason,closureSource=source,
+            completedWorkday=completedWorkday,closeWireQueued=false)
+        else all.add(Attendance(employeeId,key,start,ts,reason,source,completedWorkday,true,false))
+        if(!saveAttendance(c,all))return false
+        val queued=ensureAttendanceEventsQueued(c)
         if(queued)PayrollRequestSync.sync(c,true)
         return queued
     }
