@@ -352,7 +352,11 @@ object EmployeePayroll {
         if(type!=TYPE_LOAN&&type!=TYPE_CONSUMPTION||amountCents<=0||employeeId.isBlank())return null
         val cfg=config(c,employeeId)?:return null;val cap=capacity(c,employeeId,timestamp);if(amountCents>cap.availableCents)return null
         val entry=Entry(UUID.randomUUID().toString(),cfg.employee,type,amountCents,reason.trim(),description.trim(),timestamp,periodKey(timestamp,cfg.payDay),false,employeeId,"PENDING",0L,"","",productCode.trim(),quantity.coerceAtLeast(0))
-        return if(saveEntries(c,entries(c)+entry))entry else null
+        val saved=saveEntries(c,entries(c)+entry)
+        if(!saved)return null
+        // Préstamos y consumos requieren respuesta del patrón; se envían inmediatamente.
+        PayrollRequestSync.sync(c,true)
+        return entry
     }
     @Synchronized fun applyDecision(c:Context,requestId:String,approved:Boolean,decidedBy:String,decidedAt:Long=System.currentTimeMillis(),reason:String=""):Boolean {
         val all=entries(c).toMutableList();val index=all.indexOfFirst{it.id==requestId};if(index<0)return false
