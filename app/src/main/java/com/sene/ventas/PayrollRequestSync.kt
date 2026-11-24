@@ -30,13 +30,15 @@ object PayrollRequestSync {
     private fun decisionAcks(prefs: android.content.SharedPreferences): JSONArray =
         try { JSONArray(prefs.getString(PENDING_DECISION_ACKS, "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
 
-    private fun mergeDecisionAcks(prefs: android.content.SharedPreferences, ids: Set<String>) {
-        if (ids.isEmpty()) return
+    private fun mergeDecisionAcks(prefs: android.content.SharedPreferences, ids: Set<String>): Boolean {
+        if (ids.isEmpty()) return false
         val merged = linkedSetOf<String>()
         val old = decisionAcks(prefs)
         for (i in 0 until old.length()) old.optString(i).takeIf { it.isNotBlank() }?.let { merged.add(it) }
+        val previousSize = merged.size
         merged.addAll(ids.filter { it.isNotBlank() })
-        prefs.edit().putString(PENDING_DECISION_ACKS, JSONArray(merged.toList()).toString()).commit()
+        if (merged.size == previousSize) return false
+        return prefs.edit().putString(PENDING_DECISION_ACKS, JSONArray(merged.toList()).toString()).commit()
     }
 
     private fun clearDecisionAcks(prefs: android.content.SharedPreferences, confirmations: JSONArray?) {
@@ -322,7 +324,7 @@ object PayrollRequestSync {
                         decision.optString("rr", decision.optString("rejection_reason")))
                     if (applied) processedDecisionAcks.add(id)
                 }
-                mergeDecisionAcks(prefs, processedDecisionAcks)
+                if (mergeDecisionAcks(prefs, processedDecisionAcks)) rerunRequested.set(true)
                 val decisionAckConfirmations = response.optJSONArray(SeneWireProtocol.FIELD_DECISION_ACK_CONFIRMATIONS)
                     ?: response.optJSONArray("decision_ack_acks")
                 clearDecisionAcks(prefs, decisionAckConfirmations)
