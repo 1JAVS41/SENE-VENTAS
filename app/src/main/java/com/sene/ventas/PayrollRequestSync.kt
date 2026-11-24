@@ -229,6 +229,9 @@ object PayrollRequestSync {
             var retryAfterKey = false
             try {
                 migrateLocalPendingReports(app)
+                // Recupera eventos de asistencia cuyo registro local se guardó pero
+                // cuya escritura en la cola pudo fallar por falta de espacio o I/O.
+                EmployeePayroll.ensureAttendanceEventsQueued(app)
                 // Si el inventario ya existía antes de activar el protocolo compacto,
                 // envía su fotografía inicial en esta misma sincronización.
                 ensureInventorySnapshots(app)
