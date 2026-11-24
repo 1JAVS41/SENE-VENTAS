@@ -187,7 +187,69 @@ object Store {
   return true
  }
 
- fun publishMasterProducts(c:Context,a:JSONArray){c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()}
+ @Synchronized fun publishMasterProducts(c:Context,a:JSONArray) {
+  val previous=masterProducts(c)
+  val oldByCode=mutableMapOf<String,JSONObject>()
+  for(i in 0 until previous.length()) {
+   val item=previous.optJSONObject(i)?:continue
+   val code=item.optString("code")
+   if(code.isNotBlank())oldByCode[code]=item
+  }
+  val seen=mutableSetOf<String>()
+  val changes=JSONArray()
+  for(i in 0 until a.length()) {
+   val item=a.optJSONObject(i)?:continue
+   val code=item.optString("code")
+   if(code.isBlank())continue
+   seen.add(code)
+   val old=oldByCode[code]
+   val before=old?.optInt("stock",0)?:0
+   val after=item.optInt("stock",0).coerceAtLeast(0)
+   val priceCents=(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)
+   val metadataChanged=old==null||old.optString("name")!=item.optString("name")||
+    (old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents||
+    old.optString("aisle")!=item.optString("aisle")||old.optString("shelf")!=item.optString("shelf")
+   if(before==after&&!metadataChanged)continue
+   val delta=after-before
+   val change=JSONObject().put("c",code).put("s",after).put("q",delta)
+    .put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
+   if(old==null||old.optString("name")!=item.optString("name"))change.put("n",item.optString("name"))
+   if(old==null||(old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents)change.put("a",priceCents)
+   if(old==null||old.optString("aisle")!=item.optString("aisle"))change.put("l",item.optString("aisle"))
+   if(old==null||old.optString("shelf")!=item.optString("shelf"))change.put("h",item.optString("shelf"))
+   changes.put(change)
+  }
+  oldByCode.forEach{(code,item)->
+   if(code !in seen&&item.optInt("stock",0)>0)
+    changes.put(JSONObject().put("c",code).put("s",0).put("q",-item.optInt("stock",0)).put("x",SeneWireProtocol.STOCK_OUT))
+  }
+  val now=System.currentTimeMillis()
+  val r=root(c);r.put("inventory_wire_dirty_M",true)
+  val prefs=c.getSharedPreferences(PREF,0)
+  if(!prefs.edit().putString("master_products",a.toString()).putString(KEY,r.toString()).commit())return
+  try{ReportFile.update(c,r)}catch(_:Exception){}
+  val wirePrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
+  val bootstrapAcked=wirePrefs.getBoolean("full_snapshot_acked_M",false)
+  val bootstrapReady=bootstrapAcked||InventoryEventOutbox.hasPendingFullSnapshot(c,"M")
+  val queued=if(!bootstrapReady) {
+   val full=JSONArray()
+   for(i in 0 until a.length()) {
+    val item=a.optJSONObject(i)?:continue
+    val code=item.optString("code")
+    if(code.isBlank())continue
+    full.put(JSONObject().put("c",code).put("n",item.optString("name"))
+     .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+     .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+   }
+   InventoryEventOutbox.enqueue(c,"M",full,now,true)
+  } else if(changes.length()>0) InventoryEventOutbox.enqueue(c,"M",changes,now)
+  else true
+  if(queued) {
+   r.put("inventory_wire_dirty_M",false)
+   if(!prefs.edit().putString(KEY,r.toString()).commit())return
+   if(!bootstrapAcked||changes.length()>0)PayrollRequestSync.sync(c,true)
+  }
+ }
  fun stockUpdatedAtText(c:Context):String{val ts=root(c).optLong("stockUpdatedAt",0L);return if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Sin registro previo de actualización"}
  fun saveSales(c:Context,a:JSONArray){db(c).replace("sales",a);try{ReportFile.update(c)}catch(_:Exception){}}
  fun saveShift(c:Context,s:JSONObject?){val r=root(c);if(s==null)r.remove("shift")else r.put("shift",s);put(c,r)}
