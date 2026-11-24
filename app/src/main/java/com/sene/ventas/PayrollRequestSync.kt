@@ -125,6 +125,17 @@ object PayrollRequestSync {
         java.io.File(folder, "$safeEvent.sene.tmp").delete()
     }
 
+    fun hasLocalPendingReport(context: Context, eventId: String): Boolean {
+        if (eventId.isBlank()) return false
+        val safeEvent = eventId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val file = java.io.File(context.applicationContext.filesDir, "REPORTES-PENDIENTES-SERVER/$safeEvent.sene")
+        return try {
+            file.isFile && file.length() > 0L &&
+                JSONObject(InventoryCrypto.decrypt(file.readBytes()).toString(Charsets.UTF_8))
+                    .let { it.optString("e") == eventId && it.optString("b").isNotBlank() }
+        } catch (_: Exception) { false }
+    }
+
     /**
      * Convierte reportes que se guardaron localmente antes de recibir la clave pública.
      * El archivo original solo se elimina después de persistir el sobre RSA en la cola SQLite.
