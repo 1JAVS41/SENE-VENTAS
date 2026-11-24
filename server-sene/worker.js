@@ -554,7 +554,7 @@ async function adminPayrollSync(request, env) {
     await db.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
       .bind(businessId,session.admin_installation_id,publicKey,now).run();
   }
-  const decisions=asArray(body[WIRE.DECISIONS]), statements=[], submittedDecisions=[];
+  const decisions=asArray(body[WIRE.DECISIONS]).slice(0,100), statements=[], submittedDecisions=[];
   for(const d of decisions) {
     const id=eventId(d), state=String(d.x||"").toUpperCase();
     if(!id || !["[OK]","[NO]","APPROVED","REJECTED"].includes(state)) continue;
@@ -563,9 +563,9 @@ async function adminPayrollSync(request, env) {
     statements.push(db.prepare("UPDATE payroll_requests SET status=?,decision_by='PATRON',decision_reason=?,decided_at=?,updated_at=? WHERE business_id=? AND event_id=? AND (status='PENDING' OR status=?)")
       .bind(normalized,String(d.r||""),now,now,businessId,id,normalized));
   }
-  const attendanceAcks=asArray(body[WIRE.ATTENDANCE_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const inventoryAcks=asArray(body[WIRE.INVENTORY_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const attendanceAcks=asArray(body[WIRE.ATTENDANCE_ACKS]).slice(0,300).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const inventoryAcks=asArray(body[WIRE.INVENTORY_ACKS]).slice(0,300).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   for(const id of attendanceAcks) statements.push(db.prepare("UPDATE attendance_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of inventoryAcks) statements.push(db.prepare("UPDATE inventory_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
@@ -577,7 +577,7 @@ async function adminPayrollSync(request, env) {
       confirmedAdminDecisions.push({e:d.id,x:d.state,by:"PATRON",rr:d.reason,at:now});
     }
   }
-  const adminDecisionAcks=asArray(body[WIRE.ADMIN_DECISION_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const adminDecisionAcks=asArray(body[WIRE.ADMIN_DECISION_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   const confirmedAdminDecisionAcks=[];
   if(adminDecisionAcks.length) {
     const ackResults=await db.batch(adminDecisionAcks.map(id=>db.prepare(
