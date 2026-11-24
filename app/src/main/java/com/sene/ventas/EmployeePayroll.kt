@@ -33,7 +33,8 @@ object EmployeePayroll {
     )
     data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false,val startWireQueued:Boolean=true,val closeWireQueued:Boolean=true)
 
-    data class ShiftDetail(val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false)\n    data class WeeklyDay(val day:String,val status:String,val started:String="",val closed:String="",val shifts:List<ShiftDetail> = emptyList())
+    data class ShiftDetail(val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false)
+    data class WeeklyDay(val day:String,val status:String,val started:String="",val closed:String="",val shifts:List<ShiftDetail> = emptyList())
     data class PayrollCalculation(
         val grossCents:Long,val absences:Int,val absenceDeductionCents:Long,
         val earlyExitMinutes:Long,val earlyExitDeductionCents:Long,
