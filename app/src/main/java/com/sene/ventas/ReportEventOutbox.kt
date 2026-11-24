@@ -77,7 +77,7 @@ object ReportEventOutbox {
         createdAt: Long = System.currentTimeMillis()
     ): Boolean {
         if (eventId.isBlank() || encryptedPayload.isBlank()) return false
-        return try {
+        val stored = try {
             val event = JSONObject()
                 .put("v", SeneWireProtocol.VERSION)
                 .put("t", SeneWireProtocol.SYNC)
@@ -95,6 +95,10 @@ object ReportEventOutbox {
             db.insertWithOnConflict("report_events", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L ||
                 exists(db, eventId)
         } catch (_: Exception) { false }
+        // Un reporte nuevo no espera al siguiente onResume ni al intervalo periódico.
+        // La cola SQLite ya es durable; si no hay red, el evento permanece para reintento.
+        if (stored) PayrollRequestSync.sync(context, true)
+        return stored
     }
 
     @Synchronized
