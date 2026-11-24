@@ -15,7 +15,38 @@ object PayrollRequestSync {
     private const val CURSOR = "server_cursor"
     private const val LAST_ATTEMPT = "last_attempt"
     private const val ACKED_REQUESTS = "acked_request_ids"
+    private const val PENDING_DECISION_ACKS = "pending_decision_acks"
     private val running = AtomicBoolean(false)
+
+    private fun decisionAcks(prefs: android.content.SharedPreferences): JSONArray =
+        try { JSONArray(prefs.getString(PENDING_DECISION_ACKS, "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+
+    private fun mergeDecisionAcks(prefs: android.content.SharedPreferences, ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val merged = linkedSetOf<String>()
+        val old = decisionAcks(prefs)
+        for (i in 0 until old.length()) old.optString(i).takeIf { it.isNotBlank() }?.let { merged.add(it) }
+        merged.addAll(ids.filter { it.isNotBlank() })
+        prefs.edit().putString(PENDING_DECISION_ACKS, JSONArray(merged.toList()).toString()).commit()
+    }
+
+    private fun clearDecisionAcks(prefs: android.content.SharedPreferences, confirmations: JSONArray?) {
+        if (confirmations == null || confirmations.length() == 0) return
+        val confirmed = mutableSetOf<String>()
+        for (i in 0 until confirmations.length()) {
+            val item = confirmations.opt(i)
+            val id = if (item is JSONObject) item.optString("e", item.optString("id")) else item?.toString().orEmpty()
+            if (id.isNotBlank()) confirmed.add(id)
+        }
+        if (confirmed.isEmpty()) return
+        val remaining = decisionAcks(prefs)
+        val keep = JSONArray()
+        for (i in 0 until remaining.length()) {
+            val id = remaining.optString(i)
+            if (id.isNotBlank() && id !in confirmed) keep.put(id)
+        }
+        prefs.edit().putString(PENDING_DECISION_ACKS, keep.toString()).commit()
+    }
 
     private fun acknowledgedRequests(prefs: android.content.SharedPreferences): Set<String> {
         return try {
@@ -198,6 +229,7 @@ object PayrollRequestSync {
                     .put(SeneWireProtocol.FIELD_INSTALLATION_ID, ActivationApi.installationId(app))
                     .put(SeneWireProtocol.FIELD_CURSOR, prefs.getString(CURSOR, "").orEmpty())
                     .put(SeneWireProtocol.FIELD_REQUESTS, requests)
+                    .put(SeneWireProtocol.FIELD_DECISION_ACKS, decisionAcks(prefs))
                     .put(SeneWireProtocol.FIELD_ATTENDANCE_EVENTS, AttendanceEventOutbox.pending(app))
                     .put(SeneWireProtocol.FIELD_INVENTORY_EVENTS, InventoryEventOutbox.pending(app))
                     .put(SeneWireProtocol.FIELD_REPORT_EVENTS, ReportEventOutbox.pending(app))
@@ -217,6 +249,7 @@ object PayrollRequestSync {
                     ?: response.optJSONArray("request_acks") ?: JSONArray()
                 saveRequestAcknowledgements(prefs, requestAcks)
                 val decisions = response.optJSONArray("d") ?: response.optJSONArray("decisions") ?: JSONArray()
+                val processedDecisionAcks = mutableSetOf<String>()
                 for (i in 0 until decisions.length()) {
                     val decision = decisions.optJSONObject(i) ?: continue
                     val id = decision.optString("e", decision.optString("request_id"))
@@ -230,10 +263,15 @@ object PayrollRequestSync {
                         decision.opt("at")?.takeIf { it !is org.json.JSONObject && it != JSONObject.NULL }
                             ?: decision.opt("decided_at")
                     )
-                    EmployeePayroll.applyDecision(app, id, state == "APPROVED",
+                    val applied = EmployeePayroll.applyDecision(app, id, state == "APPROVED",
                         decision.optString("by", decision.optString("decided_by")), decidedAt,
                         decision.optString("rr", decision.optString("rejection_reason")))
+                    if (applied) processedDecisionAcks.add(id)
                 }
+                mergeDecisionAcks(prefs, processedDecisionAcks)
+                val decisionAckConfirmations = response.optJSONArray(SeneWireProtocol.FIELD_DECISION_ACK_CONFIRMATIONS)
+                    ?: response.optJSONArray("decision_ack_acks")
+                clearDecisionAcks(prefs, decisionAckConfirmations)
                 val attendanceAcks = response.optJSONArray(SeneWireProtocol.FIELD_ATTENDANCE_ACKS) ?: response.optJSONArray("attendance_acks") ?: JSONArray()
                 AttendanceEventOutbox.acknowledge(app, attendanceAcks)
                 val inventoryAcks = response.optJSONArray(SeneWireProtocol.FIELD_SALES_INVENTORY_ACKS) ?: response.optJSONArray("inventory_acks") ?: JSONArray()
