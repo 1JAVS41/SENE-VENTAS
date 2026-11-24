@@ -37,7 +37,8 @@ object EmployeePayroll {
     data class PayrollCalculation(
         val grossCents:Long,val absences:Int,val absenceDeductionCents:Long,
         val earlyExitMinutes:Long,val earlyExitDeductionCents:Long,
-        val consumptionCents:Long,val loanCents:Long,val netCents:Long
+        val consumptionCents:Long,val loanCents:Long,val netCents:Long,
+        val overtimeCents:Long=0L,val baseGrossCents:Long=0L
     )
 
     private fun displayDate(ts:Long)=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date(ts))
