@@ -15,6 +15,7 @@ object EmployeePayroll {
     private const val CONFIGS="employee_configs"
     private const val ENTRIES="payroll_entries"
     private const val ATTENDANCE="attendance_days"
+    private const val PAID_PAYROLLS="paid_payroll_snapshots"
 
     data class Config(
         val employee:String,val dailyHours:Int,val weeklySalaryCents:Long,
@@ -32,7 +33,7 @@ object EmployeePayroll {
     )
     data class Attendance(val employeeId:String,val date:String,val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false,val startWireQueued:Boolean=true,val closeWireQueued:Boolean=true)
 
-    data class WeeklyDay(val day:String,val status:String,val started:String="",val closed:String="")
+    data class ShiftDetail(val startedAt:Long,val closedAt:Long,val closureReason:String="",val closureSource:String="",val completedWorkday:Boolean=false)\n    data class WeeklyDay(val day:String,val status:String,val started:String="",val closed:String="",val shifts:List<ShiftDetail> = emptyList())
     data class PayrollCalculation(
         val grossCents:Long,val absences:Int,val absenceDeductionCents:Long,
         val earlyExitMinutes:Long,val earlyExitDeductionCents:Long,
@@ -61,87 +62,117 @@ object EmployeePayroll {
     fun calculateCurrentPeriod(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):PayrollCalculation {
         val cfg=config(c,employeeId) ?: return PayrollCalculation(0,0,0,0,0,0,0,0)
         val periodEnd=periodKey(ts,cfg.payDay)
+        val paidRoot=try{JSONObject(prefs(c).getString("paid_payroll_snapshots","{}")?:"{}")}catch(_:Exception){JSONObject()}
+        val paid=paidRoot.optJSONObject(employeeId)?.optJSONObject(periodEnd)
+        if(paid!=null)return PayrollCalculation(paid.optLong("gross"),paid.optInt("absences"),paid.optLong("absence"),paid.optLong("earlyMinutes"),paid.optLong("early"),paid.optLong("consumption"),paid.optLong("loan"),paid.optLong("net"),paid.optLong("overtime"),paid.optLong("baseGross"))
         val periodStart=displayDate(Calendar.getInstance().apply{timeInMillis=parseDate(periodEnd);add(Calendar.DAY_OF_YEAR,-6)}.timeInMillis)
         val effective=effectiveStartDate(c,employeeId)
         val payableStart=if(effective.isNotBlank()&&effective>periodStart)effective else periodStart
         val payableDays=scheduledDaysBetween(payableStart,periodEnd,cfg.workDaysOfWeek)
         val today=displayDate(ts)
-        val records=attendance(c).filter{it.employeeId==employeeId}
-        val attended=records.filter{it.startedAt>0L}.map{it.date}.toSet()
-        // El sueldo ganado solo incluye jornadas ya terminadas. Un turno en curso
-        // no genera todavía el importe de ese día; una salida anticipada sí genera
-        // el día y su descuento proporcional se calcula abajo.
-        val completedDates=records.filter{record->
-            record.date in payableStart..periodEnd && record.closedAt>0L &&
-                (record.completedWorkday || record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()) &&
-                !record.closureSource.equals("PATRÓN",true) &&
-                !record.closureSource.equals("ADMIN_FORCED",true) &&
-                !record.closureSource.equals("ADMINISTRATIVE",true)
-        }.map{it.date}.toSet()
+        val records=attendance(c).filter{it.employeeId==employeeId&&it.startedAt>0L}
+        val byDay=records.groupBy{it.date}
+        val attended=byDay.keys
+        val completedToday=byDay[today]?.let{dayRows->
+            val open=dayRows.any{it.closedAt<=0L}
+            val worked=dayRows.sumOf{(it.closedAt-it.startedAt).coerceAtLeast(0L)}
+            !open&&(worked>=cfg.dailyHours*3600000L||dayRows.any{it.closureSource.equals("TRABAJADOR",true)&&it.closureReason.isNotBlank()&&!it.completedWorkday})
+        }?:false
         val yesterday=displayDate(Calendar.getInstance().apply{timeInMillis=ts;add(Calendar.DAY_OF_YEAR,-1)}.timeInMillis)
-        val accruedEnd=if(today in completedDates) minOf(today,periodEnd) else minOf(yesterday,periodEnd)
+        val accruedEnd=if(completedToday)minOf(today,periodEnd) else minOf(yesterday,periodEnd)
         val accruedDays=if(accruedEnd>=payableStart)scheduledDaysBetween(payableStart,accruedEnd,cfg.workDaysOfWeek) else 0
-        val gross=if(cfg.workDays>0)(cfg.weeklySalaryCents*accruedDays/cfg.workDays).coerceAtMost(cfg.weeklySalaryCents) else 0L
+        val configuredDays=cfg.workDaysOfWeek.size
+        val periodMaximum=if(configuredDays>0)(cfg.weeklySalaryCents*payableDays/configuredDays).coerceAtMost(cfg.weeklySalaryCents) else 0L
+        val baseGross=if(configuredDays>0)(cfg.weeklySalaryCents*accruedDays/configuredDays).coerceAtMost(periodMaximum) else 0L
+        val hourlyRate=if(configuredDays>0&&cfg.dailyHours>0)cfg.weeklySalaryCents/(configuredDays.toLong()*cfg.dailyHours) else 0L
+        var overtimeMillis=0L
+        if(accruedDays>0&&payableStart<=accruedEnd){
+            val cal=Calendar.getInstance().apply{timeInMillis=parseDate(payableStart)}
+            val last=parseDate(accruedEnd)
+            var guard=0
+            while(cal.timeInMillis<=last&&guard++<370){
+                val key=displayDate(cal.timeInMillis)
+                val worked=byDay[key].orEmpty().sumOf{(it.closedAt-it.startedAt).coerceAtLeast(0L)}
+                overtimeMillis+=(worked-cfg.dailyHours*3600000L).coerceAtLeast(0L)
+                cal.add(Calendar.DAY_OF_YEAR,1)
+            }
+        }
+        val overtimeCents=(hourlyRate.toDouble()*overtimeMillis/3600000.0).toLong()
+        val todayRows=byDay[today].orEmpty()
+        val partialTodayMillis=if(todayRows.any{it.closedAt<=0L})todayRows.filter{it.closedAt>0L}.sumOf{(it.closedAt-it.startedAt).coerceAtLeast(0L)} else 0L
+        val partialTodayCents=(hourlyRate.toDouble()*partialTodayMillis/3600000.0).toLong()
+        val gross=baseGross+overtimeCents+partialTodayCents
         val startCal=Calendar.getInstance().apply{timeInMillis=parseDate(payableStart)}
         var absences=0;var guard=0
         while(displayDate(startCal.timeInMillis)<today&&displayDate(startCal.timeInMillis)<=periodEnd&&guard++<370){
-            if(startCal.get(Calendar.DAY_OF_WEEK) in cfg.workDaysOfWeek && displayDate(startCal.timeInMillis) !in attended)absences++
+            if(startCal.get(Calendar.DAY_OF_WEEK) in cfg.workDaysOfWeek&&displayDate(startCal.timeInMillis) !in attended)absences++
             startCal.add(Calendar.DAY_OF_YEAR,1)
         }
-        val absenceDeduction=(cfg.weeklySalaryCents*absences/cfg.workDays.coerceAtLeast(1)).coerceAtMost(gross)
-        val earlyRecords=records.filter{record->
-            record.date>=periodStart&&record.date<=today&&record.startedAt>0L&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday
+        val rawAbsence=(cfg.weeklySalaryCents*absences/configuredDays.coerceAtLeast(1)).coerceAtMost(gross)
+        var earlyMinutes=0L
+        var rawEarly=0L
+        byDay.filterKeys{it>=periodStart&&it<=today}.forEach{(_,dayRows)->
+            val open=dayRows.any{it.closedAt<=0L}
+            val hasEarly=dayRows.any{it.closureSource.equals("TRABAJADOR",true)&&it.closureReason.isNotBlank()&&!it.completedWorkday}
+            if(!open&&hasEarly){
+                val worked=dayRows.sumOf{(it.closedAt-it.startedAt).coerceAtLeast(0L)}
+                val missing=(cfg.dailyHours*3600000L-worked).coerceAtLeast(0L)
+                if(missing>=60000L){
+                    earlyMinutes+=(missing+59999L)/60000L
+                    rawEarly+=(hourlyRate.toDouble()*missing/3600000.0).toLong().coerceAtLeast(0L)
+                }
+            }
         }
-        val earlyMissing=earlyRecords.map{record->(record.startedAt+cfg.dailyHours*3600000L-record.closedAt).coerceAtLeast(0L)}
-            .filter{it>=60000L}
-        val earlyMinutes=earlyMissing.sumOf{(it+59999L)/60000L}
-        val earlyAmount=if(cfg.workDays>0&&cfg.dailyHours>0){
-            earlyMissing.sumOf{missing->(cfg.weeklySalaryCents.toDouble()/cfg.workDays.toDouble()/cfg.dailyHours.toDouble()*(missing/3600000.0)).toLong().coerceAtLeast(0L)}
-        }else 0L
-        val earlyDeduction=earlyAmount.coerceAtMost((gross-absenceDeduction).coerceAtLeast(0L))
-        val pending=entriesForCurrentPeriod(c,employeeId,ts)
-        val approved=pending.filter{it.status=="APPROVED"}
-        val consumption=approved.filter{it.type==TYPE_CONSUMPTION}.sumOf{it.amountCents}
-        val loans=approved.filter{it.type==TYPE_LOAN}.sumOf{it.amountCents}
-        val net=(gross-absenceDeduction-earlyDeduction-consumption-loans).coerceAtLeast(0L)
-        return PayrollCalculation(gross,absences,absenceDeduction,earlyMinutes,earlyDeduction,consumption,loans,net)
+        val approved=entriesForCurrentPeriod(c,employeeId,ts).filter{it.status=="APPROVED"}
+        val rawConsumption=approved.filter{it.type==TYPE_CONSUMPTION}.sumOf{it.amountCents}
+        val rawLoans=approved.filter{it.type==TYPE_LOAN}.sumOf{it.amountCents}
+        var discountRoom=gross/2L
+        val absenceDeduction=rawAbsence.coerceAtMost(discountRoom);discountRoom-=absenceDeduction
+        val earlyDeduction=rawEarly.coerceAtMost(discountRoom);discountRoom-=earlyDeduction
+        val loans=rawLoans.coerceAtMost(discountRoom);discountRoom-=loans
+        val consumption=rawConsumption.coerceAtMost(discountRoom)
+        val net=(gross-absenceDeduction-earlyDeduction-loans-consumption).coerceAtLeast(0L)
+        return PayrollCalculation(gross,absences,absenceDeduction,earlyMinutes,earlyDeduction,consumption,loans,net,overtimeCents,baseGross)
     }
 
-    /** Semana calendario de lunes a domingo, con los mismos estados que muestra SENE ADMIN. */
+        /** Semana calendario de lunes a domingo, con los mismos estados que muestra SENE ADMIN. */
     fun weekAttendance(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):List<WeeklyDay> {
         val cfg=config(c,employeeId) ?: return emptyList()
         val effective=effectiveStartDate(c,employeeId)
         val periodEnd=periodKey(ts,cfg.payDay)
         val periodStart=displayDate(Calendar.getInstance().apply{timeInMillis=parseDate(periodEnd);add(Calendar.DAY_OF_YEAR,-6)}.timeInMillis)
         val today=displayDate(ts)
-        val all=attendance(c).filter{it.employeeId==employeeId}.associateBy{it.date}
+        val byDay=attendance(c).filter{it.employeeId==employeeId&&it.startedAt>0L}.groupBy{it.date}
         return (0..6).map{index->
             val date=Calendar.getInstance().apply{timeInMillis=parseDate(periodStart);add(Calendar.DAY_OF_YEAR,index)}
             val key=displayDate(date.timeInMillis)
-            val record=all[key]
-            val dayName=when(date.get(Calendar.DAY_OF_WEEK)){
-                Calendar.SUNDAY->"DOMINGO";Calendar.MONDAY->"LUNES";Calendar.TUESDAY->"MARTES"
-                Calendar.WEDNESDAY->"MIÉRCOLES";Calendar.THURSDAY->"JUEVES";Calendar.FRIDAY->"VIERNES";else->"SÁBADO"
-            }
+            val rows=byDay[key].orEmpty().sortedBy{it.startedAt}
+            val worked=rows.sumOf{if(it.closedAt>0L)(it.closedAt-it.startedAt).coerceAtLeast(0L) else 0L}
+            val open=rows.any{it.closedAt<=0L}
             val status=when{
-                record!=null&&record.closedAt>0L&&record.closureSource.equals("TRABAJADOR",true)&&record.closureReason.isNotBlank()&&!record.completedWorkday -> "EARLY_EXIT"
-                record!=null&&record.startedAt>0L&&record.closedAt==0L -> "WORKING"
-                record!=null&&record.startedAt>0L&&record.closedAt>0L&&
-                    (record.closureSource.equals("PATRÓN",true)||record.closureSource.equals("ADMIN_FORCED",true)||record.closureSource.equals("ADMINISTRATIVE",true)) -> "ADMIN_CLOSED"
-                record!=null&&record.startedAt>0L&&record.closedAt>0L -> "WORKED"
-                key>=today -> "FUTURE"
-                date.get(Calendar.DAY_OF_WEEK) !in cfg.workDaysOfWeek -> "FUTURE"
-                effective.isNotBlank()&&key<effective -> "NO_RECORD"
-                else -> "NOT_WORKED"
+                open->"WORKING"
+                rows.isNotEmpty()&&worked>=cfg.dailyHours*3600000L->"WORKED"
+                rows.any{it.closureSource.equals("TRABAJADOR",true)&&it.closureReason.isNotBlank()&&!it.completedWorkday}->"EARLY_EXIT"
+                rows.any{it.closureSource.equals("PATRÓN",true)||it.closureSource.equals("ADMIN_FORCED",true)||it.closureSource.equals("ADMINISTRATIVE",true)}->"ADMIN_CLOSED"
+                rows.isNotEmpty()->"WORKED"
+                key>=today->"FUTURE"
+                date.get(Calendar.DAY_OF_WEEK) !in cfg.workDaysOfWeek->"FUTURE"
+                effective.isNotBlank()&&key<effective->"NO_RECORD"
+                else->"NOT_WORKED"
             }
-            val timeFormat=SimpleDateFormat("HH:mm",Locale("es","MX"))
-            WeeklyDay(dayName,status,
-                record?.startedAt?.takeIf{it>0L}?.let{timeFormat.format(Date(it))}.orEmpty(),
-                record?.closedAt?.takeIf{it>0L}?.let{timeFormat.format(Date(it))}.orEmpty())
+            val first=rows.firstOrNull()
+            val last=rows.lastOrNull()
+            WeeklyDay(
+                when(date.get(Calendar.DAY_OF_WEEK)){Calendar.SUNDAY->"DOMINGO";Calendar.MONDAY->"LUNES";Calendar.TUESDAY->"MARTES";Calendar.WEDNESDAY->"MIÉRCOLES";Calendar.THURSDAY->"JUEVES";Calendar.FRIDAY->"VIERNES";else->"SÁBADO"},
+                status,
+                first?.let{SimpleDateFormat("HH:mm",Locale("es","MX")).format(Date(it.startedAt))}.orEmpty(),
+                last?.takeIf{it.closedAt>0L}?.let{SimpleDateFormat("HH:mm",Locale("es","MX")).format(Date(it.closedAt))}.orEmpty(),
+                rows.map{ShiftDetail(it.startedAt,it.closedAt,it.closureReason,it.closureSource,it.completedWorkday)}
+            )
         }
     }
 
-    private fun prefs(c:Context)=c.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        private fun prefs(c:Context)=c.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
     private fun activeId(c:Context):String=Store.shift(c)?.optString("employeeId").orEmpty()
     private fun dateKey(ts:Long):String=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date(ts))
     private fun parseDate(s:String):Long=try{SimpleDateFormat("yyyy-MM-dd",Locale.US).parse(s)?.time?:0L}catch(_:Exception){0L}
@@ -271,44 +302,45 @@ object EmployeePayroll {
 
     @Synchronized fun recordShiftStart(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Boolean {
         if(employeeId.isBlank())return false
-        val key=dateKey(ts)
         val all=attendance(c).toMutableList()
-        val index=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(index>=0)all[index]=all[index].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="",
-            startWireQueued=false,closeWireQueued=true)
-        else all.add(Attendance(employeeId,key,ts,0L,startWireQueued=false,closeWireQueued=true))
+        if(all.any{it.employeeId==employeeId&&it.startedAt>0L&&it.closedAt<=0L})return false
+        val key=dateKey(ts)
+        val record=Attendance(employeeId,key,ts,0L,startWireQueued=false,closeWireQueued=true)
+        all.add(record)
         val saved=saveAttendance(c,all)
         val eventId="ATT:$employeeId:$key:START:$ts"
         val queued=AttendanceEventOutbox.enqueue(c,employeeId,key,SeneWireProtocol.IN_PROGRESS,ts,0L,"","TRABAJADOR",eventId)
-        if(queued&&saved)ensureAttendanceEventsQueued(c)
-        PayrollRequestSync.sync(c,true)
+        if(saved&&queued){
+            val updated=attendance(c).map{if(it.employeeId==employeeId&&it.date==key&&it.startedAt==ts)it.copy(startWireQueued=true)else it}
+            saveAttendance(c,updated)
+        }
+        // Los inicios de turno siempre se envían inmediatamente, sin esperar el lote de tres horas.
+        if(queued)PayrollRequestSync.sync(c,true)
         return saved&&queued
     }
 
     @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false,startedAt:Long=0L):Boolean {
         if(employeeId.isBlank())return false
         val all=attendance(c).toMutableList()
-        val start=if(startedAt>0L)startedAt else all.filter{it.employeeId==employeeId&&it.startedAt>0L&&it.closedAt==0L&&it.startedAt<ts}.maxByOrNull{it.startedAt}?.startedAt?:0L
-        val key=dateKey(if(start>0L)start else ts)
-        val index=all.indexOfFirst{it.employeeId==employeeId&&it.date==key}
-        if(index>=0)all[index]=all[index].copy(closedAt=ts,closureReason=reason,closureSource=source,
-            completedWorkday=completedWorkday,closeWireQueued=false)
-        else all.add(Attendance(employeeId,key,start,ts,reason,source,completedWorkday,true,false))
+        val index=all.indices.filter{idx->val item=all[idx];item.employeeId==employeeId&&item.startedAt>0L&&item.closedAt<=0L&&(startedAt<=0L||item.startedAt==startedAt)&&item.startedAt<ts}
+            .maxByOrNull{all[it].startedAt}?:return false
+        val old=all[index]
+        val key=old.date
+        all[index]=old.copy(closedAt=ts,closureReason=reason,closureSource=source,completedWorkday=completedWorkday,closeWireQueued=false)
         val saved=saveAttendance(c,all)
-        val state=when {
+        val state=when{
             source.equals("PATRÓN",true)||source.equals("ADMIN_FORCED",true)||source.equals("ADMINISTRATIVE",true)->SeneWireProtocol.ADMIN_CLOSE
             completedWorkday->SeneWireProtocol.FULL_SHIFT
             else->SeneWireProtocol.EARLY_CLOSE
         }
         val eventId="ATT:$employeeId:$key:CLOSE:$ts"
-        // Si el registro local quedó guardado, encolar primero el inicio y luego el cierre.
-        // Si falló el guardado local, el evento de cierre todavía transporta ambas horas.
-        val queued=if(saved)ensureAttendanceEventsQueued(c)
-            else AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source,eventId)
+        val queued=if(saved)ensureAttendanceEventsQueued(c) else AttendanceEventOutbox.enqueue(c,employeeId,key,state,old.startedAt,ts,reason,source,eventId)
+        // Los cierres también son prioritarios y nunca esperan al envío de ventas/gastos.
         if(queued)PayrollRequestSync.sync(c,true)
         return saved&&queued
     }
     // Todos los resúmenes y límites usan el mismo cálculo efectivo de nómina.
+        // Todos los resúmenes y límites usan el mismo cálculo efectivo de nómina.
     // Así no se descuentan días anteriores al primer turno ni cierres administrativos.
     fun absences(c:Context,employeeId:String,ts:Long=System.currentTimeMillis()):Int =
         calculateCurrentPeriod(c,employeeId,ts).absences
@@ -385,10 +417,22 @@ object EmployeePayroll {
     }
     fun pendingRequests(c:Context,employeeId:String=activeId(c)):List<Entry> = entries(c,employeeId).filter{it.status=="PENDING"}
     fun markSettled(c:Context,period:String,employeeId:String):Boolean{
+        if(period.isBlank()||employeeId.isBlank())return false
+        val root=try{JSONObject(prefs(c).getString(PAID_PAYROLLS,"{}")?:"{}")}catch(_:Exception){JSONObject()}
+        val worker=root.optJSONObject(employeeId)?:JSONObject()
+        if(worker.has(period))return false
+        val calculation=calculateCurrentPeriod(c,employeeId)
+        val snapshot=JSONObject().put("gross",calculation.grossCents).put("baseGross",calculation.baseGrossCents)
+            .put("overtime",calculation.overtimeCents).put("absences",calculation.absences)
+            .put("absence",calculation.absenceDeductionCents).put("earlyMinutes",calculation.earlyExitMinutes)
+            .put("early",calculation.earlyExitDeductionCents).put("consumption",calculation.consumptionCents)
+            .put("loan",calculation.loanCents).put("net",calculation.netCents)
+        worker.put(period,snapshot);root.put(employeeId,worker)
+        if(!prefs(c).edit().putString(PAID_PAYROLLS,root.toString()).commit())return false
         val updated=entries(c).map{if(it.employeeId==employeeId&&it.periodKey==period&&it.status=="APPROVED"&&!it.settled)it.copy(settled=true)else it}
         return saveEntries(c,updated)
     }
-    fun entriesForCurrentPeriod(c:Context,employeeId:String=activeId(c),ts:Long=System.currentTimeMillis()):List<Entry>{
+        fun entriesForCurrentPeriod(c:Context,employeeId:String=activeId(c),ts:Long=System.currentTimeMillis()):List<Entry>{
         val cfg=config(c,employeeId)?:return emptyList();val key=periodKey(ts,cfg.payDay)
         return entries(c,employeeId).filter{it.periodKey==key&&!it.settled}
     }
