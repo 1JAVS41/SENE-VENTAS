@@ -74,7 +74,8 @@ object ReportEventOutbox {
         workerId: String,
         reportType: String,
         encryptedPayload: String,
-        createdAt: Long = System.currentTimeMillis()
+        createdAt: Long = System.currentTimeMillis(),
+        triggerSync: Boolean = true
     ): Boolean {
         if (eventId.isBlank() || encryptedPayload.isBlank()) return false
         val stored = try {
@@ -97,7 +98,7 @@ object ReportEventOutbox {
         } catch (_: Exception) { false }
         // Un reporte nuevo no espera al siguiente onResume ni al intervalo periódico.
         // La cola SQLite ya es durable; si no hay red, el evento permanece para reintento.
-        if (stored) PayrollRequestSync.sync(context, true)
+        if (stored && triggerSync) PayrollRequestSync.sync(context, true)
         return stored
     }
 
