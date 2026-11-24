@@ -18,6 +18,14 @@ object PayrollRequestSync {
     private const val PENDING_DECISION_ACKS = "pending_decision_acks"
     private val running = AtomicBoolean(false)
 
+    private fun firstBatch(source: JSONArray, limit: Int = 100): JSONArray {
+        val result = JSONArray()
+        for (i in 0 until minOf(source.length(), limit)) {
+            try { result.put(source.get(i)) } catch (_: Exception) { }
+        }
+        return result
+    }
+
     private fun decisionAcks(prefs: android.content.SharedPreferences): JSONArray =
         try { JSONArray(prefs.getString(PENDING_DECISION_ACKS, "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
 
@@ -228,7 +236,7 @@ object PayrollRequestSync {
                 val pending = EmployeePayroll.entries(app).filter {
                     it.status == "PENDING" && !it.settled && it.id !in acknowledged &&
                         (it.type == EmployeePayroll.TYPE_LOAN || it.type == EmployeePayroll.TYPE_CONSUMPTION)
-                }
+                }.take(100)
                 val requests = JSONArray()
                 pending.forEach { entry ->
                     val typeCode = if (entry.type == EmployeePayroll.TYPE_LOAN)
@@ -249,10 +257,10 @@ object PayrollRequestSync {
                     .put(SeneWireProtocol.FIELD_INSTALLATION_ID, ActivationApi.installationId(app))
                     .put(SeneWireProtocol.FIELD_CURSOR, prefs.getString(CURSOR, "").orEmpty())
                     .put(SeneWireProtocol.FIELD_REQUESTS, requests)
-                    .put(SeneWireProtocol.FIELD_DECISION_ACKS, decisionAcks(prefs))
-                    .put(SeneWireProtocol.FIELD_ATTENDANCE_EVENTS, AttendanceEventOutbox.pending(app))
-                    .put(SeneWireProtocol.FIELD_INVENTORY_EVENTS, InventoryEventOutbox.pending(app))
-                    .put(SeneWireProtocol.FIELD_REPORT_EVENTS, ReportEventOutbox.pending(app))
+                    .put(SeneWireProtocol.FIELD_DECISION_ACKS, firstBatch(decisionAcks(prefs)))
+                    .put(SeneWireProtocol.FIELD_ATTENDANCE_EVENTS, firstBatch(AttendanceEventOutbox.pending(app)))
+                    .put(SeneWireProtocol.FIELD_INVENTORY_EVENTS, firstBatch(InventoryEventOutbox.pending(app)))
+                    .put(SeneWireProtocol.FIELD_REPORT_EVENTS, firstBatch(ReportEventOutbox.pending(app)))
                 prefs.edit().putLong(LAST_ATTEMPT, now).commit()
                 val response = ActivationApi.post("/payroll/requests/sync", payload)
                 val status = response.optInt("_http_status", 0)
