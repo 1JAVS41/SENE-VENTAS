@@ -200,7 +200,11 @@ object PayrollRequestSync {
                     .put("s",item.optInt("stock",0).coerceAtLeast(0))
                     .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
             }
-            InventoryEventOutbox.ensureFullSnapshot(app,scope,rows,now)
+            if(Store.inventoryWireDirty(app,scope)) {
+                if(InventoryEventOutbox.enqueue(app,scope,rows,now,true)) Store.clearInventoryWireDirty(app,scope)
+            } else {
+                InventoryEventOutbox.ensureFullSnapshot(app,scope,rows,now)
+            }
         }
         // El inventario maestro se conserva aparte del inventario operativo del turno.
         enqueue("M",Store.masterProducts(app))
