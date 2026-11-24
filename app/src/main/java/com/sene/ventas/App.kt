@@ -1285,6 +1285,42 @@ class MainActivity:FragmentActivity(){
     whatsapp(this,text)
    }.setNegativeButton("CANCELAR",null).show()
  }
+ private fun showMyRequests(){
+  val employeeId=Store.shift(this)?.optString("employeeId").orEmpty()
+  if(employeeId.isBlank()){msg("No se encontró el perfil del trabajador.");return}
+  val requests=EmployeePayroll.pendingRequests(this,employeeId)
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(10),dp(14),dp(16));setBackgroundColor(0xFFF2F6FC.toInt())}
+  fun requestCard(title:String,detail:String,bg:Int,fg:Int){
+   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(13),dp(12),dp(13),dp(12));background=rounded(bg,16)}
+   card.addView(TextView(this).apply{text=title;textSize=14f;typeface=Typeface.DEFAULT_BOLD;setTextColor(fg)})
+   card.addView(TextView(this).apply{text=detail;textSize=13f;setTextColor(0xFF33445F.toInt());setPadding(0,dp(5),0,0)})
+   panel.addView(card,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(8)})
+  }
+  requestCard("AZUL · ACTIVA","Esperando respuesta del patrón.",0xFFDCEBFA.toInt(),0xFF245B9A.toInt())
+  requestCard("VERDE · APROBADA","Solicitud autorizada por el patrón.",0xFFDDF4E5.toInt(),0xFF176344.toInt())
+  requestCard("ROJO · RECHAZADA","Solicitud no autorizada por el patrón.",0xFFFFE4E1.toInt(),0xFFB3261E.toInt())
+  if(requests.isEmpty()){
+   requestCard("SIN SOLICITUDES","No tienes solicitudes registradas en este ciclo de nómina.",0xFFFFFFFF.toInt(),0xFF33445F.toInt())
+  }else requests.forEach{entry->
+   val kind=if(entry.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
+   val (bg,fg,state)=when(entry.status){
+    "APPROVED"->Triple(0xFFDDF4E5.toInt(),0xFF176344.toInt(),"APROBADA")
+    "REJECTED"->Triple(0xFFFFE4E1.toInt(),0xFFB3261E.toInt(),"RECHAZADA")
+    else->Triple(0xFFDCEBFA.toInt(),0xFF245B9A.toInt(),"ACTIVA · ESPERANDO RESPUESTA")
+   }
+   val detail=buildString{
+    append(state).append("\n")
+    append("Importe: ").append(EmployeePayroll.money(entry.amountCents))
+    if(entry.description.isNotBlank())append("\nDetalle: ").append(entry.description)
+    if(entry.reason.isNotBlank())append("\nMotivo: ").append(entry.reason)
+    if(entry.rejectionReason.isNotBlank())append("\nMotivo de rechazo: ").append(entry.rejectionReason)
+    append("\nFecha: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
+   }
+   requestCard(kind,detail,bg,fg)
+  }
+  requestCard("IMPORTANTE","Tus solicitudes permanecen visibles durante todo el ciclo, incluso después de cerrar tu turno. Se conservarán hasta el día de pago.",0xFFFFFFFF.toInt(),0xFF33445F.toInt())
+  AlertDialog.Builder(this).setTitle("MIS SOLICITUDES").setView(ScrollView(this).apply{addView(panel)}).setPositiveButton("CERRAR",null).show()
+ }
  private fun showMyTurnMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   val dialog=AlertDialog.Builder(this).setTitle("MI TURNO").setView(ScrollView(this).apply{addView(panel)}).setNegativeButton("CERRAR",null).create()
@@ -1296,6 +1332,7 @@ class MainActivity:FragmentActivity(){
    card.setOnClickListener{dialog.dismiss();action()}
   }
   option("SOLICITA","Registrar un consumo o solicitar un préstamo"){startActivity(Intent(this,PayrollRequestActivity::class.java))}
+  option("MIS SOLICITUDES","Consultar solicitudes activas, aprobadas y rechazadas hasta el día de pago"){showMyRequests()}
   option("MI NÓMINA","Consultar sueldo, descuentos e historial"){startActivity(Intent(this,PayrollEmployeeActivity::class.java))}
   option("MI JORNADA LABORAL","Consultar entrada, salida estimada y tiempo restante"){showWorkday()}
   option("COMUNICACIÓN","Enviar un mensaje de texto al patrón por WhatsApp"){sendPatronMessage()}
