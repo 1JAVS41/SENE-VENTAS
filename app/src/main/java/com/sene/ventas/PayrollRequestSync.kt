@@ -116,7 +116,15 @@ object PayrollRequestSync {
     private fun migrateLocalPendingReports(app: Context): Boolean {
         if (!ReportPublicKeyStore.hasKey(app)) return false
         val folder = java.io.File(app.filesDir, "REPORTES-PENDIENTES-SERVER")
-        val files = folder.listFiles { file -> file.isFile && file.extension.equals("sene", true) }
+        val files = folder.listFiles { file ->
+            file.isFile && (file.extension.equals("sene", true) || file.name.endsWith(".sene.tmp", true))
+        }?.map { file ->
+            if(file.name.endsWith(".sene.tmp",true)) {
+                val target=java.io.File(folder,file.name.removeSuffix(".tmp"))
+                if(target.isFile) { file.delete(); target }
+                else if(file.renameTo(target)) target else file
+            } else file
+        }?.filter { it.isFile && it.extension.equals("sene",true) }
             ?.sortedBy { it.name } ?: return false
         var migrated = false
         for (file in files) {
