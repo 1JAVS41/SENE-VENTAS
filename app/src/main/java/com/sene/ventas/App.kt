@@ -774,6 +774,10 @@ class InicioTurnoActivity:FragmentActivity(){
       try{ArchiveRetention.cleanupIfDue(appContext,savedTree,ReportCrypto.ownerKey(appContext))}catch(_:Exception){}
      }.start()
      pendingOpenSalesAfterShift=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
+     // Incluso si todavía no llegó la clave pública del administrador, consulta al servidor
+     // ahora: si ya existe una vinculación, recibirá la clave y migrará el reporte local
+     // pendiente en el segundo envío automático, sin esperar a abrir de nuevo la aplicación.
+     PayrollRequestSync.sync(this,true)
      if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
      if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
      else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
