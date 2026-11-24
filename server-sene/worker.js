@@ -486,7 +486,7 @@ async function payrollSync(request, env) {
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body[WIRE.ATTENDANCE]).slice(0,100), inventory=asArray(body[WIRE.INVENTORY]).slice(0,100), reports=asArray(body[WIRE.REPORTS]).slice(0,100);
+  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body[WIRE.ATTENDANCE]).slice(0,100), inventory=asArray(body[WIRE.INVENTORY]).slice(0,100), reports=asArray(body[WIRE.REPORTS]).slice(0,10);
   const statements=[];
   const acceptedR=[];
   for (const item of requests) {
@@ -565,7 +565,7 @@ async function adminPayrollSync(request, env) {
   }
   const attendanceAcks=asArray(body[WIRE.ATTENDANCE_ACKS]).slice(0,300).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   const inventoryAcks=asArray(body[WIRE.INVENTORY_ACKS]).slice(0,300).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).slice(0,10).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   for(const id of attendanceAcks) statements.push(db.prepare("UPDATE attendance_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of inventoryAcks) statements.push(db.prepare("UPDATE inventory_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
@@ -600,7 +600,7 @@ async function adminPayrollSync(request, env) {
   });
   const hRows=await db.prepare("SELECT seq,payload FROM attendance_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 300").bind(businessId).all();
   const gRows=await db.prepare("SELECT seq,payload FROM inventory_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 300").bind(businessId).all();
-  const bRows=await db.prepare("SELECT seq,event_id,envelope FROM report_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 100").bind(businessId).all();
+  const bRows=await db.prepare("SELECT seq,event_id,envelope FROM report_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 10").bind(businessId).all();
   const maxSeq=reqRows.results?.length?reqRows.results[reqRows.results.length-1].seq:requestCursor;
   const parsePayload=rows=>(rows||[]).map(r=>{try{return JSON.parse(r.payload)}catch(_){return null}}).filter(Boolean);
   return json({
