@@ -520,12 +520,12 @@ async function payrollSync(request, env) {
   const decisionAcks=asArray(body[WIRE.DECISION_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   const confirmedDecisionAcks=[];
   if(decisionAcks.length) {
-    const ackResults=await db.batch(decisionAcks.map(id=>db.prepare(
+    await db.batch(decisionAcks.map(id=>db.prepare(
       "UPDATE payroll_requests SET payload=json_set(payload,'$.sda',1),updated_at=? WHERE business_id=? AND event_id=? AND status IN ('APPROVED','REJECTED')"
     ).bind(now,business.id,id)));
-    for(let i=0;i<decisionAcks.length;i++) {
-      if(ackResults[i]?.meta?.changes>0) confirmedDecisionAcks.push(decisionAcks[i]);
-    }
+    // El ACK de ACK confirma la recepción del identificador incluso si el registro
+    // ya fue depurado después de que ambas aplicaciones lo recibieron.
+    confirmedDecisionAcks.push(...decisionAcks);
   }
   await maybeCleanupRetainedHistory(db);
   const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') AND COALESCE(json_extract(payload,'$.sda'),0)=0 ORDER BY seq LIMIT 300")
@@ -580,12 +580,11 @@ async function adminPayrollSync(request, env) {
   const adminDecisionAcks=asArray(body[WIRE.ADMIN_DECISION_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   const confirmedAdminDecisionAcks=[];
   if(adminDecisionAcks.length) {
-    const ackResults=await db.batch(adminDecisionAcks.map(id=>db.prepare(
+    await db.batch(adminDecisionAcks.map(id=>db.prepare(
       "UPDATE payroll_requests SET payload=json_set(payload,'$.ada',1),updated_at=? WHERE business_id=? AND event_id=? AND status IN ('APPROVED','REJECTED')"
     ).bind(now,businessId,id)));
-    for(let i=0;i<adminDecisionAcks.length;i++) {
-      if(ackResults[i]?.meta?.changes>0) confirmedAdminDecisionAcks.push(adminDecisionAcks[i]);
-    }
+    // Un ACK repetido sigue siendo válido si el registro ya salió de la retención.
+    confirmedAdminDecisionAcks.push(...adminDecisionAcks);
   }
   await maybeCleanupRetainedHistory(db);
 
