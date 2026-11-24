@@ -83,7 +83,10 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk dist/SENE-VENTAS.apk
           test -s dist/SENE-VENTAS.apk
           unzip -t dist/SENE-VENTAS.apk >/dev/null
-          apksigner verify --verbose --print-certs dist/SENE-VENTAS.apk
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/apksigner"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs dist/SENE-VENTAS.apk
+          sha256sum dist/SENE-VENTAS.apk
           sha256sum dist/SENE-VENTAS.apk
           if [ "$SENE_STABLE_SIGNING" = "true" ]; then
             echo "APK firmada con la llave permanente configurada."
