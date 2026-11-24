@@ -751,16 +751,9 @@ class InicioTurnoActivity:FragmentActivity(){
     // Solo se crea el sobre RSA del servidor cuando la clave pública ya está disponible.
     val serverLinked=ReportPublicKeyStore.hasKey(this)
     val encryptedStart=if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null
-    if(encryptedStart==null){
-     val pendingFolder=java.io.File(filesDir,"REPORTES-PENDIENTES-SERVER")
-     if(!pendingFolder.exists()&&!pendingFolder.mkdirs())throw java.io.IOException("No se pudo crear el almacenamiento local de reportes pendientes")
-     val safeEvent=startEventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
-     val pendingFile=java.io.File(pendingFolder,"$safeEvent.sene")
-     val pendingEnvelope=JSONObject().put("e",startEventKey).put("w",workerId)
-      .put("k",SeneWireProtocol.IN_PROGRESS).put("b",body)
-     pendingFile.writeBytes(InventoryCrypto.encrypt(pendingEnvelope.toString().toByteArray(Charsets.UTF_8)))
-     if(!pendingFile.isFile||pendingFile.length()==0L)throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
-    }
+    if(encryptedStart==null && !PayrollRequestSync.saveLocalPendingReport(
+      this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body
+     )) throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
     runOnUiThread{
      if(isFinishing||isDestroyed){shiftPreparationRunning=false;progress.dismiss();return@runOnUiThread}
      progress.progress=5
@@ -1705,14 +1698,30 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val stableShiftId=s.optString("shiftId").ifBlank { UUID.randomUUID().toString().also { s.put("shiftId",it); Store.saveShift(this,s) } }
    val eventKey=if(final) "$stableShiftId:CLOSE" else "$stableShiftId:REPORT:${s.optInt("reportCount",0)}"
    pendingReportEventKey=eventKey
-   pendingReportText=ReportCrypto.prepare(this,s.optString("employeeId"),if(final)"CIERRE_TURNO" else "REPORTE_TURNO",body,eventKey)
-   // Guardar primero el mensaje cifrado en almacenamiento privado local de la APK.
-   val encryptedFolder=java.io.File(getExternalFilesDir(null)?:filesDir,"REPORTES-CIFRADOS")
-   if(!encryptedFolder.exists()&&!encryptedFolder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local de reportes cifrados")
-   val safeEvent=eventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
-   val encryptedFile=java.io.File(encryptedFolder,"$safeEvent.txt")
-   encryptedFile.writeText(pendingReportText?:throw java.io.IOException("No se generó el reporte cifrado"),Charsets.UTF_8)
-   if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
+   val workerId=s.optString("employeeId")
+   val wireType=if(final) when(s.optString("closingType")) {
+    "EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE
+    "ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE
+    else->SeneWireProtocol.FULL_SHIFT
+   } else SeneWireProtocol.SYNC
+   // Sin clave pública, el reporte no bloquea el cierre: queda cifrado localmente
+   // en la cola pendiente y se convertirá al sobre RSA cuando llegue la clave.
+   pendingReportText=try {
+    if(ReportPublicKeyStore.hasKey(this))
+     ReportCrypto.prepare(this,workerId,if(final)"CIERRE_TURNO" else "REPORTE_TURNO",body,eventKey)
+    else null
+   } catch(_:Exception) { null }
+   if(pendingReportText.isNullOrBlank()) {
+    if(!PayrollRequestSync.saveLocalPendingReport(this,eventKey,workerId,wireType,body))
+     throw java.io.IOException("No se pudo guardar el reporte cifrado local pendiente de envío")
+   } else {
+    val encryptedFolder=java.io.File(getExternalFilesDir(null)?:filesDir,"REPORTES-CIFRADOS")
+    if(!encryptedFolder.exists()&&!encryptedFolder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local de reportes cifrados")
+    val safeEvent=eventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
+    val encryptedFile=java.io.File(encryptedFolder,"$safeEvent.txt")
+    encryptedFile.writeText(pendingReportText!!,Charsets.UTF_8)
+    if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
+   }
    // Se conservan referencias para crear los respaldos secundarios después de que el
    // reporte cifrado ya esté en la cola durable y el trabajador pueda salir del turno.
    pendingBackupTree=tree
@@ -1735,11 +1744,21 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }.start()
  }
  private fun launchPendingReportShare(){
-  val body=pendingReportText?:return
+  val body=pendingReportText
   val shift=Store.shift(this)
   val workerId=shift?.optString("employeeId").orEmpty()
   val reportType=if(!pendingFinalShare) SeneWireProtocol.SYNC else when(shift?.optString("closingType")){ "EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE; "ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE; else->SeneWireProtocol.FULL_SHIFT }
-  val queued=ReportEventOutbox.enqueue(this,pendingReportEventKey,workerId,reportType,body)
+  val queued=if(!body.isNullOrBlank()) {
+   ReportEventOutbox.enqueue(this,pendingReportEventKey,workerId,reportType,body)
+  } else {
+   val safeEvent=pendingReportEventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
+   val pendingFile=java.io.File(filesDir,"REPORTES-PENDIENTES-SERVER/$safeEvent.sene")
+   try {
+    pendingFile.isFile && pendingFile.length()>0L &&
+     JSONObject(InventoryCrypto.decrypt(pendingFile.readBytes()).toString(Charsets.UTF_8))
+      .optString("e")==pendingReportEventKey
+   } catch(_:Exception) { false }
+  }
   if(!queued){
    msg("No se pudo guardar el reporte en la cola segura. El turno permanece protegido; vuelve a intentar.")
    return
@@ -2512,8 +2531,13 @@ object ReportFile {
   val workerId=movement.optString("employeeId").ifBlank{shift?.optString("employeeId").orEmpty()}
   val eventId=java.util.UUID.randomUUID().toString()
   val body=file.readText(Charsets.UTF_8)
-  val encrypted=ReportCrypto.prepare(c,workerId,SeneWireProtocol.SYNC,body,eventId)
-  if(ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)) PayrollRequestSync.sync(c,true)
+  val encrypted=try {
+   if(ReportPublicKeyStore.hasKey(c))ReportCrypto.prepare(c,workerId,SeneWireProtocol.SYNC,body,eventId) else null
+  } catch(_:Exception) { null }
+  val queued=if(!encrypted.isNullOrBlank())
+   ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
+  else PayrollRequestSync.saveLocalPendingReport(c,eventId,workerId,SeneWireProtocol.SYNC,body)
+  if(queued)PayrollRequestSync.sync(c,true)
  }
 }
 
