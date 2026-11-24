@@ -71,17 +71,18 @@ object Store {
     old.optString("shelf")!=item.optString("shelf")
    if(before==after&&!metadataChanged)continue
    val delta=after-before
-   changes.put(JSONObject().put("c",code).put("n",item.optString("name"))
-    .put("a",priceCents).put("s",after).put("q",delta)
+   val change=JSONObject().put("c",code).put("s",after).put("q",delta)
     .put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
-    .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+   if(old==null||old.optString("name")!=item.optString("name"))change.put("n",item.optString("name"))
+   if(old==null||(old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents)change.put("a",priceCents)
+   if(old==null||old.optString("aisle")!=item.optString("aisle"))change.put("l",item.optString("aisle"))
+   if(old==null||old.optString("shelf")!=item.optString("shelf"))change.put("h",item.optString("shelf"))
+   changes.put(change)
   }
   // Un producto eliminado del catálogo se representa como existencia cero, no como borrado de historial.
   oldByCode.forEach{(code,item)->
-   if(code !in seen&&item.optInt("stock",0)>0)changes.put(JSONObject().put("c",code)
-    .put("n",item.optString("name")).put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
-    .put("s",0).put("q",-item.optInt("stock",0)).put("x",SeneWireProtocol.STOCK_OUT)
-    .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+   if(code !in seen&&item.optInt("stock",0)>0)changes.put(JSONObject()
+    .put("c",code).put("s",0).put("q",-item.optInt("stock",0)).put("x",SeneWireProtocol.STOCK_OUT))
   }
   val now=System.currentTimeMillis()
   val r=root(c)
@@ -168,10 +169,9 @@ object Store {
     }
     InventoryEventOutbox.enqueue(c,scope,full,changedAt,true,stableEventId)
    } else {
-    val delta=JSONArray().put(JSONObject().put("c",code).put("n",product!!.optString("name"))
-     .put("a",(product!!.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+    val delta=JSONArray().put(JSONObject().put("c",code)
      .put("s",product!!.optInt("stock",0).coerceAtLeast(0)).put("q",-quantity)
-     .put("x",SeneWireProtocol.STOCK_OUT).put("l",product!!.optString("aisle")).put("h",product!!.optString("shelf")))
+     .put("x",SeneWireProtocol.STOCK_OUT))
     InventoryEventOutbox.enqueue(c,scope,delta,changedAt,false,stableEventId)
    }
    if(!queued)return false
