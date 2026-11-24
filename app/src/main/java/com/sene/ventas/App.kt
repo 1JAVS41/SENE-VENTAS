@@ -1640,6 +1640,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private fun completeReport(final:Boolean,tree:Uri){
   if(reportProcessing)return
+  pendingReportText=null
+  pendingReportOutboxQueued=false
   reportProcessing=true
   if(final){sell.isEnabled=false;sell.alpha=0.45f;if(::countdownView.isInitialized)countdownView.text="PREPARANDO REPORTE…"}
   val (workDialog,updateWork)=showWorkProgress(if(final)"Finalizando turno" else "Preparando reporte","Organizando ventas, inventario y respaldos…")
