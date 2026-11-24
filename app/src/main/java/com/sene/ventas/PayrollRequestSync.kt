@@ -245,7 +245,7 @@ object PayrollRequestSync {
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        if (!force && now - prefs.getLong(LAST_ATTEMPT, 0L) < 15L * 60L * 1000L) return
+        if (!force && now - prefs.getLong(LAST_ATTEMPT, 0L) < 3L * 60L * 60L * 1000L) return
         if (!running.compareAndSet(false, true)) {
             if (force) rerunRequested.set(true)
             return
@@ -345,4 +345,15 @@ object PayrollRequestSync {
             }
         }.start()
     }
+    /** Espera a que termine el envío agrupado para que WorkManager no cierre el proceso antes del POST. */
+    fun syncAndWait(context: Context, force: Boolean = true, timeoutMs: Long = 8L * 60L * 1000L): Boolean {
+        sync(context, force)
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            if (!running.get() && !rerunRequested.get()) return true
+            try { Thread.sleep(200L) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+        }
+        return !running.get()
+    }
+
 }
