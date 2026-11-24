@@ -229,7 +229,7 @@ object EmployeePayroll {
                 }.maxByOrNull{merged[it].startedAt}
                 if(previous!=null){
                     val started=merged[previous]
-                    merged[previous]=started.copy(closedAt=closing.closedAt,closureReason=closing.closureReason,closureSource=closing.closureSource,completedWorkday=closing.completedWorkday)
+                    merged[previous]=started.copy(closedAt=closing.closedAt,closureReason=closing.closureReason,closureSource=closing.closureSource,completedWorkday=closing.completedWorkday,closeWireQueued=closing.closeWireQueued)
                     merged.removeAll{it.employeeId==closing.employeeId&&it.date==closing.date&&it.startedAt==0L&&it.closedAt==closing.closedAt}
                 }
             }
