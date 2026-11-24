@@ -89,6 +89,10 @@ jobs:
           unzip -t dist/SENE-VENTAS.apk >/dev/null
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -x "$BUILD_TOOLS/apksigner"
+          if [ "$SENE_STABLE_SIGNING" = "true" ]; then
+            "$BUILD_TOOLS/apksigner" sign --ks "$SENE_KEYSTORE_PATH" --ks-key-alias "$SENE_KEY_ALIAS" --ks-pass env:SENE_STORE_PASSWORD --key-pass env:SENE_KEY_PASSWORD --out dist/SENE-VENTAS-signed.apk dist/SENE-VENTAS.apk
+            mv dist/SENE-VENTAS-signed.apk dist/SENE-VENTAS.apk
+          fi
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs dist/SENE-VENTAS.apk
           sha256sum dist/SENE-VENTAS.apk
           sha256sum dist/SENE-VENTAS.apk
