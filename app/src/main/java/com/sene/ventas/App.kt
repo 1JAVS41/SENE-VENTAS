@@ -1573,6 +1573,12 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private var pendingReportText:String?=null
  private var pendingReportEventKey:String=""
+ // Respaldos secundarios: se ejecutan después de persistir el evento cifrado en la cola.
+ private var pendingBackupTree:Uri?=null
+ private var pendingBackupFile:java.io.File?=null
+ private var pendingBackupProducts:JSONArray?=null
+ private var pendingBackupEmployeeId:String=""
+ private var pendingBackupWorkerName:String=""
  private fun saveReportToPhone(){
   val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
    addCategory(Intent.CATEGORY_OPENABLE)
@@ -1591,12 +1597,9 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    if(s==null){runOnUiThread{reportProcessing=false;workDialog.dismiss()};return@Thread}
    try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
-   runOnUiThread{updateWork("Actualizando inventario maestro y respaldos…")}
-   // Publicar el stock compartido como nuevo inventario maestro y conservar la copia individual.
+   // Captura el inventario actual una sola vez. La publicación y los respaldos externos
+   // son tareas secundarias y ya no retrasan el cierre visible del turno.
    val currentProducts=Store.products(this)
-   Store.publishMasterProducts(this,currentProducts)
-   InventoryArchive.save(this,currentProducts)
-   InventoryArchive.save(this,currentProducts,s.optString("employeeId").takeIf{it.isNotBlank()},s.optString("worker"))
    runOnUiThread{updateWork("Preparando resumen de ventas y nómina…")}
    val file=ReportFile.update(this)
    val closureNote=when(s.optString("closingType")){
@@ -1643,8 +1646,6 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+payrollSummary+inventoryBlock+damagedBlock+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    runOnUiThread{updateWork("Guardando reporte seguro en el teléfono…")}
-   val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
-   pendingShareUri=dailyUri
    val stableShiftId=s.optString("shiftId").ifBlank { UUID.randomUUID().toString().also { s.put("shiftId",it); Store.saveShift(this,s) } }
    val eventKey=if(final) "$stableShiftId:CLOSE" else "$stableShiftId:REPORT:${s.optInt("reportCount",0)}"
    pendingReportEventKey=eventKey
@@ -1656,6 +1657,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val encryptedFile=java.io.File(encryptedFolder,"$safeEvent.txt")
    encryptedFile.writeText(pendingReportText?:throw java.io.IOException("No se generó el reporte cifrado"),Charsets.UTF_8)
    if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
+   // Se conservan referencias para crear los respaldos secundarios después de que el
+   // reporte cifrado ya esté en la cola durable y el trabajador pueda salir del turno.
+   pendingBackupTree=tree
+   pendingBackupFile=file
+   pendingBackupProducts=currentProducts
+   pendingBackupEmployeeId=s.optString("employeeId")
+   pendingBackupWorkerName=s.optString("worker")
    pendingFinalShare=final
    runOnUiThread{
     workDialog.dismiss()
@@ -1680,6 +1688,27 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   if(!queued){
    msg("No se pudo guardar el reporte en la cola segura. El turno permanece protegido; vuelve a intentar.")
    return
+  }
+  // Primero se confirma la cola cifrada y durable. Después se publican inventarios y
+  // respaldos SAF en segundo plano, sin mantener bloqueado el cierre ni la pantalla.
+  val backupTree=pendingBackupTree
+  val backupFile=pendingBackupFile
+  val backupProducts=pendingBackupProducts
+  val backupEmployeeId=pendingBackupEmployeeId
+  val backupWorkerName=pendingBackupWorkerName
+  pendingBackupTree=null
+  pendingBackupFile=null
+  pendingBackupProducts=null
+  pendingBackupEmployeeId=""
+  pendingBackupWorkerName=""
+  if(backupTree!=null&&backupFile!=null&&backupProducts!=null){
+   val appActivity=this@MainActivity
+   Thread{
+    try{Store.publishMasterProducts(appActivity,backupProducts)}catch(_:Exception){}
+    try{InventoryArchive.save(appActivity,backupProducts)}catch(_:Exception){}
+    if(backupEmployeeId.isNotBlank())try{InventoryArchive.save(appActivity,backupProducts,backupEmployeeId,backupWorkerName)}catch(_:Exception){}
+    try{saveDailyReport(backupTree,backupFile,backupEmployeeId,backupWorkerName)}catch(_:Exception){}
+   }.start()
   }
   // La cola es durable: el reporte permanece hasta recibir el ACK del servidor.
   pendingShareUri=null
