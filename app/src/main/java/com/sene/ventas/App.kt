@@ -772,10 +772,9 @@ class InicioTurnoActivity:FragmentActivity(){
       else false
      if(startOutboxQueued)PayrollRequestSync.removeLocalPendingReport(this,startEventKey)
      pendingOpenSalesAfterShift=startOutboxQueued||localStartSaved
-     // Incluso si todavía no llegó la clave pública del administrador, consulta al servidor
-     // ahora: si ya existe una vinculación, recibirá la clave y migrará el reporte local
-     // pendiente en el segundo envío automático, sin esperar a abrir de nuevo la aplicación.
-     PayrollRequestSync.sync(this,true)
+     // La inserción directa ya solicita sincronización; si solo quedó respaldo local,
+     // solicita ahora la migración y la recuperación de la clave pública.
+     if(!startOutboxQueued)PayrollRequestSync.sync(this,true)
      if(!attendanceSaved)msg("Aviso: no se pudo confirmar el registro de asistencia y su envío seguro. El turno y su respaldo permanecen guardados localmente.")
      if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
      else if(!startOutboxQueued)msg("Inicio de turno guardado. El reporte quedó respaldado y cifrado localmente; se enviará a SERVER-SENE cuando la cola y la conexión estén disponibles.")
@@ -1779,7 +1778,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    }.start()
   }
   // La cola RSA o el respaldo local cifrado permanece hasta que SERVER-SENE lo confirme.
-  PayrollRequestSync.sync(this,true)
+  if(!outboxQueued)PayrollRequestSync.sync(this,true)
   pendingShareUri=null
   pendingReportText=null
   val final=pendingFinalShare
@@ -2538,7 +2537,7 @@ object ReportFile {
   val outboxQueued=!encrypted.isNullOrBlank()&&ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
   if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(c,eventId)
   // Si SQLite no acepta el sobre, el respaldo cifrado local sigue en la cola pendiente.
-  PayrollRequestSync.sync(c,true)
+  if(!outboxQueued)PayrollRequestSync.sync(c,true)
  }
 }
 
