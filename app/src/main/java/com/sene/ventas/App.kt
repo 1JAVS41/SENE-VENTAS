@@ -778,7 +778,7 @@ class InicioTurnoActivity:FragmentActivity(){
      // ahora: si ya existe una vinculación, recibirá la clave y migrará el reporte local
      // pendiente en el segundo envío automático, sin esperar a abrir de nuevo la aplicación.
      PayrollRequestSync.sync(this,true)
-     if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
+     if(!attendanceSaved)msg("Aviso: no se pudo confirmar el registro de asistencia y su envío seguro. El turno y su respaldo permanecen guardados localmente.")
      if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
      else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
      else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SERVER-SENE; no se usa WhatsApp.")
