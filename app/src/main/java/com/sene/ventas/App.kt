@@ -755,6 +755,11 @@ class InicioTurnoActivity:FragmentActivity(){
      this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body,"INICIO_TURNO"
     )
     if(!localStartSaved)throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
+    // La transacción SQLite y el cifrado se hacen en este hilo de trabajo, no en la UI.
+    val startOutboxQueued=if(encryptedStart!=null)
+     ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart)
+     else false
+    if(startOutboxQueued)PayrollRequestSync.removeLocalPendingReport(this,startEventKey)
     runOnUiThread{
      if(isFinishing||isDestroyed){shiftPreparationRunning=false;progress.dismiss();return@runOnUiThread}
      progress.progress=5
@@ -767,10 +772,6 @@ class InicioTurnoActivity:FragmentActivity(){
       try{WorkerArchive.ensureProfileFolders(appContext,workerId,profileName)}catch(_:Exception){}
       try{ArchiveRetention.cleanupIfDue(appContext,savedTree,ReportCrypto.ownerKey(appContext))}catch(_:Exception){}
      }.start()
-     val startOutboxQueued=if(encryptedStart!=null)
-      ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart)
-      else false
-     if(startOutboxQueued)PayrollRequestSync.removeLocalPendingReport(this,startEventKey)
      pendingOpenSalesAfterShift=startOutboxQueued||localStartSaved
      // La inserción directa ya solicita sincronización; si solo quedó respaldo local,
      // solicita ahora la migración y la recuperación de la clave pública.
