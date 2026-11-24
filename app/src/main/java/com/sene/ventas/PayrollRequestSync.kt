@@ -17,6 +17,7 @@ object PayrollRequestSync {
     private const val ACKED_REQUESTS = "acked_request_ids"
     private const val PENDING_DECISION_ACKS = "pending_decision_acks"
     private val running = AtomicBoolean(false)
+    private val rerunRequested = AtomicBoolean(false)
 
     private fun firstBatch(source: JSONArray, limit: Int = 100): JSONArray {
         val result = JSONArray()
@@ -243,7 +244,10 @@ object PayrollRequestSync {
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         if (!force && now - prefs.getLong(LAST_ATTEMPT, 0L) < 15L * 60L * 1000L) return
-        if (!running.compareAndSet(false, true)) return
+        if (!running.compareAndSet(false, true)) {
+            if (force) rerunRequested.set(true)
+            return
+        }
         Thread {
             var retryAfterKey = false
             try {
@@ -334,7 +338,8 @@ object PayrollRequestSync {
                 // La solicitud permanece pendiente y se reintentará en la siguiente sincronización.
             } finally {
                 running.set(false)
-                if (retryAfterKey) sync(app, true)
+                val rerun = rerunRequested.getAndSet(false)
+                if (retryAfterKey || rerun) sync(app, true)
             }
         }.start()
     }
