@@ -78,6 +78,27 @@ object PayrollRequestSync {
         else -> 0L
     }
 
+    /** Publica una fotografía completa de inventario si esta instalación aún no la ha entregado. */
+    private fun ensureInventorySnapshots(app: Context) {
+        val now=System.currentTimeMillis()
+        fun enqueue(scope:String,products:JSONArray) {
+            val rows=JSONArray()
+            for(i in 0 until products.length()) {
+                val item=products.optJSONObject(i)?:continue
+                val code=item.optString("code")
+                if(code.isBlank())continue
+                rows.put(JSONObject().put("c",code).put("n",item.optString("name"))
+                    .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+                    .put("s",item.optInt("stock",0).coerceAtLeast(0))
+                    .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+            }
+            InventoryEventOutbox.ensureFullSnapshot(app,scope,rows,now)
+        }
+        // El inventario maestro se conserva aparte del inventario operativo del turno.
+        enqueue("M",Store.masterProducts(app))
+        if(Store.shift(app)!=null) enqueue("S",Store.products(app))
+    }
+
     fun sync(context: Context, force: Boolean = false) {
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -88,6 +109,9 @@ object PayrollRequestSync {
             var retryAfterKey = false
             try {
                 migrateLocalPendingReports(app)
+                // Si el inventario ya existía antes de activar el protocolo compacto,
+                // envía su fotografía inicial en esta misma sincronización.
+                ensureInventorySnapshots(app)
                 val pending = EmployeePayroll.entries(app).filter {
                     it.status == "PENDING" && !it.settled &&
                         (it.type == EmployeePayroll.TYPE_LOAN || it.type == EmployeePayroll.TYPE_CONSUMPTION)
