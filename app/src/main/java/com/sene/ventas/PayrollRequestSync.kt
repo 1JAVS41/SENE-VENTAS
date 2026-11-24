@@ -181,7 +181,7 @@ object PayrollRequestSync {
                 }
                 if (eventId.isBlank() || workerId.isBlank() || body.isBlank()) continue
                 val encrypted = ReportCrypto.prepare(app, workerId, contentType, body, eventId)
-                if (ReportEventOutbox.enqueue(app, eventId, workerId, reportType, encrypted) && file.delete()) {
+                if (ReportEventOutbox.enqueue(app, eventId, workerId, reportType, encrypted, triggerSync = false) && file.delete()) {
                     migrated = true
                 } else if (ReportEventOutbox.pending(app).let { queue ->
                     (0 until queue.length()).any { queue.optJSONObject(it)?.optString("e") == eventId }
