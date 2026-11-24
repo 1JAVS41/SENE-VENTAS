@@ -323,10 +323,37 @@ private object InventoryArchive {
   val local=if(!employeeId.isNullOrBlank())WorkerArchive.localInventoryFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
   local.list()?.forEach{name->val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(name)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
   if(tree!=null)try{
-   InventoryReader.listSnapshots(activity,tree).filter{snap->
-    if(employeeId.isNullOrBlank()) !snap.folder.contains("/ TRABAJADORES /") && !snap.folder.contains("TRABAJADORES /")
-    else snap.folder.contains(WorkerArchive.profileKey(employeeId,workerName),true)
-   }.forEach{snap->val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(snap.file)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
+   val resolver=activity.contentResolver
+   val folder:Uri?=if(!employeeId.isNullOrBlank()){
+    WorkerArchive.profileSection(activity,tree,employeeId,workerName,"INVENTARIOS")
+   }else{
+    val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+    val rootName=resolver.query(root,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+     if(cur.moveToFirst())cur.getString(0) else null
+    }
+    if(rootName.equals("INVENTARIO-SENE",true))root else{
+     val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
+     var found:Uri?=null
+     resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+      val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+      val name=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+      while(cur.moveToNext())if(id>=0&&name>=0&&cur.getString(name).equals("INVENTARIO-SENE",true))
+       found=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+     }
+     found
+    }
+   }
+   if(folder!=null){
+    val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(folder))
+    resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+     val name=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+     while(cur.moveToNext()){
+      if(name<0)continue
+      val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(cur.getString(name)?: "")?.groupValues?.get(1)?.toLongOrNull()?:0L
+      if(n>highest)highest=n
+     }
+    }
+   }
   }catch(_:Exception){}
   return highest+1L
  }
@@ -1576,7 +1603,6 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  // Respaldos secundarios: se ejecutan después de persistir el evento cifrado en la cola.
  private var pendingBackupTree:Uri?=null
  private var pendingBackupFile:java.io.File?=null
- private var pendingBackupProducts:JSONArray?=null
  private var pendingBackupEmployeeId:String=""
  private var pendingBackupWorkerName:String=""
  private fun saveReportToPhone(){
@@ -1597,9 +1623,13 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    if(s==null){runOnUiThread{reportProcessing=false;workDialog.dismiss()};return@Thread}
    try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
-   // Captura el inventario actual una sola vez. La publicación y los respaldos externos
-   // son tareas secundarias y ya no retrasan el cierre visible del turno.
+   // Captura y publica el inventario de cierre antes de permitir el siguiente turno.
+   // nextNumber consulta solo la carpeta INVENTARIOS correspondiente, sin recorrer ni
+   // descifrar todo el histórico de reportes y trabajadores.
    val currentProducts=Store.products(this)
+   Store.publishMasterProducts(this,currentProducts)
+   InventoryArchive.save(this,currentProducts)
+   InventoryArchive.save(this,currentProducts,s.optString("employeeId").takeIf{it.isNotBlank()},s.optString("worker"))
    runOnUiThread{updateWork("Preparando resumen de ventas y nómina…")}
    val file=ReportFile.update(this)
    val closureNote=when(s.optString("closingType")){
@@ -1661,7 +1691,6 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    // reporte cifrado ya esté en la cola durable y el trabajador pueda salir del turno.
    pendingBackupTree=tree
    pendingBackupFile=file
-   pendingBackupProducts=currentProducts
    pendingBackupEmployeeId=s.optString("employeeId")
    pendingBackupWorkerName=s.optString("worker")
    pendingFinalShare=final
@@ -1693,20 +1722,16 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   // respaldos SAF en segundo plano, sin mantener bloqueado el cierre ni la pantalla.
   val backupTree=pendingBackupTree
   val backupFile=pendingBackupFile
-  val backupProducts=pendingBackupProducts
   val backupEmployeeId=pendingBackupEmployeeId
   val backupWorkerName=pendingBackupWorkerName
   pendingBackupTree=null
   pendingBackupFile=null
-  pendingBackupProducts=null
   pendingBackupEmployeeId=""
   pendingBackupWorkerName=""
-  if(backupTree!=null&&backupFile!=null&&backupProducts!=null){
+  if(backupTree!=null&&backupFile!=null){
    val appActivity=this@MainActivity
    Thread{
-    try{Store.publishMasterProducts(appActivity,backupProducts)}catch(_:Exception){}
-    try{InventoryArchive.save(appActivity,backupProducts)}catch(_:Exception){}
-    if(backupEmployeeId.isNotBlank())try{InventoryArchive.save(appActivity,backupProducts,backupEmployeeId,backupWorkerName)}catch(_:Exception){}
+    // El TXT compartido es un respaldo secundario: la cola cifrada ya está confirmada.
     try{saveDailyReport(backupTree,backupFile,backupEmployeeId,backupWorkerName)}catch(_:Exception){}
    }.start()
   }
