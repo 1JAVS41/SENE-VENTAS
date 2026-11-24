@@ -2530,13 +2530,15 @@ object ReportFile {
   val workerId=movement.optString("employeeId").ifBlank{shift?.optString("employeeId").orEmpty()}
   val eventId=java.util.UUID.randomUUID().toString()
   val body=file.readText(Charsets.UTF_8)
+  val localSaved=PayrollRequestSync.saveLocalPendingReport(c,eventId,workerId,SeneWireProtocol.SYNC,body,SeneWireProtocol.SYNC)
+  if(!localSaved)return
   val encrypted=try {
    if(ReportPublicKeyStore.hasKey(c))ReportCrypto.prepare(c,workerId,SeneWireProtocol.SYNC,body,eventId) else null
   } catch(_:Exception) { null }
-  val queued=if(!encrypted.isNullOrBlank())
-   ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
-  else PayrollRequestSync.saveLocalPendingReport(c,eventId,workerId,SeneWireProtocol.SYNC,body,SeneWireProtocol.SYNC)
-  if(queued)PayrollRequestSync.sync(c,true)
+  val outboxQueued=!encrypted.isNullOrBlank()&&ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
+  if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(c,eventId)
+  // Si SQLite no acepta el sobre, el respaldo cifrado local sigue en la cola pendiente.
+  PayrollRequestSync.sync(c,true)
  }
 }
 
