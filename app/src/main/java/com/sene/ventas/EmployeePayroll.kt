@@ -277,10 +277,12 @@ object EmployeePayroll {
         if(index>=0)all[index]=all[index].copy(startedAt=ts,closedAt=0L,closureReason="",closureSource="",
             startWireQueued=false,closeWireQueued=true)
         else all.add(Attendance(employeeId,key,ts,0L,startWireQueued=false,closeWireQueued=true))
-        if(!saveAttendance(c,all))return false
-        val queued=ensureAttendanceEventsQueued(c)
+        val saved=saveAttendance(c,all)
+        val eventId="ATT:$employeeId:$key:START:$ts"
+        val queued=AttendanceEventOutbox.enqueue(c,employeeId,key,SeneWireProtocol.IN_PROGRESS,ts,0L,"","TRABAJADOR",eventId)
+        if(queued&&saved)ensureAttendanceEventsQueued(c)
         if(queued)PayrollRequestSync.sync(c,true)
-        return queued
+        return saved&&queued
     }
 
     @Synchronized fun recordShiftEnd(c:Context,employeeId:String,ts:Long=System.currentTimeMillis(),reason:String="",source:String="",completedWorkday:Boolean=false,startedAt:Long=0L):Boolean {
@@ -292,10 +294,17 @@ object EmployeePayroll {
         if(index>=0)all[index]=all[index].copy(closedAt=ts,closureReason=reason,closureSource=source,
             completedWorkday=completedWorkday,closeWireQueued=false)
         else all.add(Attendance(employeeId,key,start,ts,reason,source,completedWorkday,true,false))
-        if(!saveAttendance(c,all))return false
-        val queued=ensureAttendanceEventsQueued(c)
+        val saved=saveAttendance(c,all)
+        val state=when {
+            source.equals("PATRÓN",true)||source.equals("ADMIN_FORCED",true)||source.equals("ADMINISTRATIVE",true)->SeneWireProtocol.ADMIN_CLOSE
+            completedWorkday->SeneWireProtocol.FULL_SHIFT
+            else->SeneWireProtocol.EARLY_CLOSE
+        }
+        val eventId="ATT:$employeeId:$key:CLOSE:$ts"
+        val queued=AttendanceEventOutbox.enqueue(c,employeeId,key,state,start,ts,reason,source,eventId)
+        if(queued&&saved)ensureAttendanceEventsQueued(c)
         if(queued)PayrollRequestSync.sync(c,true)
-        return queued
+        return saved&&queued
     }
     // Todos los resúmenes y límites usan el mismo cálculo efectivo de nómina.
     // Así no se descuentan días anteriores al primer turno ni cierres administrativos.
