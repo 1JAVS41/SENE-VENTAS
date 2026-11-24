@@ -46,6 +46,19 @@ object InventoryEventOutbox {
         edit.putString(KEY,keep.toString()).commit()
     }
 
+    /** Encola la fotografía inicial al sincronizar, aunque el inventario ya existiera antes de activar Wire. */
+    @Synchronized fun ensureFullSnapshot(context:Context,scope:String,changed:JSONArray,ts:Long):Boolean {
+        if(scope !in setOf("M","S"))return false
+        val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        if(prefs.getBoolean("full_snapshot_acked_"+scope,false))return true
+        val events=try{JSONArray(prefs.getString(KEY,"[]")?: "[]")}catch(_:Exception){JSONArray()}
+        for(i in 0 until events.length()) {
+            val event=events.optJSONObject(i)?:continue
+            if(event.optBoolean("f",false)&&event.optString("g")==scope)return true
+        }
+        return enqueue(context,scope,changed,ts,true)
+    }
+
     @Synchronized fun hasPendingFullSnapshot(context:Context,scope:String):Boolean {
         if(scope !in setOf("M","S"))return false
         val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
