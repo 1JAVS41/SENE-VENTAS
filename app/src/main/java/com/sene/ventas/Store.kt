@@ -56,11 +56,17 @@ object Store {
    val old=oldByCode[code]
    val before=old?.optInt("stock",0)?:0
    val after=item.optInt("stock",0).coerceAtLeast(0)
-   if(before==after)continue
+   val priceCents=(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)
+   val metadataChanged=old==null ||
+    old.optString("name")!=item.optString("name") ||
+    (old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents ||
+    old.optString("aisle")!=item.optString("aisle") ||
+    old.optString("shelf")!=item.optString("shelf")
+   if(before==after&&!metadataChanged)continue
    val delta=after-before
    changes.put(JSONObject().put("c",code).put("n",item.optString("name"))
-    .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
-    .put("s",after).put("q",delta).put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
+    .put("a",priceCents).put("s",after).put("q",delta)
+    .put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
     .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
   }
   // Un producto eliminado del catálogo se representa como existencia cero, no como borrado de historial.
