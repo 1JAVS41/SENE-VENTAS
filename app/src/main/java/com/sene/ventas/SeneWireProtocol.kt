@@ -33,6 +33,9 @@ object SeneWireProtocol {
     const val FIELD_ATTENDANCE_ACK_CONFIRMATIONS = "haa"
     const val FIELD_INVENTORY_ACK_CONFIRMATIONS = "gaa"
     const val FIELD_REPORT_ACK_CONFIRMATIONS = "baa"
+    const val FIELD_ADMIN_DECISION_ACKS = "ad"
+    const val FIELD_ADMIN_DECISION_ACK_CONFIRMATIONS = "ada"
+    const val FIELD_ADMIN_DECISION_ACK_RECEIPTS = "adak"
     const val FIELD_NEXT_CURSOR = "n"
     const val FIELD_REPORT_PUBLIC_KEY = "rp"
 
