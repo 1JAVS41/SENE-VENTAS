@@ -77,15 +77,20 @@ object Store {
     .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
   }
   val now=System.currentTimeMillis()
-  val r=root(c);r.put("products",a).put("stockUpdatedAt",now)
-  if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()
-  put(c,r)
-  val scope=if(shift(c)==null)"M" else "S"
+  val r=root(c)
+  val isMaster=shift(c)==null
+  val scope=if(isMaster)"M" else "S"
+  val dirtyKey="inventory_wire_dirty_"+scope
+  r.put("products",a).put("stockUpdatedAt",now).put(dirtyKey,true)
+  val localEdit=c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString())
+  if(saveAsMaster&&isMaster)localEdit.putString("master_products",a.toString())
+  // El inventario local debe quedar confirmado antes de crear su evento remoto.
+  if(!localEdit.commit())return
+  try{ReportFile.update(c,r)}catch(_:Exception){}
   val syncPrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
-  val bootstrapKey="full_snapshot_acked_"+scope
-  val bootstrapAcked=syncPrefs.getBoolean(bootstrapKey,false)
-  var bootstrapReady=bootstrapAcked||InventoryEventOutbox.hasPendingFullSnapshot(c,scope)
-  if(!bootstrapReady){
+  val bootstrapAcked=syncPrefs.getBoolean("full_snapshot_acked_"+scope,false)
+  val bootstrapReady=bootstrapAcked||InventoryEventOutbox.hasPendingFullSnapshot(c,scope)
+  val queued=if(!bootstrapReady) {
    val full=JSONArray()
    for(i in 0 until a.length()){
     val item=a.optJSONObject(i)?:continue
@@ -95,14 +100,16 @@ object Store {
      .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
      .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
    }
-   // No marcar como completado hasta recibir el ACK real del servidor.
-   // Si falla la cola, no se envían deltas sin base; el siguiente guardado reintenta el snapshot.
-   bootstrapReady=InventoryEventOutbox.enqueue(c,scope,full,now,true)
+   // La fotografía inicial incluye todos los cambios de esta operación.
+   InventoryEventOutbox.enqueue(c,scope,full,now,true)
+  } else if(changes.length()>0) {
+   InventoryEventOutbox.enqueue(c,scope,changes,now)
+  } else true
+  if(queued) {
+   r.put(dirtyKey,false)
+   if(!c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).commit())return
+   if(!bootstrapAcked||changes.length()>0)PayrollRequestSync.sync(c,true)
   }
-  // Nunca adelantar deltas a la fotografía inicial de esta categoría.
-  if(bootstrapReady&&changes.length()>0)InventoryEventOutbox.enqueue(c,scope,changes,now)
-  if(bootstrapReady&&!bootstrapAcked)PayrollRequestSync.sync(c,true)
-  else if(bootstrapReady&&changes.length()>0)PayrollRequestSync.sync(c,true)
  }
  @Synchronized fun applyApprovedConsumption(c:Context,requestId:String,code:String,quantity:Int,amount:Double,worker:String,employeeId:String,description:String):Boolean {
   if(requestId.isBlank()||code.isBlank()||quantity<=0)return false
