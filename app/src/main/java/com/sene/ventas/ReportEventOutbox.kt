@@ -75,7 +75,7 @@ object ReportEventOutbox {
         reportType: String,
         encryptedPayload: String,
         createdAt: Long = System.currentTimeMillis(),
-        triggerSync: Boolean = true
+        triggerSync: Boolean = false
     ): Boolean {
         if (eventId.isBlank() || encryptedPayload.isBlank()) return false
         val stored = try {
