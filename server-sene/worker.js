@@ -18,7 +18,7 @@ const WIRE = Object.freeze({
   INSTALLATION: "i", CURSOR: "c", REQUESTS: "r", ATTENDANCE: "h",
   INVENTORY: "g", REPORTS: "b", DECISIONS: "d", ADMIN_TOKEN: "a",
   ATTENDANCE_ACKS: "ha", SALES_INVENTORY_ACKS: "ga", INVENTORY_ACKS: "gi",
-  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", DECISION_ACKS: "da", DECISION_ACK_CONFIRMATIONS: "daa", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
+  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", DECISION_ACKS: "da", DECISION_ACK_CONFIRMATIONS: "daa", ADMIN_DECISION_ACKS: "ada", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
   INVENTORY_ACK_CONFIRMATIONS: "gaa", REPORT_ACK_CONFIRMATIONS: "baa",
   NEXT_CURSOR: "n", REPORT_PUBLIC_KEY: "rp", SYNC: "[SYNC]"
 });
@@ -594,7 +594,7 @@ async function adminPayrollSync(request, env) {
   const maxSeq=reqRows.results?.length?reqRows.results[reqRows.results.length-1].seq:requestCursor;
   const parsePayload=rows=>(rows||[]).map(r=>{try{return JSON.parse(r.payload)}catch(_){return null}}).filter(Boolean);
   return json({
-    v:1,items:reqs,da:confirmedAdminDecisions,
+    v:1,items:reqs,ada:confirmedAdminDecisions,
     h:parsePayload(hRows.results),g:parsePayload(gRows.results),
     b:(bRows.results||[]).map(r=>{try{return JSON.parse(r.envelope)}catch(_){return {e:r.event_id,p:r.envelope}}}),
     haa:attendanceAcks,gaa:inventoryAcks,baa:reportAcks,
