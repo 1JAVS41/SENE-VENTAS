@@ -281,7 +281,7 @@ object EmployeePayroll {
         val eventId="ATT:$employeeId:$key:START:$ts"
         val queued=AttendanceEventOutbox.enqueue(c,employeeId,key,SeneWireProtocol.IN_PROGRESS,ts,0L,"","TRABAJADOR",eventId)
         if(queued&&saved)ensureAttendanceEventsQueued(c)
-        if(queued)PayrollRequestSync.sync(c,true)
+        PayrollRequestSync.sync(c,true)
         return saved&&queued
     }
 
