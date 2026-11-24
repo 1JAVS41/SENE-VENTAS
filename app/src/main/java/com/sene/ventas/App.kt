@@ -1624,6 +1624,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private var pendingReportText:String?=null
  private var pendingReportEventKey:String=""
+ @Volatile private var pendingReportOutboxQueued=false
  // Respaldos secundarios: se ejecutan después de persistir el evento cifrado en la cola.
  private var pendingBackupTree:Uri?=null
  private var pendingBackupFile:java.io.File?=null
