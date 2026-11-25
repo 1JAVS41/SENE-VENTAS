@@ -2226,7 +2226,7 @@ class PatronActivity:FragmentActivity(){
   }
   val totalStock=(0 until products.length()).sumOf{products.optJSONObject(it)?.optInt("stock",0)?.coerceAtLeast(0)?:0}
   summaryChip("Productos registrados",products.length().toString(),0xFFB9D8FF.toInt())
-  summaryChip("Existencias totales",totalStock.toString(),0xFFBDECCB.toInt())
+  summaryChip("Existencias totales",totalStock.toString(),0xFFA5D6A7.toInt())
   list.addView(summary)
   if(products.length()==0)list.addView(TextView(this).apply{text="Sin productos registrados";textSize=14f;gravity=Gravity.CENTER;setTextColor(0xFF77839B.toInt());setPadding(0,dp(24),0,dp(24))})
   for(i in 0 until products.length()){
@@ -2238,7 +2238,7 @@ class PatronActivity:FragmentActivity(){
    card.addView(TextView(this).apply{
     text="PRODUCTO";textSize=10f;typeface=Typeface.create("sans-serif",Typeface.BOLD)
     setTextColor(0xFF243557.toInt());setPadding(dp(8),dp(4),dp(8),dp(4))
-    background=GradientDrawable().apply{setColor(0xFFFFF0B3.toInt());cornerRadius=dp(9).toFloat()}
+    background=GradientDrawable().apply{setColor(0xFFFFE082.toInt());cornerRadius=dp(9).toFloat()}
    })
    card.addView(TextView(this).apply{text=item.optString("name","Producto");textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF243557.toInt())})
    val code=TextView(this).apply{text="CÓDIGO  •  "+item.optString("code","—");textSize=11f;setTextColor(0xFF77839B.toInt());setPadding(0,dp(5),0,dp(8))}
