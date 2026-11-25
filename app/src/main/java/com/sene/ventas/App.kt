@@ -2214,6 +2214,20 @@ class PatronActivity:FragmentActivity(){
  private fun inventory(){
   val products=Store.products(this)
   val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
+  val summary=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+  fun summaryChip(label:String,value:String,color:Int){
+   val chip=LinearLayout(this).apply{
+    orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(9),dp(10),dp(9))
+    background=GradientDrawable().apply{setColor(color);cornerRadius=dp(12).toFloat()}
+   }
+   chip.addView(TextView(this).apply{text=label;textSize=10f;typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL);setTextColor(0xFF77839B.toInt())})
+   chip.addView(TextView(this).apply{text=value;textSize=16f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF294A85.toInt());setPadding(0,dp(3),0,0)})
+   summary.addView(chip,LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=dp(8)})
+  }
+  val totalStock=(0 until products.length()).sumOf{products.optJSONObject(it)?.optInt("stock",0)?.coerceAtLeast(0)?:0}
+  summaryChip("Productos registrados",products.length().toString(),0xFFB9D8FF.toInt())
+  summaryChip("Existencias totales",totalStock.toString(),0xFFBDECCB.toInt())
+  list.addView(summary)
   if(products.length()==0)list.addView(TextView(this).apply{text="Sin productos registrados";textSize=14f;gravity=Gravity.CENTER;setTextColor(0xFF77839B.toInt());setPadding(0,dp(24),0,dp(24))})
   for(i in 0 until products.length()){
    val item=products.optJSONObject(i)?:continue
@@ -2221,6 +2235,11 @@ class PatronActivity:FragmentActivity(){
     orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(12),dp(14),dp(12))
     background=GradientDrawable().apply{setColor(0xFFF8FAFE.toInt());cornerRadius=dp(14).toFloat();setStroke(dp(1),0xFFE0E7F2.toInt())}
    }
+   card.addView(TextView(this).apply{
+    text="PRODUCTO";textSize=10f;typeface=Typeface.create("sans-serif",Typeface.BOLD)
+    setTextColor(0xFF243557.toInt());setPadding(dp(8),dp(4),dp(8),dp(4))
+    background=GradientDrawable().apply{setColor(0xFFFFF0B3.toInt());cornerRadius=dp(9).toFloat()}
+   })
    card.addView(TextView(this).apply{text=item.optString("name","Producto");textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF243557.toInt())})
    val code=TextView(this).apply{text="CÓDIGO  •  "+item.optString("code","—");textSize=11f;setTextColor(0xFF77839B.toInt());setPadding(0,dp(5),0,dp(8))}
    card.addView(code)
