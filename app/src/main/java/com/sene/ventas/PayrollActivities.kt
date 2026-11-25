@@ -23,6 +23,14 @@ private fun FragmentActivity.payText(value:String,size:Float=16f,bold:Boolean=fa
  background=android.graphics.drawable.GradientDrawable().apply{setColor(-1);cornerRadius=payDp(18).toFloat();setStroke(payDp(1),0xFFD9E4F3.toInt())}
  val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=payDp(5);p.bottomMargin=payDp(5);layoutParams=p
 }
+private fun FragmentActivity.payMetric(label:String,value:String,bg:Int,fg:Int)=LinearLayout(this).apply{
+ orientation=LinearLayout.VERTICAL;setPadding(payDp(16),payDp(13),payDp(16),payDp(13))
+ background=android.graphics.drawable.GradientDrawable().apply{setColor(bg);cornerRadius=payDp(16).toFloat()}
+ addView(TextView(this@payMetric).apply{text=label;textSize=11f;letterSpacing=.06f;typeface=Typeface.DEFAULT_BOLD;setTextColor(fg)})
+ addView(TextView(this@payMetric).apply{text=value;textSize=21f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(fg);setPadding(0,payDp(5),0,0)})
+ val p=LinearLayout.LayoutParams(-1,-2);p.topMargin=payDp(5);p.bottomMargin=payDp(5);layoutParams=p
+}
+
 private fun FragmentActivity.payInput(hintText:String,number:Boolean=false)=EditText(this).apply{
  hint=hintText;textSize=16f;setSingleLine(true);setPadding(payDp(17),payDp(15),payDp(17),payDp(15))
  setTextColor(0xFF17213D.toInt());setHintTextColor(0xFF929BB0.toInt())
@@ -96,7 +104,6 @@ class PayrollRequestActivity:FragmentActivity(){
        description=found.optString("name")+" x$q",employeeId=workerId,productCode=found.optString("code"),quantity=q)
      if(entry==null){Toast.makeText(this,"No se pudo guardar la solicitud. Revisa el límite.",Toast.LENGTH_LONG).show();return@setPositiveButton}
      Toast.makeText(this,"Solicitud guardada. Intentando sincronizar con el servidor.",Toast.LENGTH_LONG).show()
-     PayrollRequestSync.sync(this,true)
      draw()
     }.setNegativeButton("VOLVER",null).show()
    d.dismiss()
@@ -160,8 +167,12 @@ class PayrollEmployeeActivity:FragmentActivity(){
   val rest=(Calendar.SUNDAY..Calendar.SATURDAY).filter{it !in cfg.workDaysOfWeek}.joinToString(", "){dayName(it)}
   root.addView(payText("SUELDO SEMANAL\n"+EmployeePayroll.money(cfg.weeklySalaryCents),22f,true))
   root.addView(payText("DÍAS LABORABLES: $work\nDESCANSOS: "+rest.ifBlank{"Ninguno"}+"\nDía de pago: "+dayName(cfg.payDay)))
-  root.addView(payText("Sueldo base del período: "+EmployeePayroll.money(calculation.grossCents)+"\nFaltas: $abs\nDescuento por faltas: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos\nDescuento por salidas anticipadas: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos pendientes: "+EmployeePayroll.money(consumption)+"\nPréstamos pendientes: "+EmployeePayroll.money(loans)))
-  root.addView(payText("TOTAL A RECIBIR\n"+EmployeePayroll.money(net),24f,true))
+  root.addView(payMetric("SUELDO BASE DEL PERÍODO",EmployeePayroll.money(calculation.baseGrossCents),0xFFE8F5EC.toInt(),0xFF168B45.toInt()))
+  root.addView(payMetric("HORAS EXTRA · MISMO VALOR POR HORA",EmployeePayroll.money(calculation.overtimeCents),0xFFE8F5EC.toInt(),0xFF168B45.toInt()))
+  root.addView(payMetric("SUELDO DEVENGADO",EmployeePayroll.money(calculation.grossCents),0xFFE8F5EC.toInt(),0xFF168B45.toInt()))
+  root.addView(payMetric("DESCUENTOS POR FALTAS Y CIERRES",EmployeePayroll.money(absenceDeduction+earlyDeduction),0xFFFFECEB.toInt(),0xFFC62828.toInt()))
+  root.addView(payMetric("PRÉSTAMOS Y CONSUMOS AUTORIZADOS",EmployeePayroll.money(consumption+loans),0xFFFFECEB.toInt(),0xFFC62828.toInt()))
+  root.addView(payMetric("TOTAL NETO ESTIMADO A RECIBIR",EmployeePayroll.money(net),0xFFE1F4E8.toInt(),0xFF137A3A.toInt()))
   root.addView(payText("HISTORIAL DEL PERIODO",17f,true))
   root.addView(payText("HISTORIAL COMPLETO",17f,true))
   EmployeePayroll.entries(this,employeeId).sortedByDescending{it.timestamp}.forEach{e->
@@ -173,9 +184,13 @@ class PayrollEmployeeActivity:FragmentActivity(){
   EmployeePayroll.weekAttendance(this,employeeId).forEach{day->
    val symbol=when(day.status){"WORKED","EARLY_EXIT"->"🟢";"ADMIN_CLOSED"->"🔵";"NOT_WORKED"->"❌";"WORKING"->"🔁";else->"—"}
    val status=when(day.status){"NO_RECORD"->"Aún no tenía registro";"EARLY_EXIT"->"Cierre anticipado";"ADMIN_CLOSED"->"Cierre administrativo";"WORKING"->"En curso";"WORKED"->"Jornada completada";"NOT_WORKED"->"Sin registro de asistencia";else->""}
-   val times=listOf(day.started.takeIf{it.isNotBlank()}?.let{"Entrada: $it"},day.closed.takeIf{it.isNotBlank()}?.let{"Salida: $it"}).filterNotNull().joinToString(" · ")
-   val detail=listOf(status,times).filter{it.isNotBlank()}.joinToString(" · ")
-   root.addView(payText(day.day+" - ["+symbol+"]"+if(detail.isBlank()) "" else " · "+detail,13f,true))
+   val times=day.shifts.mapIndexed{index,shift->
+    val start=SimpleDateFormat("HH:mm",Locale("es","MX")).format(Date(shift.startedAt))
+    val end=if(shift.closedAt>0L)SimpleDateFormat("HH:mm",Locale("es","MX")).format(Date(shift.closedAt)) else "En curso"
+    "Turno ${index+1}: Entrada $start · Salida $end"
+   }.joinToString("\n")
+   val detail=listOf(status,times).filter{it.isNotBlank()}.joinToString("\n")
+   root.addView(payText(day.day+" - ["+symbol+"]"+if(detail.isBlank()) "" else "\n"+detail,13f,true))
   }
   payShow(root)
  }
@@ -390,7 +405,12 @@ class PayrollAdminActivity:FragmentActivity(){
    val cons=calculation.consumptionCents;val loans=calculation.loanCents
    val cap=EmployeePayroll.capacity(this,selectedId);val net=calculation.netCents
    root.addView(payText("RESUMEN DEL PERIODO · "+profile.name,17f,true))
-   root.addView(payText("Sueldo base del período: "+EmployeePayroll.money(calculation.grossCents)+"\nFaltas: $abs · Descuento: "+EmployeePayroll.money(absenceDeduction)+"\nSalidas anticipadas: $earlyMinutes minutos · Descuento: "+EmployeePayroll.money(earlyDeduction)+"\nConsumos: "+EmployeePayroll.money(cons)+"\nPréstamos: "+EmployeePayroll.money(loans)+"\nTotal descuentos: "+EmployeePayroll.money(absenceDeduction+earlyDeduction+cons+loans)+"\nNeto estimado: "+EmployeePayroll.money(net),17f,true))
+   root.addView(payMetric("SUELDO BASE DEL PERÍODO",EmployeePayroll.money(calculation.baseGrossCents),0xFFE8F5EC.toInt(),0xFF168B45.toInt()))
+   root.addView(payMetric("HORAS EXTRA · MISMO VALOR POR HORA",EmployeePayroll.money(calculation.overtimeCents),0xFFE8F5EC.toInt(),0xFF168B45.toInt()))
+   root.addView(payMetric("SUELDO DEVENGADO",EmployeePayroll.money(calculation.grossCents),0xFFE8F5EC.toInt(),0xFF168B45.toInt()))
+   root.addView(payMetric("FALTAS Y CIERRES ANTICIPADOS",EmployeePayroll.money(absenceDeduction+earlyDeduction),0xFFFFECEB.toInt(),0xFFC62828.toInt()))
+   root.addView(payMetric("PRÉSTAMOS Y CONSUMOS",EmployeePayroll.money(cons+loans),0xFFFFECEB.toInt(),0xFFC62828.toInt()))
+   root.addView(payMetric("TOTAL NETO ESTIMADO",EmployeePayroll.money(net),0xFFE1F4E8.toInt(),0xFF137A3A.toInt()))
    root.addView(payText("LÍMITE DEL 50%\nComprometido: "+EmployeePayroll.money(cap.committedCents)+"\nDisponible: "+EmployeePayroll.money(cap.availableCents)))
    root.addView(payText("HISTORIAL COMPLETO",17f,true))
    EmployeePayroll.entries(this,selectedId).sortedByDescending{it.timestamp}.forEach{e->root.addView(payText(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(e.timestamp))+" · "+e.periodKey+"\n"+(if(e.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO")+" · "+e.description+" · "+EmployeePayroll.money(e.amountCents)+"\n"+if(e.settled)"LIQUIDADO" else "PENDIENTE"))}

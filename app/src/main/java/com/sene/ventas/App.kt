@@ -288,7 +288,7 @@ private fun Activity.pin(ok:()->Unit){
  }}
  dialog.show()
 }
-private object InventoryCrypto {
+internal object InventoryCrypto {
  private const val ALIAS="SENE_INVENTORY_AES_KEY"
  private val MAGIC="SENEENC1".toByteArray(Charsets.US_ASCII)
  private const val IV_SIZE=12
@@ -323,10 +323,37 @@ private object InventoryArchive {
   val local=if(!employeeId.isNullOrBlank())WorkerArchive.localInventoryFolder(activity,employeeId,workerName) else java.io.File(activity.getExternalFilesDir(null)?:activity.filesDir,"INVENTARIO-SENE")
   local.list()?.forEach{name->val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(name)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
   if(tree!=null)try{
-   InventoryReader.listSnapshots(activity,tree).filter{snap->
-    if(employeeId.isNullOrBlank()) !snap.folder.contains("/ TRABAJADORES /") && !snap.folder.contains("TRABAJADORES /")
-    else snap.folder.contains(WorkerArchive.profileKey(employeeId,workerName),true)
-   }.forEach{snap->val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(snap.file)?.groupValues?.get(1)?.toLongOrNull()?:0L;if(n>highest)highest=n}
+   val resolver=activity.contentResolver
+   val folder:Uri?=if(!employeeId.isNullOrBlank()){
+    WorkerArchive.profileSection(activity,tree,employeeId,workerName,"INVENTARIOS")
+   }else{
+    val root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+    val rootName=resolver.query(root,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+     if(cur.moveToFirst())cur.getString(0) else null
+    }
+    if(rootName.equals("INVENTARIO-SENE",true))root else{
+     val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(root))
+     var found:Uri?=null
+     resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+      val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+      val name=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+      while(cur.moveToNext())if(id>=0&&name>=0&&cur.getString(name).equals("INVENTARIO-SENE",true))
+       found=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+     }
+     found
+    }
+   }
+   if(folder!=null){
+    val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(folder))
+    resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use{cur->
+     val name=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+     while(cur.moveToNext()){
+      if(name<0)continue
+      val n=Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(cur.getString(name)?: "")?.groupValues?.get(1)?.toLongOrNull()?:0L
+      if(n>highest)highest=n
+     }
+    }
+   }
   }catch(_:Exception){}
   return highest+1L
  }
@@ -466,6 +493,44 @@ private object InventoryReader {
   for(item in candidates.sortedByDescending{it.second})try{snapshots.add(readSnapshot(activity,item.third,item.second,item.first))}catch(_:Exception){}
   return snapshots
  }
+ private fun listMasterSnapshots(activity:Activity,tree:Uri):List<InventorySnapshot> {
+  val resolver=activity.contentResolver
+  val rootId=DocumentsContract.getTreeDocumentId(tree)
+  val root=DocumentsContract.buildDocumentUriUsingTree(tree,rootId)
+  val candidates=mutableListOf<Triple<String,String,Uri>>()
+  val visited=mutableSetOf<String>()
+  fun collect(parent:Uri,label:String,depth:Int){
+   if(depth>8)return
+   val parentId=DocumentsContract.getDocumentId(parent)
+   if(!visited.add(parentId))return
+   val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,parentId)
+   resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE),null,null,null)?.use{cur->
+    val id=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+    val name=cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+    val mime=cur.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+    while(cur.moveToNext()){
+     if(id<0||name<0||mime<0)continue
+     val childName=cur.getString(name)?:continue
+     // Los reportes y los archivos por trabajador no pueden ser inventario maestro.
+     if(childName.equals("TRABAJADORES",true)||childName.equals("REPORTES",true))continue
+     val childUri=DocumentsContract.buildDocumentUriUsingTree(tree,cur.getString(id))
+     val childPath=if(label.isBlank())childName else "$label / $childName"
+     if(cur.getString(mime)==DocumentsContract.Document.MIME_TYPE_DIR){
+      collect(childUri,childPath,depth+1)
+     }else if(childName.endsWith(".txt",true)||childName.endsWith(".sene",true)){
+      candidates.add(Triple(label.ifBlank{"INVENTARIO SENE"},childName,childUri))
+     }
+    }
+   }
+  }
+  collect(root,"",0)
+  val snapshots=mutableListOf<InventorySnapshot>()
+  for(item in candidates.sortedByDescending{it.second})try{
+   val snapshot=readSnapshot(activity,item.third,item.second,item.first)
+   if(snapshot.products.length()>0)snapshots.add(snapshot)
+  }catch(_:Exception){}
+  return snapshots
+ }
  fun latest(activity:Activity,tree:Uri):InventorySnapshot {
   val snapshots=listSnapshots(activity,tree)
   val formatter=SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX"))
@@ -494,14 +559,25 @@ private object InventoryReader {
     if(products.length()>0){val updated=content.lineSequence().firstOrNull{it.startsWith("Actualizado: ")}?.removePrefix("Actualizado: ")?: "Fecha no indicada";localCandidates.add(InventorySnapshot("INVENTARIO-SENE",file.name,updated,products))}
    }catch(_:Exception){}
   }
+  fun updatedMillis(value:String):Long {
+   val patterns=listOf("dd/MM/yyyy HH:mm:ss","yyyy-MM-dd HH:mm:ss","yyyy-MM-dd'T'HH:mm:ss","dd/MM/yyyy HH:mm")
+   for(pattern in patterns){
+    val parsed=try{SimpleDateFormat(pattern,Locale("es","MX")).apply{isLenient=false}.parse(value.trim())?.time}catch(_:Exception){null}
+    if(parsed!=null)return parsed
+   }
+   return 0L
+  }
+  fun fileNumber(value:String):Long =
+   Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(value)?.groupValues?.get(1)?.toLongOrNull()?:0L
+  fun newest(items:List<InventorySnapshot>):InventorySnapshot? =
+   items.maxWithOrNull(compareBy<InventorySnapshot>{updatedMillis(it.updated)}.thenBy{fileNumber(it.file)})
   if(tree!=null)try{
-   val snapshots=listSnapshots(activity,tree)
+   val snapshots=listMasterSnapshots(activity,tree)
    val master=snapshots.filter{it.folder.contains("INVENTARIO-MAESTRO",true)}
-   if(master.isNotEmpty())return master.maxByOrNull{it.updated}
-   val shared=snapshots.filter{!it.folder.contains("TRABAJADORES",true)}
-   if(shared.isNotEmpty())return shared.maxByOrNull{it.updated}
+   if(master.isNotEmpty())return newest(master)
+   if(snapshots.isNotEmpty())return newest(snapshots)
   }catch(_:Exception){}
-  return localCandidates.maxByOrNull{it.updated}
+  return newest(localCandidates)
  }
  fun latestForWorker(activity:Activity,tree:Uri?,employeeId:String,workerName:String):InventorySnapshot? {
   val key=WorkerArchive.profileKey(employeeId,workerName)
@@ -521,7 +597,17 @@ private object InventoryReader {
    }catch(_:Exception){}
   }
   if(tree!=null)try{candidates.addAll(listSnapshots(activity,tree).filter{it.folder.contains(key,true)})}catch(_:Exception){}
-  return candidates.maxWithOrNull(compareBy<InventorySnapshot>{Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(it.file)?.groupValues?.get(1)?.toLongOrNull()?:0L}.thenBy{it.updated})
+  fun updatedMillis(value:String):Long {
+   val patterns=listOf("dd/MM/yyyy HH:mm:ss","yyyy-MM-dd HH:mm:ss","yyyy-MM-dd'T'HH:mm:ss","dd/MM/yyyy HH:mm")
+   for(pattern in patterns){
+    val parsed=try{SimpleDateFormat(pattern,Locale("es","MX")).apply{isLenient=false}.parse(value.trim())?.time}catch(_:Exception){null}
+    if(parsed!=null)return parsed
+   }
+   return 0L
+  }
+  fun fileNumber(value:String):Long =
+   Regex("(?i)^inventario-(\\d+)\\.txt$").matchEntire(value)?.groupValues?.get(1)?.toLongOrNull()?:0L
+  return candidates.maxWithOrNull(compareBy<InventorySnapshot>{updatedMillis(it.updated)}.thenBy{fileNumber(it.file)})
  }
 
 }
@@ -597,7 +683,6 @@ class InicioTurnoActivity:FragmentActivity(){
   // Cada perfil recupera su propio inventario más reciente; si aún no tiene uno,
   // el primer turno parte del inventario general existente.
   val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}
-  profile?.let{WorkerArchive.ensureProfileFolders(this,it.id,it.name)}
   val hasLocalProfileInventory=profile?.let{WorkerArchive.localInventoryFolder(this,it.id,it.name).listFiles()?.any{f->f.isFile&&f.name.matches(Regex("(?i)^inventario-\\d+\\.txt$"))}==true}==true
   if(localProducts.length()>0 || !saved.isNullOrBlank() || hasLocalProfileInventory){
    createShiftReport(workerId,worker,phone,cash,saved?.takeIf{it.isNotBlank()}?.let{Uri.parse(it)})
@@ -631,10 +716,8 @@ class InicioTurnoActivity:FragmentActivity(){
     val profile=WorkerProfiles.all(this).firstOrNull{it.id==workerId}?:throw java.io.IOException("No se encontró el perfil del trabajador")
     if(!workerProfileReady(profile))throw java.io.IOException("El perfil del trabajador está incompleto. El patrón debe completar celular, PIN, horas, sueldo, días laborales y día de pago.")
     val profileName=profile.name
-    ArchiveRetention.cleanupIfDue(this,savedTree,ReportCrypto.ownerKey(this))
     step(1,"Revisando el inventario maestro y los respaldos…")
     val snapshot=try{InventoryReader.latestMaster(this,savedTree)}catch(_:Exception){null}
-    WorkerArchive.ensureProfileFolders(this,workerId,profileName)
     val latest=snapshot?.folder?: "INVENTARIO SENE"
     val prefs=getSharedPreferences("sene_ventas_local",0)
     val newest=snapshot?.file?:prefs.getString("inventory_source_file","Inventario maestro local")!!
@@ -667,25 +750,42 @@ class InicioTurnoActivity:FragmentActivity(){
     // El inicio del turno y su respaldo local nunca dependen de haber vinculado SERVER-SENE.
     // Solo se crea el sobre RSA del servidor cuando la clave pública ya está disponible.
     val serverLinked=ReportPublicKeyStore.hasKey(this)
-    val encryptedStart=if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null
-    if(encryptedStart==null){
-     val pendingFolder=java.io.File(filesDir,"REPORTES-PENDIENTES-SERVER")
-     if(!pendingFolder.exists()&&!pendingFolder.mkdirs())throw java.io.IOException("No se pudo crear el almacenamiento local de reportes pendientes")
-     val safeEvent=startEventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
-     val pendingFile=java.io.File(pendingFolder,"$safeEvent.sene")
-     pendingFile.writeBytes(InventoryCrypto.encrypt(body.toByteArray(Charsets.UTF_8)))
-     if(!pendingFile.isFile||pendingFile.length()==0L)throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
-    }
+    val encryptedStart=try{if(serverLinked)ReportCrypto.prepare(this,workerId,"INICIO_TURNO",body,startEventKey) else null}catch(_:Exception){null}
+    val localStartSaved=PayrollRequestSync.saveLocalPendingReport(
+     this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,body,"INICIO_TURNO"
+    )
+    if(!localStartSaved)throw java.io.IOException("No se pudo verificar el respaldo local pendiente de sincronización")
+    // La transacción SQLite y el cifrado se hacen en este hilo de trabajo, no en la UI.
+    val startOutboxQueued=if(encryptedStart!=null)
+     ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart)
+     else false
+    if(startOutboxQueued)PayrollRequestSync.removeLocalPendingReport(this,startEventKey)
     runOnUiThread{
      if(isFinishing||isDestroyed){shiftPreparationRunning=false;progress.dismiss();return@runOnUiThread}
      progress.progress=5
      progress.dismiss()
      shiftPreparationRunning=false
-     pendingOpenSalesAfterShift=if(encryptedStart!=null)ReportEventOutbox.enqueue(this,startEventKey,workerId,SeneWireProtocol.IN_PROGRESS,encryptedStart) else true
-     if(!attendanceSaved)msg("Aviso: no se pudo guardar el registro de asistencia local.")
+     // Las tareas de mantenimiento y creación de carpetas compartidas no deben retrasar
+     // la entrada del trabajador a ventas. Se ejecutan después, fuera del flujo crítico.
+     val appContext=applicationContext
+     Thread{
+      try{WorkerArchive.ensureProfileFolders(appContext,workerId,profileName)}catch(_:Exception){}
+      try{ArchiveRetention.cleanupIfDue(appContext,savedTree,ReportCrypto.ownerKey(appContext))}catch(_:Exception){}
+     }.start()
+     pendingOpenSalesAfterShift=startOutboxQueued||localStartSaved
+     // La inserción directa ya solicita sincronización; si solo quedó respaldo local,
+     // solicita ahora la migración y la recuperación de la clave pública.
+     if(!startOutboxQueued)PayrollRequestSync.sync(this,true)
+     if(!attendanceSaved)msg("Aviso: no se pudo confirmar el registro de asistencia y su envío seguro. El turno y su respaldo permanecen guardados localmente.")
      if(!pendingOpenSalesAfterShift)msg("El turno quedó registrado, pero no se pudo guardar el evento en la cola segura. Vuelve a intentar la sincronización.")
-     else if(encryptedStart==null)msg("Inicio de turno guardado en el teléfono. El reporte quedó cifrado localmente y se enviará a SERVER-SENE cuando vincules la aplicación.")
+     else if(!startOutboxQueued)msg("Inicio de turno guardado. El reporte quedó respaldado y cifrado localmente; se enviará a SERVER-SENE cuando la cola y la conexión estén disponibles.")
      else msg("Inicio de turno guardado. El reporte quedó en cola para enviarse a SERVER-SENE; no se usa WhatsApp.")
+     // La preparación termina mientras esta pantalla sigue en primer plano; no se puede
+     // depender de onResume para abrir ventas porque Android no lo vuelve a disparar aquí.
+     if(pendingOpenSalesAfterShift){
+      startActivity(Intent(this,MainActivity::class.java))
+      finish()
+     }
     }
    }catch(e:Exception){
     runOnUiThread{
@@ -1185,6 +1285,42 @@ class MainActivity:FragmentActivity(){
     whatsapp(this,text)
    }.setNegativeButton("CANCELAR",null).show()
  }
+ private fun showMyRequests(){
+  val employeeId=Store.shift(this)?.optString("employeeId").orEmpty()
+  if(employeeId.isBlank()){msg("No se encontró el perfil del trabajador.");return}
+  val requests=EmployeePayroll.pendingRequests(this,employeeId)
+  val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(10),dp(14),dp(16));setBackgroundColor(0xFFF2F6FC.toInt())}
+  fun requestCard(title:String,detail:String,bg:Int,fg:Int){
+   val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(13),dp(12),dp(13),dp(12));background=rounded(bg,16)}
+   card.addView(TextView(this).apply{text=title;textSize=14f;typeface=Typeface.DEFAULT_BOLD;setTextColor(fg)})
+   card.addView(TextView(this).apply{text=detail;textSize=13f;setTextColor(0xFF33445F.toInt());setPadding(0,dp(5),0,0)})
+   panel.addView(card,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(8)})
+  }
+  requestCard("AZUL · ACTIVA","Esperando respuesta del patrón.",0xFFDCEBFA.toInt(),0xFF245B9A.toInt())
+  requestCard("VERDE · APROBADA","Solicitud autorizada por el patrón.",0xFFDDF4E5.toInt(),0xFF176344.toInt())
+  requestCard("ROJO · RECHAZADA","Solicitud no autorizada por el patrón.",0xFFFFE4E1.toInt(),0xFFB3261E.toInt())
+  if(requests.isEmpty()){
+   requestCard("SIN SOLICITUDES","No tienes solicitudes registradas en este ciclo de nómina.",0xFFFFFFFF.toInt(),0xFF33445F.toInt())
+  }else requests.forEach{entry->
+   val kind=if(entry.type==EmployeePayroll.TYPE_LOAN)"PRÉSTAMO" else "CONSUMO"
+   val (bg,fg,state)=when(entry.status){
+    "APPROVED"->Triple(0xFFDDF4E5.toInt(),0xFF176344.toInt(),"APROBADA")
+    "REJECTED"->Triple(0xFFFFE4E1.toInt(),0xFFB3261E.toInt(),"RECHAZADA")
+    else->Triple(0xFFDCEBFA.toInt(),0xFF245B9A.toInt(),"ACTIVA · ESPERANDO RESPUESTA")
+   }
+   val detail=buildString{
+    append(state).append("\n")
+    append("Importe: ").append(EmployeePayroll.money(entry.amountCents))
+    if(entry.description.isNotBlank())append("\nDetalle: ").append(entry.description)
+    if(entry.reason.isNotBlank())append("\nMotivo: ").append(entry.reason)
+    if(entry.rejectionReason.isNotBlank())append("\nMotivo de rechazo: ").append(entry.rejectionReason)
+    append("\nFecha: ").append(SimpleDateFormat("dd/MM/yyyy HH:mm",Locale("es","MX")).format(Date(entry.timestamp)))
+   }
+   requestCard(kind,detail,bg,fg)
+  }
+  requestCard("IMPORTANTE","Tus solicitudes permanecen visibles durante todo el ciclo, incluso después de cerrar tu turno. Se conservarán hasta el día de pago.",0xFFFFFFFF.toInt(),0xFF33445F.toInt())
+  AlertDialog.Builder(this).setTitle("MIS SOLICITUDES").setView(ScrollView(this).apply{addView(panel)}).setPositiveButton("CERRAR",null).show()
+ }
  private fun showMyTurnMenu(){
   val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
   val dialog=AlertDialog.Builder(this).setTitle("MI TURNO").setView(ScrollView(this).apply{addView(panel)}).setNegativeButton("CERRAR",null).create()
@@ -1196,6 +1332,7 @@ class MainActivity:FragmentActivity(){
    card.setOnClickListener{dialog.dismiss();action()}
   }
   option("SOLICITA","Registrar un consumo o solicitar un préstamo"){startActivity(Intent(this,PayrollRequestActivity::class.java))}
+  option("MIS SOLICITUDES","Consultar solicitudes activas, aprobadas y rechazadas hasta el día de pago"){showMyRequests()}
   option("MI NÓMINA","Consultar sueldo, descuentos e historial"){startActivity(Intent(this,PayrollEmployeeActivity::class.java))}
   option("MI JORNADA LABORAL","Consultar entrada, salida estimada y tiempo restante"){showWorkday()}
   option("COMUNICACIÓN","Enviar un mensaje de texto al patrón por WhatsApp"){sendPatronMessage()}
@@ -1524,6 +1661,12 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private var pendingReportText:String?=null
  private var pendingReportEventKey:String=""
+ @Volatile private var pendingReportOutboxQueued=false
+ // Respaldos secundarios: se ejecutan después de persistir el evento cifrado en la cola.
+ private var pendingBackupTree:Uri?=null
+ private var pendingBackupFile:java.io.File?=null
+ private var pendingBackupEmployeeId:String=""
+ private var pendingBackupWorkerName:String=""
  private fun saveReportToPhone(){
   val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
    addCategory(Intent.CATEGORY_OPENABLE)
@@ -1534,6 +1677,8 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
  }
  private fun completeReport(final:Boolean,tree:Uri){
   if(reportProcessing)return
+  pendingReportText=null
+  pendingReportOutboxQueued=false
   reportProcessing=true
   if(final){sell.isEnabled=false;sell.alpha=0.45f;if(::countdownView.isInitialized)countdownView.text="PREPARANDO REPORTE…"}
   val (workDialog,updateWork)=showWorkProgress(if(final)"Finalizando turno" else "Preparando reporte","Organizando ventas, inventario y respaldos…")
@@ -1542,8 +1687,9 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    if(s==null){runOnUiThread{reportProcessing=false;workDialog.dismiss()};return@Thread}
    try{
    if(final && s.optLong("closingTs",0L)==0L){s.put("closingTs",System.currentTimeMillis()).put("closed",stamp());Store.saveShift(this,s)}
-   runOnUiThread{updateWork("Actualizando inventario maestro y respaldos…")}
-   // Publicar el stock compartido como nuevo inventario maestro y conservar la copia individual.
+   // Captura y publica el inventario de cierre antes de permitir el siguiente turno.
+   // nextNumber consulta solo la carpeta INVENTARIOS correspondiente, sin recorrer ni
+   // descifrar todo el histórico de reportes y trabajadores.
    val currentProducts=Store.products(this)
    Store.publishMasterProducts(this,currentProducts)
    InventoryArchive.save(this,currentProducts)
@@ -1594,19 +1740,49 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    val body=(if(closureNote.isNotBlank())closureNote+"\n" else "")+file.readText(Charsets.UTF_8)+payrollSummary+inventoryBlock+damagedBlock+REPORT_BACKUP_NOTE
    file.writeText(body,Charsets.UTF_8)
    runOnUiThread{updateWork("Guardando reporte seguro en el teléfono…")}
-   val dailyUri=saveDailyReport(tree,file,s.optString("employeeId"),s.optString("worker"))
-   pendingShareUri=dailyUri
    val stableShiftId=s.optString("shiftId").ifBlank { UUID.randomUUID().toString().also { s.put("shiftId",it); Store.saveShift(this,s) } }
    val eventKey=if(final) "$stableShiftId:CLOSE" else "$stableShiftId:REPORT:${s.optInt("reportCount",0)}"
    pendingReportEventKey=eventKey
-   pendingReportText=ReportCrypto.prepare(this,s.optString("employeeId"),if(final)"CIERRE_TURNO" else "REPORTE_TURNO",body,eventKey)
-   // Guardar primero el mensaje cifrado en almacenamiento privado local de la APK.
-   val encryptedFolder=java.io.File(getExternalFilesDir(null)?:filesDir,"REPORTES-CIFRADOS")
-   if(!encryptedFolder.exists()&&!encryptedFolder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local de reportes cifrados")
-   val safeEvent=eventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
-   val encryptedFile=java.io.File(encryptedFolder,"$safeEvent.txt")
-   encryptedFile.writeText(pendingReportText?:throw java.io.IOException("No se generó el reporte cifrado"),Charsets.UTF_8)
-   if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
+   val workerId=s.optString("employeeId")
+   val wireType=if(final) when {
+    s.optString("closingType")=="EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE
+    s.optString("closingType")=="ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE
+    s.optBoolean("completedWorkday",false)->SeneWireProtocol.FULL_SHIFT
+    else->SeneWireProtocol.EARLY_CLOSE
+   } else SeneWireProtocol.SYNC
+   // Primero se guarda siempre un respaldo local cifrado. Si SQLite o la red fallan,
+   // el turno puede cerrarse sin perder el reporte; después se migra a la cola RSA.
+   val contentType=if(final)"CIERRE_TURNO" else "REPORTE_TURNO"
+   if(!PayrollRequestSync.saveLocalPendingReport(this,eventKey,workerId,wireType,body,contentType))
+    throw java.io.IOException("No se pudo guardar el reporte cifrado local pendiente de envío")
+   pendingReportText=try {
+    if(ReportPublicKeyStore.hasKey(this))
+     ReportCrypto.prepare(this,workerId,contentType,body,eventKey)
+    else null
+   } catch(_:Exception) { null }
+   if(!pendingReportText.isNullOrBlank()) {
+    val encryptedFolder=java.io.File(getExternalFilesDir(null)?:filesDir,"REPORTES-CIFRADOS")
+    if(!encryptedFolder.exists()&&!encryptedFolder.mkdirs())throw java.io.IOException("No se pudo crear la carpeta local de reportes cifrados")
+    val safeEvent=eventKey.replace(Regex("[^A-Za-z0-9._-]"),"_")
+    val encryptedFile=java.io.File(encryptedFolder,"$safeEvent.txt")
+    encryptedFile.writeText(pendingReportText!!,Charsets.UTF_8)
+    if(!encryptedFile.isFile||encryptedFile.length()==0L)throw java.io.IOException("No se pudo verificar el reporte cifrado guardado")
+   }
+   // Insertar el sobre en SQLite fuera del hilo UI. El archivo local cifrado se conserva
+   // como respaldo si la transacción de la cola falla.
+   val outboxQueued=!pendingReportText.isNullOrBlank() &&
+    ReportEventOutbox.enqueue(this,eventKey,workerId,wireType,pendingReportText!!)
+   if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(this,eventKey)
+   pendingReportOutboxQueued=outboxQueued
+   if(!outboxQueued&&!PayrollRequestSync.hasLocalPendingReport(this,eventKey))
+    throw java.io.IOException("No se pudo confirmar ni la cola segura ni el respaldo local del reporte")
+
+   // Se conservan referencias para crear los respaldos secundarios después de que el
+   // reporte cifrado ya esté en la cola durable y el trabajador pueda salir del turno.
+   pendingBackupTree=tree
+   pendingBackupFile=file
+   pendingBackupEmployeeId=s.optString("employeeId")
+   pendingBackupWorkerName=s.optString("worker")
    pendingFinalShare=final
    runOnUiThread{
     workDialog.dismiss()
@@ -1623,18 +1799,34 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
   }.start()
  }
  private fun launchPendingReportShare(){
-  val body=pendingReportText?:return
-  val shift=Store.shift(this)
-  val workerId=shift?.optString("employeeId").orEmpty()
-  val reportType=if(!pendingFinalShare) SeneWireProtocol.SYNC else when(shift?.optString("closingType")){ "EARLY_EXIT"->SeneWireProtocol.EARLY_CLOSE; "ADMIN_FORCED"->SeneWireProtocol.ADMIN_CLOSE; else->SeneWireProtocol.FULL_SHIFT }
-  val queued=ReportEventOutbox.enqueue(this,pendingReportEventKey,workerId,reportType,body)
+  val outboxQueued=pendingReportOutboxQueued
+  val queued=outboxQueued||PayrollRequestSync.hasLocalPendingReport(this,pendingReportEventKey)
   if(!queued){
    msg("No se pudo guardar el reporte en la cola segura. El turno permanece protegido; vuelve a intentar.")
    return
   }
-  // La cola es durable: el reporte permanece hasta recibir el ACK del servidor.
+  // Primero se confirma la cola cifrada y durable. El inventario maestro y los
+  // snapshots se guardaron antes de cerrar; solo el TXT compartido queda en segundo plano.
+  val backupTree=pendingBackupTree
+  val backupFile=pendingBackupFile
+  val backupEmployeeId=pendingBackupEmployeeId
+  val backupWorkerName=pendingBackupWorkerName
+  pendingBackupTree=null
+  pendingBackupFile=null
+  pendingBackupEmployeeId=""
+  pendingBackupWorkerName=""
+  if(backupTree!=null&&backupFile!=null){
+   val appActivity=this@MainActivity
+   Thread{
+    // El TXT compartido es un respaldo secundario: la cola cifrada ya está confirmada.
+    try{saveDailyReport(backupTree,backupFile,backupEmployeeId,backupWorkerName)}catch(_:Exception){}
+   }.start()
+  }
+  // La cola RSA o el respaldo local cifrado permanece hasta que SERVER-SENE lo confirme.
+  if(!outboxQueued)PayrollRequestSync.sync(this,true)
   pendingShareUri=null
   pendingReportText=null
+  pendingReportOutboxQueued=false
   val final=pendingFinalShare
   val current=Store.shift(this)
   if(final){
@@ -1646,7 +1838,7 @@ private fun reviewScannedCodes(codes:ArrayList<String>){
    Store.saveShift(this,null)
    pendingReportEventKey=""
    ticket.clear()
-   msg("Cierre guardado. El reporte quedó en cola para sincronizarse con SENE SERVER.")
+   msg("Cierre guardado. El reporte quedó respaldado cifrado y se enviará a SENE SERVER al recuperar la conexión.")
    startActivity(Intent(this,InicioTurnoActivity::class.java))
    finish()
   }else if(current!=null){
@@ -2022,6 +2214,20 @@ class PatronActivity:FragmentActivity(){
  private fun inventory(){
   val products=Store.products(this)
   val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))}
+  val summary=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+  fun summaryChip(label:String,value:String,color:Int){
+   val chip=LinearLayout(this).apply{
+    orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(9),dp(10),dp(9))
+    background=GradientDrawable().apply{setColor(color);cornerRadius=dp(12).toFloat()}
+   }
+   chip.addView(TextView(this).apply{text=label;textSize=10f;typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL);setTextColor(0xFF77839B.toInt())})
+   chip.addView(TextView(this).apply{text=value;textSize=16f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF294A85.toInt());setPadding(0,dp(3),0,0)})
+   summary.addView(chip,LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=dp(8)})
+  }
+  val totalStock=(0 until products.length()).sumOf{products.optJSONObject(it)?.optInt("stock",0)?.coerceAtLeast(0)?:0}
+  summaryChip("Productos registrados",products.length().toString(),0xFFB9D8FF.toInt())
+  summaryChip("Existencias totales",totalStock.toString(),0xFFA5D6A7.toInt())
+  list.addView(summary)
   if(products.length()==0)list.addView(TextView(this).apply{text="Sin productos registrados";textSize=14f;gravity=Gravity.CENTER;setTextColor(0xFF77839B.toInt());setPadding(0,dp(24),0,dp(24))})
   for(i in 0 until products.length()){
    val item=products.optJSONObject(i)?:continue
@@ -2029,6 +2235,11 @@ class PatronActivity:FragmentActivity(){
     orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(12),dp(14),dp(12))
     background=GradientDrawable().apply{setColor(0xFFF8FAFE.toInt());cornerRadius=dp(14).toFloat();setStroke(dp(1),0xFFE0E7F2.toInt())}
    }
+   card.addView(TextView(this).apply{
+    text="PRODUCTO";textSize=10f;typeface=Typeface.create("sans-serif",Typeface.BOLD)
+    setTextColor(0xFF243557.toInt());setPadding(dp(8),dp(4),dp(8),dp(4))
+    background=GradientDrawable().apply{setColor(0xFFFFE082.toInt());cornerRadius=dp(9).toFloat()}
+   })
    card.addView(TextView(this).apply{text=item.optString("name","Producto");textSize=15f;typeface=Typeface.create("sans-serif",Typeface.BOLD);setTextColor(0xFF243557.toInt())})
    val code=TextView(this).apply{text="CÓDIGO  •  "+item.optString("code","—");textSize=11f;setTextColor(0xFF77839B.toInt());setPadding(0,dp(5),0,dp(8))}
    card.addView(code)
@@ -2379,12 +2590,26 @@ object ReportFile {
  /** Encola el reporte completo de movimientos; viaja cifrado y no usa WhatsApp. */
  @Synchronized fun queueMovementReport(c:android.content.Context,file:java.io.File,movement:org.json.JSONObject){
   if(!file.exists()||file.length()==0L)return
-  val shift=Store.shift(c)
+  val app=c.applicationContext
+  val shift=Store.shift(app)
   val workerId=movement.optString("employeeId").ifBlank{shift?.optString("employeeId").orEmpty()}
   val eventId=java.util.UUID.randomUUID().toString()
-  val body=file.readText(Charsets.UTF_8)
-  val encrypted=ReportCrypto.prepare(c,workerId,SeneWireProtocol.SYNC,body,eventId)
-  if(ReportEventOutbox.enqueue(c,eventId,workerId,SeneWireProtocol.SYNC,encrypted)) PayrollRequestSync.sync(c,true)
+  // La generación/cifrado del reporte no debe bloquear una venta o devolución.
+  Thread{
+   try {
+    if(!file.isFile||file.length()==0L)return@Thread
+    val body=file.readText(Charsets.UTF_8)
+    val localSaved=PayrollRequestSync.saveLocalPendingReport(app,eventId,workerId,SeneWireProtocol.SYNC,body,SeneWireProtocol.SYNC)
+    if(!localSaved)return@Thread
+    val encrypted=try {
+     if(ReportPublicKeyStore.hasKey(app))ReportCrypto.prepare(app,workerId,SeneWireProtocol.SYNC,body,eventId) else null
+    } catch(_:Exception) { null }
+    val outboxQueued=!encrypted.isNullOrBlank()&&ReportEventOutbox.enqueue(app,eventId,workerId,SeneWireProtocol.SYNC,encrypted)
+    if(outboxQueued)PayrollRequestSync.removeLocalPendingReport(app,eventId)
+    // Si SQLite no acepta el sobre, el respaldo cifrado local sigue en la cola pendiente.
+    if(!outboxQueued)PayrollRequestSync.sync(app,true)
+   } catch(_:Exception) { }
+  }.start()
  }
 }
 
@@ -2404,7 +2629,9 @@ class WelcomeActivity:Activity(){
  private var checking=false
  private var keySetupReady=false
  override fun onCreate(savedInstanceState:Bundle?){
-  super.onCreate(savedInstanceState);showWelcome()
+  super.onCreate(savedInstanceState)
+  SeneSyncScheduler.ensureScheduled(this)
+  showWelcome()
   if(ReportCrypto.hasKey(this))keySetupReady=true
   else ReportKeySetup.ensureConfigured(this){keySetupReady=true;checkExistingSession()}
  }
@@ -2418,9 +2645,11 @@ class WelcomeActivity:Activity(){
     checking=false
     if(isFinishing||isDestroyed)return@runOnUiThread
     if(active){
-     if (!isFinishing && !isDestroyed) {
-      startActivity(Intent(this,InicioTurnoActivity::class.java))
-      finish()
+     ensureOwnerWhatsApp(this) {
+      if (!isFinishing && !isDestroyed) {
+       startActivity(Intent(this,InicioTurnoActivity::class.java))
+       finish()
+      }
      }
     }
    }

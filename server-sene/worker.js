@@ -18,7 +18,7 @@ const WIRE = Object.freeze({
   INSTALLATION: "i", CURSOR: "c", REQUESTS: "r", ATTENDANCE: "h",
   INVENTORY: "g", REPORTS: "b", DECISIONS: "d", ADMIN_TOKEN: "a",
   ATTENDANCE_ACKS: "ha", SALES_INVENTORY_ACKS: "ga", INVENTORY_ACKS: "gi",
-  REPORT_ACKS: "ba", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
+  REPORT_ACKS: "ba", REQUEST_ACKS: "ra", DECISION_ACKS: "da", DECISION_ACK_CONFIRMATIONS: "daa", ADMIN_DECISION_ACKS: "ad", ADMIN_DECISION_ACK_CONFIRMATIONS: "adak", ATTENDANCE_ACK_CONFIRMATIONS: "haa",
   INVENTORY_ACK_CONFIRMATIONS: "gaa", REPORT_ACK_CONFIRMATIONS: "baa",
   NEXT_CURSOR: "n", REPORT_PUBLIC_KEY: "rp", SYNC: "[SYNC]"
 });
@@ -486,13 +486,16 @@ async function payrollSync(request, env) {
   const business = await activeBusinessByInstallation(env.DB,installationId);
   if (!business) return json({ok:false,error:"LICENCIA_NO_ACTIVA"},403);
   const db=env.DB, now=nowIso();
-  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body[WIRE.ATTENDANCE]).slice(0,100), inventory=asArray(body[WIRE.INVENTORY]).slice(0,100), reports=asArray(body[WIRE.REPORTS]).slice(0,100);
+  const requests=asArray(body.q ?? body[WIRE.REQUESTS]).slice(0,100), attendance=asArray(body[WIRE.ATTENDANCE]).slice(0,100), inventory=asArray(body[WIRE.INVENTORY]).slice(0,100), reports=asArray(body[WIRE.REPORTS]).slice(0,10);
   const statements=[];
+  const acceptedR=[];
   for (const item of requests) {
     const id=eventId(item), worker=eventWorker(item) || String(body.w || "").trim();
     if (!id || !worker || !["[P$]","[C$]"].includes(String(item.t||""))) continue;
     statements.push(db.prepare("INSERT INTO payroll_requests (event_id,business_id,worker_id,payload,status,created_at,updated_at) VALUES (?,?,?,?, 'PENDING',?,?) ON CONFLICT(business_id,event_id) DO NOTHING")
       .bind(id,business.id,worker,JSON.stringify(item),now,now));
+    // ACK solo después de que el lote D1 se haya confirmado más abajo.
+    acceptedR.push(id);
   }
   const acceptedH=[],acceptedG=[],acceptedB=[];
   for (const item of attendance) {
@@ -514,8 +517,18 @@ async function payrollSync(request, env) {
     acceptedB.push(id);
   }
   if (statements.length) await db.batch(statements);
+  const decisionAcks=asArray(body[WIRE.DECISION_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const confirmedDecisionAcks=[];
+  if(decisionAcks.length) {
+    await db.batch(decisionAcks.map(id=>db.prepare(
+      "UPDATE payroll_requests SET payload=json_set(payload,'$.sda',1),updated_at=? WHERE business_id=? AND event_id=? AND status IN ('APPROVED','REJECTED')"
+    ).bind(now,business.id,id)));
+    // El ACK de ACK confirma la recepción del identificador incluso si el registro
+    // ya fue depurado después de que ambas aplicaciones lo recibieron.
+    confirmedDecisionAcks.push(...decisionAcks);
+  }
   await maybeCleanupRetainedHistory(db);
-  const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') ORDER BY seq LIMIT 300")
+  const decisions=await db.prepare("SELECT event_id,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') AND COALESCE(json_extract(payload,'$.sda'),0)=0 ORDER BY seq LIMIT 300")
     .bind(business.id).all();
   const key=await db.prepare("SELECT public_key FROM admin_public_keys WHERE business_id=?").bind(business.id).first();
   // Las decisiones se reenvían de forma idempotente en cada sincronización.
@@ -526,7 +539,7 @@ async function payrollSync(request, env) {
   }));
   return json({
     v:1,d:responseDecisions,
-    ha:acceptedH,ga:acceptedG,ba:acceptedB,
+    ra:acceptedR,daa:confirmedDecisionAcks,ha:acceptedH,ga:acceptedG,ba:acceptedB,
     rp:key?.public_key||""
   });
 }
@@ -541,43 +554,56 @@ async function adminPayrollSync(request, env) {
     await db.prepare("INSERT INTO admin_public_keys (business_id,admin_installation_id,public_key,updated_at) VALUES (?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET admin_installation_id=excluded.admin_installation_id,public_key=excluded.public_key,updated_at=excluded.updated_at")
       .bind(businessId,session.admin_installation_id,publicKey,now).run();
   }
-  const decisions=asArray(body[WIRE.DECISIONS]), statements=[];
+  const decisions=asArray(body[WIRE.DECISIONS]).slice(0,100), statements=[], submittedDecisions=[];
   for(const d of decisions) {
     const id=eventId(d), state=String(d.x||"").toUpperCase();
     if(!id || !["[OK]","[NO]","APPROVED","REJECTED"].includes(state)) continue;
     const normalized=state==="[OK]"||state==="APPROVED"?"APPROVED":"REJECTED";
-    statements.push(db.prepare("UPDATE payroll_requests SET status=?,decision_by='PATRON',decision_reason=?,decided_at=?,updated_at=? WHERE business_id=? AND event_id=? AND status='PENDING'")
-      .bind(normalized,String(d.r||""),now,now,businessId,id));
+    submittedDecisions.push({id,state:normalized,reason:String(d.r||"")});
+    statements.push(db.prepare("UPDATE payroll_requests SET status=?,decision_by='PATRON',decision_reason=?,decided_at=?,updated_at=? WHERE business_id=? AND event_id=? AND (status='PENDING' OR status=?)")
+      .bind(normalized,String(d.r||""),now,now,businessId,id,normalized));
   }
-  const attendanceAcks=asArray(body[WIRE.ATTENDANCE_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const inventoryAcks=asArray(body[WIRE.INVENTORY_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
-  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const attendanceAcks=asArray(body[WIRE.ATTENDANCE_ACKS]).slice(0,300).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const inventoryAcks=asArray(body[WIRE.INVENTORY_ACKS]).slice(0,300).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const reportAcks=asArray(body[WIRE.REPORT_ACKS]).slice(0,10).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
   for(const id of attendanceAcks) statements.push(db.prepare("UPDATE attendance_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of inventoryAcks) statements.push(db.prepare("UPDATE inventory_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
   for(const id of reportAcks) statements.push(db.prepare("UPDATE report_events SET delivered_at=COALESCE(delivered_at,?) WHERE business_id=? AND event_id=?").bind(now,businessId,id));
-  if(statements.length) await db.batch(statements);
+  const results=statements.length?await db.batch(statements):[];
+  const confirmedAdminDecisions=[];
+  for(let i=0;i<submittedDecisions.length;i++) {
+    if(results[i]?.meta?.changes>0) {
+      const d=submittedDecisions[i];
+      confirmedAdminDecisions.push({e:d.id,x:d.state,by:"PATRON",rr:d.reason,at:now});
+    }
+  }
+  const adminDecisionAcks=asArray(body[WIRE.ADMIN_DECISION_ACKS]).slice(0,100).map(x=>typeof x==="string"?x:eventId(x)).filter(Boolean);
+  const confirmedAdminDecisionAcks=[];
+  if(adminDecisionAcks.length) {
+    await db.batch(adminDecisionAcks.map(id=>db.prepare(
+      "UPDATE payroll_requests SET payload=json_set(payload,'$.ada',1),updated_at=? WHERE business_id=? AND event_id=? AND status IN ('APPROVED','REJECTED')"
+    ).bind(now,businessId,id)));
+    // Un ACK repetido sigue siendo válido si el registro ya salió de la retención.
+    confirmedAdminDecisionAcks.push(...adminDecisionAcks);
+  }
   await maybeCleanupRetainedHistory(db);
 
   const requestCursor=parseCursor(body[WIRE.CURSOR]);
   const reqRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND seq>? ORDER BY seq LIMIT 300")
     .bind(businessId,requestCursor).all();
-  // Las decisiones resueltas se vuelven a entregar aunque su seq sea anterior al cursor.
-  // El cliente las aplica idempotentemente y deja de reenviar su decisión local al recibirlas.
-  const decisionRows=await db.prepare("SELECT seq,event_id,payload,status,decision_by,decision_reason,decided_at FROM payroll_requests WHERE business_id=? AND status IN ('APPROVED','REJECTED') ORDER BY updated_at DESC,seq DESC LIMIT 300")
-    .bind(businessId).all();
-  const mergedRows=new Map();
-  for(const row of [...(reqRows.results||[]),...(decisionRows.results||[])]) mergedRows.set(row.event_id,row);
-  const reqs=[...mergedRows.values()].sort((a,b)=>a.seq-b.seq).map(row=>{
+  // Solo se entregan solicitudes nuevas por cursor. Las decisiones del patrón
+  // viajan como ACK explícito en confirmedAdminDecisions, no como historial repetido.
+  const reqs=(reqRows.results||[]).map(row=>{
     const p=(()=>{try{return JSON.parse(row.payload)}catch(_){return {}}})();
     return {...p,e:row.event_id,x:row.status,by:row.decision_by||"",rr:row.decision_reason||"",at:row.decided_at||""};
   });
   const hRows=await db.prepare("SELECT seq,payload FROM attendance_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 300").bind(businessId).all();
   const gRows=await db.prepare("SELECT seq,payload FROM inventory_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 300").bind(businessId).all();
-  const bRows=await db.prepare("SELECT seq,event_id,envelope FROM report_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 100").bind(businessId).all();
+  const bRows=await db.prepare("SELECT seq,event_id,envelope FROM report_events WHERE business_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 10").bind(businessId).all();
   const maxSeq=reqRows.results?.length?reqRows.results[reqRows.results.length-1].seq:requestCursor;
   const parsePayload=rows=>(rows||[]).map(r=>{try{return JSON.parse(r.payload)}catch(_){return null}}).filter(Boolean);
   return json({
-    v:1,items:reqs,
+    v:1,items:reqs,ada:confirmedAdminDecisions,adak:confirmedAdminDecisionAcks,
     h:parsePayload(hRows.results),g:parsePayload(gRows.results),
     b:(bRows.results||[]).map(r=>{try{return JSON.parse(r.envelope)}catch(_){return {e:r.event_id,p:r.envelope}}}),
     haa:attendanceAcks,gaa:inventoryAcks,baa:reportAcks,
@@ -601,6 +627,8 @@ async function cleanupRetainedHistory(db) {
             ) AS rn
           FROM payroll_requests
           WHERE status IN ('APPROVED','REJECTED')
+            AND COALESCE(json_extract(payload, '$.sda'), 0) = 1
+            AND COALESCE(json_extract(payload, '$.ada'), 0) = 1
         )
         WHERE rn > 10
       )

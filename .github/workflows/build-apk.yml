@@ -1,7 +1,12 @@
 name: Compilar APK SENE VENTAS
+# Recompilación solicitada tras configurar los secretos de firma permanente.
+# Recompilar tras la auditoría de colas, ACK y sincronización incremental.
+# Incluye también ACK de solicitudes/decisiones y reportes locales offline.
+# Incluye confirmación de entrega de decisiones y retención hasta ACK de ambas APK.
+# Auditoría final: respaldo local, colas idempotentes, ACK en dos fases y lotes compactos.
 on:
   push:
-    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge, work/shared-inventory-sene, work/worker-onboarding-payroll-v2, fix/no-nested-inventario-sene, ui/modern-sene-ventas, fix/payroll-attendance-sync-2026-11, feature/loan-consumption-approval-client, feature/server-sene-complete-api, review/server-sene-prices-20261122]
+    branches: [main, sene-ventas-rebuild, fix/ventas-compile-approved-knowledge, work/shared-inventory-sene, work/worker-onboarding-payroll-v2, fix/no-nested-inventario-sene, ui/modern-sene-ventas, fix/payroll-attendance-sync-2026-11, feature/loan-consumption-approval-client, feature/server-sene-complete-api, review/server-sene-prices-20261122, fix/shift-navigation-pending-reports-20261123]
   pull_request:
     branches: [main, sene-ventas-rebuild, work/shared-inventory-sene]
   workflow_dispatch:
@@ -21,6 +26,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Preparar firma permanente (si está configurada)
+        env:
+          SENE_KEYSTORE_BASE64: ${{ secrets.SENE_KEYSTORE_BASE64 }}
+          SENE_STORE_PASSWORD: ${{ secrets.SENE_STORE_PASSWORD }}
+          SENE_KEY_ALIAS: ${{ secrets.SENE_KEY_ALIAS }}
+          SENE_KEY_PASSWORD: ${{ secrets.SENE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SENE_KEYSTORE_BASE64" ] && [ -n "$SENE_STORE_PASSWORD" ] && [ -n "$SENE_KEY_ALIAS" ] && [ -n "$SENE_KEY_PASSWORD" ]; then
+            echo "$SENE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/sene-ventas-signing.jks"
+            test -s "$RUNNER_TEMP/sene-ventas-signing.jks"
+            chmod 600 "$RUNNER_TEMP/sene-ventas-signing.jks"
+            echo "SENE_KEYSTORE_PATH=$RUNNER_TEMP/sene-ventas-signing.jks" >> "$GITHUB_ENV"
+            echo "SENE_STORE_PASSWORD=$SENE_STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "SENE_KEY_ALIAS=$SENE_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "SENE_KEY_PASSWORD=$SENE_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "SENE_STABLE_SIGNING=true" >> "$GITHUB_ENV"
+            echo "Firma permanente configurada."
+          else
+            echo "SENE_STABLE_SIGNING=false" >> "$GITHUB_ENV"
+            echo "::warning::No hay firma permanente. La APK resultante es SOLO de compilación y NO debe instalarse como actualización."
+          fi
       - name: Localizar Android SDK y sdkmanager
         run: |
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
@@ -56,15 +82,28 @@ jobs:
         run: gradle --version
       - name: Compilar APK
         run: gradle --no-daemon assembleDebug
-      - name: Preparar APK con nombre oficial
+      - name: Verificar firma y preparar APK
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/SENE-VENTAS.apk
           test -s dist/SENE-VENTAS.apk
           unzip -t dist/SENE-VENTAS.apk >/dev/null
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/apksigner"
+          if [ "$SENE_STABLE_SIGNING" = "true" ]; then
+            "$BUILD_TOOLS/apksigner" sign --ks "$SENE_KEYSTORE_PATH" --ks-key-alias "$SENE_KEY_ALIAS" --ks-pass env:SENE_STORE_PASSWORD --key-pass env:SENE_KEY_PASSWORD --out dist/SENE-VENTAS-signed.apk dist/SENE-VENTAS.apk
+            mv dist/SENE-VENTAS-signed.apk dist/SENE-VENTAS.apk
+          fi
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs dist/SENE-VENTAS.apk
           sha256sum dist/SENE-VENTAS.apk
+          sha256sum dist/SENE-VENTAS.apk
+          if [ "$SENE_STABLE_SIGNING" = "true" ]; then
+            echo "APK firmada con la llave permanente configurada."
+          else
+            echo "::warning::APK con firma temporal de depuración; NO instalar ni distribuir."
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: SENE-VENTAS
+          name: SENE-VENTAS-${{ env.SENE_STABLE_SIGNING == 'true' && 'FIRMA-PERMANENTE' || 'NO-INSTALAR-SIN-FIRMA' }}
           path: dist/SENE-VENTAS.apk
           if-no-files-found: error

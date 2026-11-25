@@ -8,6 +8,40 @@ import android.os.Bundle
 import android.view.Gravity
 import android.widget.*
 
+
+
+fun ensureOwnerWhatsApp(activity: Activity, onSaved: () -> Unit) {
+    if (Store.hasConfiguredPhone(activity)) {
+        onSaved()
+        return
+    }
+    val number = EditText(activity).apply {
+        hint = "WhatsApp del dueño con código de país"
+        inputType = android.text.InputType.TYPE_CLASS_PHONE
+        setSingleLine(true)
+    }
+    val dialog = AlertDialog.Builder(activity)
+        .setTitle("NÚMERO DE WHATSAPP DEL DUEÑO")
+        .setMessage("Escribe el WhatsApp del dueño o patrón que recibirá los mensajes de los trabajadores. Incluye el código de país.")
+        .setView(number)
+        .setPositiveButton("GUARDAR Y CONTINUAR", null)
+        .setCancelable(false)
+        .create()
+    dialog.setOnShowListener {
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val clean = number.text.toString().filter { it.isDigit() }
+            if (clean.length !in 10..15) {
+                number.error = "Escribe un número válido de 10 a 15 dígitos"
+                return@setOnClickListener
+            }
+            Store.setPhone(activity, clean)
+            dialog.dismiss()
+            onSaved()
+        }
+    }
+    dialog.show()
+}
+
 class AccountLoginActivity : Activity() {
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
     private fun field(hint: String, code: Boolean = false) = EditText(this).apply {
@@ -73,7 +107,7 @@ class AccountLoginActivity : Activity() {
                 if (status?.optBoolean("active") == true) {
                     AlertDialog.Builder(this).setTitle("SESIÓN ACTIVA")
                         .setMessage("Este dispositivo ya está autorizado para " + status.optString("business_name", "tu negocio") + ". La suscripción está vigente.")
-                        .setPositiveButton("CONTINUAR") { _, _ -> finish() }.show()
+                        .setPositiveButton("CONTINUAR") { _, _ -> ensureOwnerWhatsApp(this) { finish() } }.show()
                 } else {
                     val linked = getSharedPreferences("sene_account_transfer", MODE_PRIVATE)
                         .getBoolean("linked_successfully", false)
@@ -129,7 +163,7 @@ class AccountLoginActivity : Activity() {
                         .setMessage("Este dispositivo quedó vinculado a " + status.optString("business_name", "tu negocio") +
                             ". El dispositivo anterior perdió el acceso. Tu suscripción y fecha de vencimiento se conservaron.")
                         .setCancelable(false)
-                        .setPositiveButton("CONTINUAR") { _, _ -> finish() }.show()
+                        .setPositiveButton("CONTINUAR") { _, _ -> ensureOwnerWhatsApp(this) { finish() } }.show()
                 } else {
                     val message = result.optString("message",
                         if (result.optBoolean("ok")) "La transferencia fue recibida, pero aún no se pudo confirmar el acceso. Cuando SERVER-SENE esté actualizado, podrás completar el inicio de sesión."

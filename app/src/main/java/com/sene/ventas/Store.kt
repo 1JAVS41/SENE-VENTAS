@@ -37,12 +37,20 @@ object Store {
  private fun root(c:Context):JSONObject { val raw=c.getSharedPreferences(PREF,0).getString(KEY,null); return try { if(raw==null) JSONObject() else JSONObject(raw) } catch(e:Exception){ JSONObject() } }
  private fun put(c:Context,r:JSONObject){ c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).apply(); try{ReportFile.update(c,r)}catch(_:Exception){} }
  fun products(c:Context)=root(c).optJSONArray("products")?:JSONArray()
+ fun inventoryWireDirty(c:Context,scope:String):Boolean =
+  scope in setOf("M","S") && root(c).optBoolean("inventory_wire_dirty_"+scope,false)
+ fun clearInventoryWireDirty(c:Context,scope:String):Boolean {
+  if(scope !in setOf("M","S"))return false
+  val r=root(c);r.put("inventory_wire_dirty_"+scope,false)
+  return c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).commit()
+ }
  fun masterProducts(c:Context):JSONArray{val prefs=c.getSharedPreferences(PREF,0);val saved=prefs.getString("master_products",null);if(!saved.isNullOrBlank())return try{JSONArray(saved)}catch(_:Exception){JSONArray()};val current=products(c);if(shift(c)==null)prefs.edit().putString("master_products",current.toString()).apply();return current}
  fun sales(c:Context)=db(c).all("sales")
  fun moves(c:Context)=db(c).all("moves")
  fun shift(c:Context)=root(c).optJSONObject("shift")
- fun phone(c:Context)=root(c).optString("phone","523311337592")
- fun setPhone(c:Context,p:String){ val r=root(c);r.put("phone",p);put(c,r) }
+ fun phone(c:Context)=root(c).optString("phone","")
+ fun setPhone(c:Context,p:String){ val r=root(c);r.put("phone",p);put(c,r);c.getSharedPreferences(PREF,0).edit().putBoolean("owner_whatsapp_confirmed_v1",true).apply() }
+ fun hasConfiguredPhone(c:Context):Boolean { val r=root(c);val p=r.optString("phone").filter{it.isDigit()};return c.getSharedPreferences(PREF,0).getBoolean("owner_whatsapp_confirmed_v1",false)&&r.has("phone")&&p.length in 10..15 }
  fun saveProducts(c:Context,a:JSONArray,saveAsMaster:Boolean=true){
   val previous=products(c)
   val oldByCode=mutableMapOf<String,JSONObject>()
@@ -56,30 +64,42 @@ object Store {
    val old=oldByCode[code]
    val before=old?.optInt("stock",0)?:0
    val after=item.optInt("stock",0).coerceAtLeast(0)
-   if(before==after)continue
+   val priceCents=(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)
+   val metadataChanged=old==null ||
+    old.optString("name")!=item.optString("name") ||
+    (old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents ||
+    old.optString("aisle")!=item.optString("aisle") ||
+    old.optString("shelf")!=item.optString("shelf")
+   if(before==after&&!metadataChanged)continue
    val delta=after-before
-   changes.put(JSONObject().put("c",code).put("n",item.optString("name"))
-    .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
-    .put("s",after).put("q",delta).put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
-    .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+   val change=JSONObject().put("c",code).put("s",after).put("q",delta)
+    .put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
+   if(old==null||old.optString("name")!=item.optString("name"))change.put("n",item.optString("name"))
+   if(old==null||(old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents)change.put("a",priceCents)
+   if(old==null||old.optString("aisle")!=item.optString("aisle"))change.put("l",item.optString("aisle"))
+   if(old==null||old.optString("shelf")!=item.optString("shelf"))change.put("h",item.optString("shelf"))
+   changes.put(change)
   }
   // Un producto eliminado del catálogo se representa como existencia cero, no como borrado de historial.
   oldByCode.forEach{(code,item)->
-   if(code !in seen&&item.optInt("stock",0)>0)changes.put(JSONObject().put("c",code)
-    .put("n",item.optString("name")).put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
-    .put("s",0).put("q",-item.optInt("stock",0)).put("x",SeneWireProtocol.STOCK_OUT)
-    .put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+   if(code !in seen&&item.optInt("stock",0)>0)changes.put(JSONObject()
+    .put("c",code).put("s",0).put("q",-item.optInt("stock",0)).put("x",SeneWireProtocol.STOCK_OUT))
   }
   val now=System.currentTimeMillis()
-  val r=root(c);r.put("products",a).put("stockUpdatedAt",now)
-  if(saveAsMaster&&shift(c)==null)c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()
-  put(c,r)
-  val scope=if(shift(c)==null)"M" else "S"
+  val r=root(c)
+  val isMaster=shift(c)==null
+  val scope=if(isMaster)"M" else "S"
+  val dirtyKey="inventory_wire_dirty_"+scope
+  r.put("products",a).put("stockUpdatedAt",now).put(dirtyKey,true)
+  val localEdit=c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString())
+  if(saveAsMaster&&isMaster)localEdit.putString("master_products",a.toString())
+  // El inventario local debe quedar confirmado antes de crear su evento remoto.
+  if(!localEdit.commit())return
+  try{ReportFile.update(c,r)}catch(_:Exception){}
   val syncPrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
-  val bootstrapKey="full_snapshot_acked_"+scope
-  val bootstrapAcked=syncPrefs.getBoolean(bootstrapKey,false)
-  var bootstrapReady=bootstrapAcked||InventoryEventOutbox.hasPendingFullSnapshot(c,scope)
-  if(!bootstrapReady){
+  val bootstrapAcked=syncPrefs.getBoolean("full_snapshot_acked_"+scope,false)
+  val bootstrapReady=bootstrapAcked||InventoryEventOutbox.hasPendingFullSnapshot(c,scope)
+  val queued=if(!bootstrapReady) {
    val full=JSONArray()
    for(i in 0 until a.length()){
     val item=a.optJSONObject(i)?:continue
@@ -89,34 +109,77 @@ object Store {
      .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
      .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
    }
-   // No marcar como completado hasta recibir el ACK real del servidor.
-   // Si falla la cola, no se envían deltas sin base; el siguiente guardado reintenta el snapshot.
-   bootstrapReady=InventoryEventOutbox.enqueue(c,scope,full,now,true)
+   // La fotografía inicial incluye todos los cambios de esta operación.
+   InventoryEventOutbox.enqueue(c,scope,full,now,true)
+  } else if(changes.length()>0) {
+   InventoryEventOutbox.enqueue(c,scope,changes,now)
+  } else true
+  if(queued) {
+   r.put(dirtyKey,false)
+   if(!c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).commit())return
+   if(!bootstrapAcked||changes.length()>0)PayrollRequestSync.sync(c,true)
   }
-  // Nunca adelantar deltas a la fotografía inicial de esta categoría.
-  if(bootstrapReady&&changes.length()>0)InventoryEventOutbox.enqueue(c,scope,changes,now)
-  if(bootstrapReady&&!bootstrapAcked)PayrollRequestSync.sync(c,true)
-  else if(bootstrapReady&&changes.length()>0)PayrollRequestSync.sync(c,true)
  }
  @Synchronized fun applyApprovedConsumption(c:Context,requestId:String,code:String,quantity:Int,amount:Double,worker:String,employeeId:String,description:String):Boolean {
   if(requestId.isBlank()||code.isBlank()||quantity<=0)return false
   val currentMoves=moves(c)
   val moveExists=(0 until currentMoves.length()).any{currentMoves.optJSONObject(it)?.optString("requestId")==requestId}
   val r=root(c)
-  val applied=try{r.optJSONObject("approved_consumption_requests")?:JSONObject()}catch(_:Exception){JSONObject()}
-  if(!applied.optBoolean(requestId,false)){
-   val products=r.optJSONArray("products")?:JSONArray()
-   var found:JSONObject?=null
-   for(i in 0 until products.length()){val p=products.optJSONObject(i)?:continue;if(p.optString("code")==code){found=p;break}}
-   val product=found?:return false
-   if(product.optInt("stock")<quantity)return false
-   product.put("stock",product.optInt("stock")-quantity)
+  val applied=r.optJSONObject("approved_consumption_requests")?:JSONObject()
+  val products=r.optJSONArray("products")?:JSONArray()
+  var product:JSONObject?=null
+  for(i in 0 until products.length()) {
+   val item=products.optJSONObject(i)?:continue
+   if(item.optString("code")==code){product=item;break}
+  }
+  if(product==null)return false
+  val isMaster=r.optJSONObject("shift")==null
+  val scope=if(isMaster)"M" else "S"
+  if(!applied.optBoolean(requestId,false)) {
+   if(product!!.optInt("stock")<quantity)return false
+   val nextStock=product!!.optInt("stock",0).coerceAtLeast(0)-quantity
+   if(nextStock<0)return false
+   product!!.put("stock",nextStock)
    applied.put(requestId,true)
-   r.put("products",products).put("approved_consumption_requests",applied).put("stockUpdatedAt",System.currentTimeMillis())
+   val changedAt=System.currentTimeMillis()
+   r.put("products",products).put("approved_consumption_requests",applied)
+    .put("stockUpdatedAt",changedAt).put("inventory_wire_dirty_"+scope,true)
    val edit=c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString())
-   if(shift(c)==null)edit.putString("master_products",products.toString())
+   if(isMaster)edit.putString("master_products",products.toString())
    if(!edit.commit())return false
    try{ReportFile.update(c,r)}catch(_:Exception){}
+  }
+  // El evento usa un ID determinista: si la escritura local o la confirmación falla,
+  // el reintento no duplica el movimiento en SERVER-SENE.
+  val synced=r.optJSONObject("approved_consumption_inventory_synced")?:JSONObject()
+  if(!synced.optBoolean(requestId,false)) {
+   val changedAt=System.currentTimeMillis()
+   val wirePrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
+   val snapshotAcked=wirePrefs.getBoolean("full_snapshot_acked_"+scope,false)
+   val snapshotPending=InventoryEventOutbox.hasPendingFullSnapshot(c,scope)
+   val stableEventId="$requestId:STOCK"
+   val queued=if(!snapshotAcked&&!snapshotPending) {
+    val full=JSONArray()
+    for(i in 0 until products.length()) {
+     val item=products.optJSONObject(i)?:continue
+     val itemCode=item.optString("code")
+     if(itemCode.isBlank())continue
+     full.put(JSONObject().put("c",itemCode).put("n",item.optString("name"))
+      .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+      .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+    }
+    InventoryEventOutbox.enqueue(c,scope,full,changedAt,true,stableEventId)
+   } else {
+    val delta=JSONArray().put(JSONObject().put("c",code)
+     .put("s",product!!.optInt("stock",0).coerceAtLeast(0)).put("q",-quantity)
+     .put("x",SeneWireProtocol.STOCK_OUT))
+    InventoryEventOutbox.enqueue(c,scope,delta,changedAt,false,stableEventId)
+   }
+   if(!queued)return false
+   synced.put(requestId,true)
+   r.put("approved_consumption_inventory_synced",synced).put("inventory_wire_dirty_"+scope,false)
+   if(!c.getSharedPreferences(PREF,0).edit().putString(KEY,r.toString()).commit())return false
+   PayrollRequestSync.sync(c,true)
   }
   if(!moveExists)addMove(c,JSONObject().put("requestId",requestId).put("type","EMPLOYEE_CONSUMPTION")
    .put("ts",System.currentTimeMillis()).put("time",java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date()))
@@ -125,7 +188,69 @@ object Store {
   return true
  }
 
- fun publishMasterProducts(c:Context,a:JSONArray){c.getSharedPreferences(PREF,0).edit().putString("master_products",a.toString()).apply()}
+ @Synchronized fun publishMasterProducts(c:Context,a:JSONArray) {
+  val previous=masterProducts(c)
+  val oldByCode=mutableMapOf<String,JSONObject>()
+  for(i in 0 until previous.length()) {
+   val item=previous.optJSONObject(i)?:continue
+   val code=item.optString("code")
+   if(code.isNotBlank())oldByCode[code]=item
+  }
+  val seen=mutableSetOf<String>()
+  val changes=JSONArray()
+  for(i in 0 until a.length()) {
+   val item=a.optJSONObject(i)?:continue
+   val code=item.optString("code")
+   if(code.isBlank())continue
+   seen.add(code)
+   val old=oldByCode[code]
+   val before=old?.optInt("stock",0)?:0
+   val after=item.optInt("stock",0).coerceAtLeast(0)
+   val priceCents=(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)
+   val metadataChanged=old==null||old.optString("name")!=item.optString("name")||
+    (old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents||
+    old.optString("aisle")!=item.optString("aisle")||old.optString("shelf")!=item.optString("shelf")
+   if(before==after&&!metadataChanged)continue
+   val delta=after-before
+   val change=JSONObject().put("c",code).put("s",after).put("q",delta)
+    .put("x",when{delta>0->SeneWireProtocol.STOCK_IN;delta<0->SeneWireProtocol.STOCK_OUT;else->SeneWireProtocol.INVENTORY_ADJUSTMENT})
+   if(old==null||old.optString("name")!=item.optString("name"))change.put("n",item.optString("name"))
+   if(old==null||(old.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L)!=priceCents)change.put("a",priceCents)
+   if(old==null||old.optString("aisle")!=item.optString("aisle"))change.put("l",item.optString("aisle"))
+   if(old==null||old.optString("shelf")!=item.optString("shelf"))change.put("h",item.optString("shelf"))
+   changes.put(change)
+  }
+  oldByCode.forEach{(code,item)->
+   if(code !in seen&&item.optInt("stock",0)>0)
+    changes.put(JSONObject().put("c",code).put("s",0).put("q",-item.optInt("stock",0)).put("x",SeneWireProtocol.STOCK_OUT))
+  }
+  val now=System.currentTimeMillis()
+  val r=root(c);r.put("inventory_wire_dirty_M",true)
+  val prefs=c.getSharedPreferences(PREF,0)
+  if(!prefs.edit().putString("master_products",a.toString()).putString(KEY,r.toString()).commit())return
+  try{ReportFile.update(c,r)}catch(_:Exception){}
+  val wirePrefs=c.getSharedPreferences("sene_inventory_wire_outbox",Context.MODE_PRIVATE)
+  val bootstrapAcked=wirePrefs.getBoolean("full_snapshot_acked_M",false)
+  val bootstrapReady=bootstrapAcked||InventoryEventOutbox.hasPendingFullSnapshot(c,"M")
+  val queued=if(!bootstrapReady) {
+   val full=JSONArray()
+   for(i in 0 until a.length()) {
+    val item=a.optJSONObject(i)?:continue
+    val code=item.optString("code")
+    if(code.isBlank())continue
+    full.put(JSONObject().put("c",code).put("n",item.optString("name"))
+     .put("a",(item.optDouble("price",0.0)*100.0).toLong().coerceAtLeast(0L))
+     .put("s",item.optInt("stock",0).coerceAtLeast(0)).put("l",item.optString("aisle")).put("h",item.optString("shelf")))
+   }
+   InventoryEventOutbox.enqueue(c,"M",full,now,true)
+  } else if(changes.length()>0) InventoryEventOutbox.enqueue(c,"M",changes,now)
+  else true
+  if(queued) {
+   r.put("inventory_wire_dirty_M",false)
+   if(!prefs.edit().putString(KEY,r.toString()).commit())return
+   if(!bootstrapAcked||changes.length()>0)PayrollRequestSync.sync(c,true)
+  }
+ }
  fun stockUpdatedAtText(c:Context):String{val ts=root(c).optLong("stockUpdatedAt",0L);return if(ts>0L)java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss",java.util.Locale("es","MX")).format(java.util.Date(ts)) else "Sin registro previo de actualización"}
  fun saveSales(c:Context,a:JSONArray){db(c).replace("sales",a);try{ReportFile.update(c)}catch(_:Exception){}}
  fun saveShift(c:Context,s:JSONObject?){val r=root(c);if(s==null)r.remove("shift")else r.put("shift",s);put(c,r)}
