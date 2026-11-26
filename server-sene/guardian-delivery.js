@@ -39,6 +39,8 @@ export async function deliverGuardianOwnerEvent(env, event) {
     throw new Error("guardian_delivery_not_configured");
   const endpoint = new URL(env.GUARDIAN_DELIVERY_URL);
   if (endpoint.protocol !== "https:") throw new Error("guardian_delivery_https_required");
+  if (endpoint.pathname !== "/v1/guardian/owner-events" || endpoint.search || endpoint.hash)
+    throw new Error("guardian_central_endpoint_required");
   if (!validEvent(event)) throw new Error("invalid_guardian_owner_event");
   const aesKey = await importAes(env.GUARDIAN_DELIVERY_ENC_KEY);
   const hmacKey = await importHmac(env.GUARDIAN_DELIVERY_HMAC_KEY);
