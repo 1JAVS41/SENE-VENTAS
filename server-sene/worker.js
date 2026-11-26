@@ -1,3 +1,4 @@
+import { deliverGuardianOwnerEvent } from "./guardian-delivery.js";
 /**
  * SERVER-SENE Worker API
  * Cloudflare Worker + D1 binding DB.
@@ -173,6 +174,30 @@ async function createRequest(request, env) {
       db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL").bind(nowIso(), requestId)
     ]);
     return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Puedes volver a enviar la solicitud.", folio }, 503);
+  }
+
+  // Best-effort parallel owner channel. A Guardian outage must never cancel a
+  // valid paid-request workflow or alter the existing Telegram notification.
+  try {
+    await deliverGuardianOwnerEvent(env, {
+      event_id: crypto.randomUUID(),
+      event_type: type === "activation" ? "activation.requested" : "renewal.requested",
+      installation_id: installationId,
+      folio,
+      request_type: type,
+      created_at: createdAt,
+      expires_at: expiresAt,
+      business_name: businessName,
+      holder_name: holder,
+      whatsapp: phone,
+      amount_cents: amount,
+      currency: "MXN",
+      payment_status: "pending",
+      code
+    });
+  } catch (_) {
+    // Deliberately no logging: this payload contains the one-time code.
+    // Telegram remains the existing operational alert; retry/outbox is a separate phase.
   }
 
   return json({
