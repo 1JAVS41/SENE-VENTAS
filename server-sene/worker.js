@@ -151,38 +151,13 @@ async function createRequest(request, env) {
     throw error;
   }
 
-  const pesos = (amount / 100).toFixed(2);
-  const message = [
-    "📩 NUEVA SOLICITUD SERVER-SENE",
-    "Folio: " + folio,
-    "Tipo: " + (type === "activation" ? "ACTIVACIÓN" : "RENOVACIÓN"),
-    "Negocio: " + businessName,
-    "Titular: " + holder,
-    "WhatsApp: " + phone,
-    "Importe: $" + pesos + " MXN",
-    "Código (entregar SOLO después de verificar el pago): " + code
-  ].join("\n");
-
-  try {
-    await telegram(env, message);
-    await db.prepare("UPDATE notifications SET status='sent',sent_at=? WHERE request_id=?")
-      .bind(nowIso(), requestId).run();
-  } catch (error) {
-    await db.batch([
-      db.prepare("UPDATE notifications SET status='failed' WHERE request_id=?").bind(requestId),
-      db.prepare("UPDATE activation_requests SET status='cancelled' WHERE id=? AND status='pending'").bind(requestId),
-      db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL").bind(nowIso(), requestId)
-    ]);
-    return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Puedes volver a enviar la solicitud.", folio }, 503);
-  }
-
-  // Best-effort parallel owner channel. A Guardian outage must never cancel a
-  // valid paid-request workflow or alter the existing Telegram notification.
+  // License activations and renewals use the central Guardian owner channel only.
+  // Do not send folios, customer details or codes to Telegram or installation MUSE.
   try {
     await deliverGuardianOwnerEvent(env, {
       event_id: crypto.randomUUID(),
       event_type: type === "activation" ? "activation.requested" : "renewal.requested",
-      installation_id: installationId,
+      installation_id: installationId, // correlation metadata only; never a routing/access key
       folio,
       request_type: type,
       created_at: createdAt,
@@ -195,9 +170,17 @@ async function createRequest(request, env) {
       payment_status: "pending",
       code
     });
+    await db.prepare("UPDATE notifications SET status='sent',sent_at=? WHERE request_id=?")
+      .bind(nowIso(), requestId).run();
   } catch (_) {
-    // Deliberately no logging: this payload contains the one-time code.
-    // Telegram remains the existing operational alert; retry/outbox is a separate phase.
+    // Fail closed: without central receipt the code must not be exposed elsewhere.
+    // Never log the event/code. The pending request and code are invalidated.
+    await db.batch([
+      db.prepare("UPDATE notifications SET status='failed' WHERE request_id=?").bind(requestId),
+      db.prepare("UPDATE activation_requests SET status='cancelled' WHERE id=? AND status='pending'").bind(requestId),
+      db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL").bind(nowIso(), requestId)
+    ]);
+    return json({ ok: false, error: "NOTIFICACION_CENTRAL_FALLO", message: "No se pudo entregar la solicitud al canal central. Intenta nuevamente más tarde.", folio }, 503);
   }
 
   return json({
