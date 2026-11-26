@@ -73,3 +73,14 @@ En SeneAdmin se añadió `guardian-worker/src/owner-delivery.ts` en la rama `fea
 - No se ha desplegado Worker, aplicado migraciones ni abierto PR.
 
 **Estado:** integración de código en ramas de desarrollo; no autorizada para producción.
+
+
+## Corrección obligatoria de enrutamiento: canal central (26-11-2026)
+
+Todos los eventos de activación y renovación se envían al endpoint central de SENE GUARDIÁN configurado en `GUARDIAN_DELIVERY_URL`. El campo `installation_id` permanece únicamente para correlacionar el evento con su origen; no selecciona el destinatario, no habilita acceso por instalación y no permite que Muse de ese negocio lea el código.
+
+El destino final de comunicación comercial es exclusivamente WhatsApp **3325142147**. Los números configurados por cada instalación quedan reservados para la administración cotidiana de ese negocio y nunca reciben folios, datos o códigos de licencias.
+
+El receptor de desarrollo usa una credencial central distinta de cualquier token de instalación. El buzón guarda ciphertext con TTL y solo su endpoint central autenticado puede recuperar el evento descifrado. Revocar una instalación no borra ni mueve eventos centrales.
+
+**Límite actual:** el puente HTTPS hacia el buzón central está implementado en desarrollo; el envío final a WhatsApp 3325142147 aún requiere integración oficial de Meta WhatsApp Cloud API, configuración empresarial y autorización de credenciales. No afirmar que los códigos ya llegan a WhatsApp. No configurar secretos ni desplegar hasta aprobación expresa.
