@@ -208,12 +208,9 @@ async function createRequest(request, env) {
   ].join("\n");
 
   try {
-    // Telegram receives only a generic alert. License data and codes go solely
-    // to the centrally authenticated owner MUSE channel.
-    await telegram(env, message);
-    const eventId = crypto.randomUUID();
+    // The encrypted owner MUSE delivery is mandatory. If it fails, the request
+    // is cancelled and its code invalidated; no client MUSE receives the event.
     await sendOwnerMuseLicenseEvent(env, {
-      event_id: eventId,
       event_type: type === "activation" ? "activation.requested" : "renewal.requested",
       installation_id: installationId,
       folio,
@@ -228,15 +225,24 @@ async function createRequest(request, env) {
       whatsapp: phone,
       code
     });
-    await db.prepare("UPDATE notifications SET status='sent',sent_at=? WHERE request_id=?")
-      .bind(nowIso(), requestId).run();
   } catch (error) {
     await db.batch([
       db.prepare("UPDATE notifications SET status='failed' WHERE request_id=?").bind(requestId),
       db.prepare("UPDATE activation_requests SET status='cancelled' WHERE id=? AND status='pending'").bind(requestId),
       db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL").bind(nowIso(), requestId)
     ]);
-    return json({ ok: false, error: "NOTIFICACION_RESPONSABLE_FALLO", message: "No se pudo entregar la solicitud al MUSE del propietario. No se emitió un código utilizable; intenta nuevamente más tarde.", folio }, 503);
+    return json({ ok: false, error: "ENTREGA_MUSE_PROPIETARIO_FALLO", message: "No se pudo entregar la solicitud al MUSE del propietario. No se emitió un código utilizable; intenta nuevamente más tarde.", folio }, 503);
+  }
+
+  // Telegram is now an optional generic alert only; it never receives license
+  // data or codes and cannot block a successfully delivered owner request.
+  try {
+    await telegram(env, message);
+    await db.prepare("UPDATE notifications SET status='sent',sent_at=? WHERE request_id=?")
+      .bind(nowIso(), requestId).run();
+  } catch (error) {
+    await db.prepare("UPDATE notifications SET status='failed' WHERE request_id=?")
+      .bind(requestId).run();
   }
 
   return json({
