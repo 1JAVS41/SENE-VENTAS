@@ -1,7 +1,8 @@
 /**
  * SERVER-SENE Worker API
  * Cloudflare Worker + D1 binding DB.
- * Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+ * Secrets: GUARDIAN_OWNER_EVENTS_URL, GUARDIAN_DELIVERY_ENC_KEY, GUARDIAN_DELIVERY_HMAC_KEY.
+ * Optional generic alert: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
  * Public settings: amount_cents in app_settings.
  */
 const cors = {
