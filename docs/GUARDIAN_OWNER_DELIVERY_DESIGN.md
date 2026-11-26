@@ -51,3 +51,25 @@ En SeneAdmin se añadió `guardian-worker/src/owner-delivery.ts` en la rama `fea
 7. Solo después, desplegar primero en staging con datos sintéticos y revisión explícita antes de cualquier cambio de producción.
 
 **No listo para producción.** Los dos módulos son scaffolds de protocolo, no una integración terminada. No se han creado secretos, modificado D1, cambiado `worker.js`, desplegado Workers ni tocado APK.
+
+## Integración de desarrollo implementada
+
+- `server-sene/worker.js` llama al emisor después de que Telegram confirmó el aviso y la notificación quedó marcada como enviada.
+- La llamada GUARDIÁN es best-effort: si el canal falla, no cancela la solicitud ni altera la respuesta al cliente ni el flujo Telegram.
+- El emisor cifra el evento completo con AES-256-GCM y firma el sobre con HMAC-SHA-256.
+- El receptor valida firma, ventana temporal, etiqueta AES-GCM, UUID, instalación, folio, tipo, vigencia, importe, estado pendiente y formato del código antes de guardar.
+- KV conserva el sobre cifrado por 24 horas. Los datos personales y el código no se guardan en claro.
+- El token de lectura de GUARDIÁN es independiente del token Muse de snapshots. El endpoint administrativo de provisión devuelve `ownerReadToken` una sola vez; el hash queda guardado en KV. Revocar instalación invalida este acceso y elimina eventos pendientes de esa instalación.
+- La consulta de eventos devuelve solicitudes de una instalación específica y no consume los eventos; la expiración es de 24 horas.
+
+## Limitaciones que siguen abiertas
+
+- La entrega no tiene todavía outbox/reintento durable: si GUARDIÁN está caído durante la única llamada, Telegram sigue funcionando, pero el evento no llega a GUARDIÁN. No se almacena un código en claro para reintentar.
+- La autenticación del propietario depende de la custodia segura del `ownerReadToken` que se entrega al provisionar la instalación. Falta una pantalla/proceso en SeneAdmin para custodiarlo, rotarlo y revocarlo sin exponerlo a Muse ni al APK.
+- La ruta de consulta devuelve eventos repetidamente hasta que expiran; falta acuse explícito y auditoría de lectura sin secretos.
+- No se ha ejecutado aún la suite completa ni un test end-to-end con claves efímeras compartidas. No se han configurado secretos ni binding KV real.
+- Las instalaciones ya existentes no tienen `ownerReadTokenHash`; deberán reprovisionarse de forma controlada o recibir un mecanismo de rotación antes de habilitar la lectura.
+- El emisor se ha integrado solo para solicitudes de activación y renovación. No se extiende a recuperación/cambio de dispositivo.
+- No se ha desplegado Worker, aplicado migraciones ni abierto PR.
+
+**Estado:** integración de código en ramas de desarrollo; no autorizada para producción.
