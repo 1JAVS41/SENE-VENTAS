@@ -38,6 +38,55 @@ async function telegram(env, message) {
   if (!result.ok) throw new Error("Telegram notification rejected");
 }
 
+function decodeBase64Url(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("invalid_key");
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(normalized + "=".repeat((4 - normalized.length % 4) % 4));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+function encodeBase64Url(value) {
+  return btoa(String.fromCharCode(...new Uint8Array(value)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+async function sendOwnerMuseLicenseEvent(env, event) {
+  const endpoint = typeof env.GUARDIAN_OWNER_EVENTS_URL === "string" ? env.GUARDIAN_OWNER_EVENTS_URL.trim() : "";
+  if (!endpoint || !env.GUARDIAN_DELIVERY_ENC_KEY || !env.GUARDIAN_DELIVERY_HMAC_KEY)
+    throw new Error("owner_muse_delivery_not_configured");
+  const target = new URL(endpoint);
+  if (target.protocol !== "https:" || target.pathname !== "/v1/guardian/owner-events" || target.search || target.hash)
+    throw new Error("owner_muse_endpoint_invalid");
+  const aesRaw = decodeBase64Url(env.GUARDIAN_DELIVERY_ENC_KEY);
+  const hmacRaw = decodeBase64Url(env.GUARDIAN_DELIVERY_HMAC_KEY);
+  if (aesRaw.byteLength !== 32 || hmacRaw.byteLength < 32) throw new Error("owner_muse_key_invalid");
+  const aesKey = await crypto.subtle.importKey("raw", aesRaw, "AES-GCM", false, ["encrypt"]);
+  const hmacKey = await crypto.subtle.importKey("raw", hmacRaw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const eventId = crypto.randomUUID();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(event));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(eventId), tagLength: 128 },
+    aesKey, plaintext
+  );
+  const ivText = encodeBase64Url(iv);
+  const ciphertextText = encodeBase64Url(ciphertext);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const canonical = [timestamp, eventId, ivText, ciphertextText].join(".");
+  const signature = encodeBase64Url(await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(canonical)));
+  const response = await fetch(target.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Sene-Timestamp": timestamp,
+      "X-Sene-Event-Id": eventId,
+      "X-Sene-Signature": signature
+    },
+    body: JSON.stringify({ event_id: eventId, iv: ivText, ciphertext: ciphertextText })
+  });
+  if (!response.ok) throw new Error("owner_muse_delivery_rejected");
+  const result = await response.json();
+  if (result?.accepted !== true) throw new Error("owner_muse_delivery_not_accepted");
+}
+
 async function getAmount(db) {
   const row = await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='amount_cents'").first();
   const amount = Number(row?.setting_value);
@@ -155,15 +204,30 @@ async function createRequest(request, env) {
     "📩 NUEVA SOLICITUD SERVER-SENE",
     "Folio: " + folio,
     "Tipo: " + (type === "activation" ? "ACTIVACIÓN" : "RENOVACIÓN"),
-    "Negocio: " + businessName,
-    "Titular: " + holder,
-    "WhatsApp: " + phone,
-    "Importe: $" + pesos + " MXN",
-    "Código (entregar SOLO después de verificar el pago): " + code
+    "Aviso: consulta los datos y el código exclusivamente en el MUSE del propietario."
   ].join("\n");
 
   try {
+    // Telegram receives only a generic alert. License data and codes go solely
+    // to the centrally authenticated owner MUSE channel.
     await telegram(env, message);
+    const eventId = crypto.randomUUID();
+    await sendOwnerMuseLicenseEvent(env, {
+      event_id: eventId,
+      event_type: type === "activation" ? "activation.requested" : "renewal.requested",
+      installation_id: installationId,
+      folio,
+      request_type: type,
+      created_at: createdAt,
+      expires_at: expiresAt,
+      payment_status: "pending",
+      amount_cents: amount,
+      currency: "MXN",
+      business_name: businessName,
+      holder_name: holder,
+      whatsapp: phone,
+      code
+    });
     await db.prepare("UPDATE notifications SET status='sent',sent_at=? WHERE request_id=?")
       .bind(nowIso(), requestId).run();
   } catch (error) {
@@ -172,7 +236,7 @@ async function createRequest(request, env) {
       db.prepare("UPDATE activation_requests SET status='cancelled' WHERE id=? AND status='pending'").bind(requestId),
       db.prepare("UPDATE activation_codes SET invalidated_at=? WHERE request_id=? AND consumed_at IS NULL").bind(nowIso(), requestId)
     ]);
-    return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Puedes volver a enviar la solicitud.", folio }, 503);
+    return json({ ok: false, error: "NOTIFICACION_RESPONSABLE_FALLO", message: "No se pudo entregar la solicitud al MUSE del propietario. No se emitió un código utilizable; intenta nuevamente más tarde.", folio }, 503);
   }
 
   return json({
