@@ -1,0 +1,31 @@
+name: SERVER-SENE Guardian Delivery CI
+
+on:
+  push:
+    branches:
+      - feature/guardian-owner-delivery-dev
+    paths:
+      - "server-sene/worker.js"
+      - "server-sene/guardian-delivery.js"
+      - ".github/workflows/guardian-delivery-ci.yml"
+  pull_request:
+    branches:
+      - feature/guardian-owner-delivery-dev
+    paths:
+      - "server-sene/worker.js"
+      - "server-sene/guardian-delivery.js"
+      - ".github/workflows/guardian-delivery-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check server-sene/worker.js
+      - run: node --check server-sene/guardian-delivery.js
