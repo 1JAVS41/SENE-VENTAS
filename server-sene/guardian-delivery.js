@@ -1,19 +1,11 @@
 /**
  * Private SERVER-SENE -> SENE GUARDIÁN delivery helper.
- *
- * Isolated utility only: it is NOT wired into worker.js or production routes.
- * Required dedicated secrets:
- * - GUARDIAN_DELIVERY_URL: HTTPS receiver URL
- * - GUARDIAN_DELIVERY_ENC_KEY: base64 32-byte AES-256-GCM key
- * - GUARDIAN_DELIVERY_HMAC_KEY: base64 key, at least 32 random bytes
- *
- * Never log the event, plaintext, code, ciphertext or authorization material.
+ * AES-256-GCM protects the full event; HMAC-SHA-256 authenticates the envelope.
+ * Secrets are dedicated to this bridge and must never be shared with Telegram.
  */
 const encoder = new TextEncoder();
-
 function decodeBase64(value) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(normalized);
+  const raw = atob(value.replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, c => c.charCodeAt(0));
 }
 function encodeBase64(bytes) {
@@ -34,33 +26,26 @@ async function importHmac(value) {
 async function sign(key, value) {
   return encodeBase64(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(value))));
 }
-
-/**
- * Send a single owner-only request event. Caller must invoke only after the
- * request/payment rows are committed and preserve the existing Telegram flow.
- */
+function validEvent(event) {
+  return !!event && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(event.event_id || "") &&
+    ["activation.requested", "renewal.requested"].includes(event.event_type) &&
+    typeof event.installation_id === "string" && /^[a-f0-9-]{20,100}$/i.test(event.installation_id) &&
+    typeof event.folio === "string" && /^SENE-[A-Z0-9-]{8,40}$/.test(event.folio) &&
+    ["activation", "renewal"].includes(event.request_type) &&
+    typeof event.code === "string" && /^[A-HJ-NP-Z2-9]{10}$/.test(event.code);
+}
 export async function deliverGuardianOwnerEvent(env, event) {
-  if (!env.GUARDIAN_DELIVERY_URL || !env.GUARDIAN_DELIVERY_ENC_KEY ||
-      !env.GUARDIAN_DELIVERY_HMAC_KEY) {
+  if (!env.GUARDIAN_DELIVERY_URL || !env.GUARDIAN_DELIVERY_ENC_KEY || !env.GUARDIAN_DELIVERY_HMAC_KEY)
     throw new Error("guardian_delivery_not_configured");
-  }
   const endpoint = new URL(env.GUARDIAN_DELIVERY_URL);
   if (endpoint.protocol !== "https:") throw new Error("guardian_delivery_https_required");
-  if (!event || !/^[0-9a-f-]{36}$/i.test(event.event_id || "") ||
-      !["activation.requested", "renewal.requested"].includes(event.event_type) ||
-      typeof event.folio !== "string" || typeof event.code !== "string" ||
-      !/^[A-HJ-NP-Z2-9]{10}$/.test(event.code)) {
-    throw new Error("invalid_guardian_owner_event");
-  }
-
+  if (!validEvent(event)) throw new Error("invalid_guardian_owner_event");
   const aesKey = await importAes(env.GUARDIAN_DELIVERY_ENC_KEY);
   const hmacKey = await importHmac(env.GUARDIAN_DELIVERY_HMAC_KEY);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = encoder.encode(JSON.stringify(event));
   const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: encoder.encode(event.event_id), tagLength: 128 },
-    aesKey, plaintext
-  ));
+    { name: "AES-GCM", iv, additionalData: encoder.encode(event.event_id), tagLength: 128 }, aesKey, plaintext));
   const timestamp = String(Math.floor(Date.now() / 1000));
   const ivText = encodeBase64(iv);
   const ciphertextText = encodeBase64(ciphertext);
@@ -68,15 +53,10 @@ export async function deliverGuardianOwnerEvent(env, event) {
   const signature = await sign(hmacKey, canonical);
   const response = await fetch(endpoint.toString(), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-sene-timestamp": timestamp,
-      "x-sene-event-id": event.event_id,
-      "x-sene-signature": signature
-    },
+    headers: { "content-type": "application/json", "x-sene-timestamp": timestamp,
+      "x-sene-event-id": event.event_id, "x-sene-signature": signature },
     body: JSON.stringify({ event_id: event.event_id, iv: ivText, ciphertext: ciphertextText })
   });
-  // Do not include response body in errors: receiver responses must not echo secrets.
   if (!response.ok) throw new Error("guardian_delivery_failed_" + response.status);
   return { delivered: true, eventId: event.event_id };
 }
