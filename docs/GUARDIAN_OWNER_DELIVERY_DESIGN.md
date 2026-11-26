@@ -84,3 +84,12 @@ El destino final de comunicación comercial es exclusivamente WhatsApp **3325142
 El receptor de desarrollo usa una credencial central distinta de cualquier token de instalación. El buzón guarda ciphertext con TTL y solo su endpoint central autenticado puede recuperar el evento descifrado. Revocar una instalación no borra ni mueve eventos centrales.
 
 **Límite actual:** el puente HTTPS hacia el buzón central está implementado en desarrollo; el envío final a WhatsApp 3325142147 aún requiere integración oficial de Meta WhatsApp Cloud API, configuración empresarial y autorización de credenciales. No afirmar que los códigos ya llegan a WhatsApp. No configurar secretos ni desplegar hasta aprobación expresa.
+
+
+## Exclusividad del canal central aplicada al flujo de licencias
+
+En esta rama de desarrollo, `POST /requests` ya no envía los datos ni el código de activación/renovación a Telegram. La solicitud se entrega al endpoint central cifrado de GUARDIÁN; si no se confirma la recepción central, se cancela la solicitud y se invalida el código, sin registrar el secreto en logs. El evento incluye `installation_id` solo como correlación y nunca como destinatario.
+
+Esto evita que los códigos de activación y renovación terminen en Telegram o en el MUSE configurado por una instalación. Los avisos de recuperación/cambio de dispositivo son otro flujo y no se han modificado en este cambio.
+
+El buzón central es todavía el transporte técnico de desarrollo, no WhatsApp. La entrega final exclusiva a WhatsApp **3325142147** queda pendiente de integrar la API oficial de Meta y sus credenciales autorizadas; hasta entonces no se debe afirmar que el mensaje ya llegó al teléfono. No se habilita ningún destinatario alternativo.
