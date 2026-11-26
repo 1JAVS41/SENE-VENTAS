@@ -61,7 +61,7 @@ async function sendOwnerMuseLicenseEvent(env, event) {
   if (aesRaw.byteLength !== 32 || hmacRaw.byteLength < 32) throw new Error("owner_muse_key_invalid");
   const aesKey = await crypto.subtle.importKey("raw", aesRaw, "AES-GCM", false, ["encrypt"]);
   const hmacKey = await crypto.subtle.importKey("raw", hmacRaw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const eventId = crypto.randomUUID();
+  const eventId = typeof event.event_id === "string" ? event.event_id : crypto.randomUUID();
   event.event_id = eventId;
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(event));
@@ -212,6 +212,7 @@ async function createRequest(request, env) {
     // The encrypted owner MUSE delivery is mandatory. If it fails, the request
     // is cancelled and its code invalidated; no client MUSE receives the event.
     await sendOwnerMuseLicenseEvent(env, {
+      event_id: requestId,
       event_type: type === "activation" ? "activation.requested" : "renewal.requested",
       installation_id: installationId,
       folio,
