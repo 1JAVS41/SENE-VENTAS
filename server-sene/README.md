@@ -13,7 +13,18 @@ El código del Worker está en `server-sene/worker.js`. Está preparado para el 
 4. En **Settings → Variables and Secrets**, configura como secretos:
    - `TELEGRAM_BOT_TOKEN`: token privado del bot.
    - `TELEGRAM_CHAT_ID`: chat del responsable.
+   - `GUARDIAN_ADMIN_TOKEN`: secreto compartido de al menos 40 caracteres, igual al configurado en el Worker `sene-guardian-api`. Permite aprovisionar la instalación MUSE; no lo compartas con clientes.
+   - `GUARDIAN_API_URL` (opcional): URL base del Worker GUARDIÁN. Si se omite, se usa `https://sene-guardian-api.nagavs28.workers.dev`.
+4. Conserva los secretos de Telegram existentes. Agrega `GUARDIAN_ADMIN_TOKEN` sin sustituir ni revelar otros secretos.
 5. No publiques ni compartas el token del bot.
+
+
+## Integración MUSE
+
+- `POST /muse/connect` exige una licencia vigente y utiliza `GUARDIAN_ADMIN_TOKEN` para aprovisionar la instalación en GUARDIÁN.
+- No entrega credenciales si la licencia está vencida o no puede validarse.
+- La respuesta de primer aprovisionamiento incluye las credenciales de lectura e ingestión; no se rotan automáticamente las credenciales de una instalación ya aprovisionada.
+- Tras desplegar GUARDIÁN, configura el mismo `GUARDIAN_ADMIN_TOKEN` en ambos Workers.
 
 ## Rutas implementadas
 
