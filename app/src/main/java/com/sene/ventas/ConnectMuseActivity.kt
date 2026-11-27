@@ -105,8 +105,11 @@ class ConnectMuseActivity : Activity() {
                 showSavedConnection()
                 if (result.optBoolean("ok")) {
                     status.text = result.optString("message", "Conexión comprobada.")
-                    if (result.optBoolean("already_connected") && ActivationApi.savedMuseToken(this).isBlank()) {
-                        tokenValue.text = "El token se entregó anteriormente y no está guardado en este dispositivo. No se puede volver a mostrar."
+                    if (result.optBoolean("already_connected")) {
+                        if (ActivationApi.savedMuseToken(this).isBlank())
+                            tokenValue.text = "El token MUSE se entregó anteriormente y no está guardado en este dispositivo."
+                        if (ActivationApi.savedGuardianIngestToken(this).isBlank())
+                            ingestValue.text = "El token de SeneAdmin se entregó anteriormente y no está guardado. Se requiere volver a provisionar esta conexión para obtener uno nuevo."
                     }
                 } else {
                     status.text = result.optString("message", result.optString("error", "No se pudo conectar MUSE."))
