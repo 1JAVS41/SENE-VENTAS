@@ -429,6 +429,80 @@ async function completeAccountRecovery(request, env) {
       : "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
 }
 
+const constantTimeEqual = (a, b) => {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
+
+async function ownerLicenseInventory(request, env) {
+  const supplied = (request.headers.get("authorization") || "").replace(/^Bearer /, "");
+  const expected = typeof env.GUARDIAN_ADMIN_TOKEN === "string" ? env.GUARDIAN_ADMIN_TOKEN : "";
+  if (expected.length < 40 || supplied.length < 40 || !constantTimeEqual(supplied, expected))
+    return json({ ok: false, error: "NO_AUTORIZADO" }, 401);
+
+  const now = nowIso();
+  const businessesResult = await env.DB.prepare(`
+    SELECT business_name, status, activated_at, expires_at, created_at, updated_at
+    FROM businesses
+    ORDER BY business_name_normalized ASC
+    LIMIT 1000
+  `).all();
+  const requestsResult = await env.DB.prepare(`
+    SELECT r.folio, r.request_type, r.status, r.amount_cents, r.created_at, r.expires_at,
+           b.business_name, p.verification_status, p.verified_at,
+           c.consumed_at, c.invalidated_at, c.locked_at
+    FROM activation_requests r
+    JOIN businesses b ON b.id = r.business_id
+    LEFT JOIN payments p ON p.request_id = r.id
+    LEFT JOIN activation_codes c ON c.request_id = r.id
+    ORDER BY r.created_at DESC
+    LIMIT 500
+  `).all();
+
+  const businesses = (businessesResult.results || []).map(row => {
+    const expiry = row.expires_at ? Date.parse(row.expires_at) : 0;
+    const status = row.status === "blocked" ? "blocked"
+      : expiry > 0 && expiry <= Date.now() ? "expired"
+      : row.status;
+    return {
+      business_name: row.business_name,
+      status,
+      activated_at: row.activated_at || null,
+      expires_at: row.expires_at || null,
+      created_at: row.created_at || null,
+      updated_at: row.updated_at || null
+    };
+  });
+  const requests = (requestsResult.results || []).map(row => ({
+    folio: row.folio,
+    business_name: row.business_name,
+    request_type: row.request_type,
+    status: row.status,
+    amount_cents: row.amount_cents,
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    payment_status: row.verification_status || null,
+    verified_at: row.verified_at || null,
+    code_status: row.consumed_at ? "consumed" : row.invalidated_at ? "invalidated" : row.locked_at ? "locked" : "not_consumed"
+  }));
+  return json({
+    ok: true,
+    as_of: now,
+    totals: {
+      businesses: businesses.length,
+      active: businesses.filter(x => x.status === "active").length,
+      expired: businesses.filter(x => x.status === "expired").length,
+      blocked: businesses.filter(x => x.status === "blocked").length,
+      requests: requests.length,
+      pending_requests: requests.filter(x => x.status === "pending" && Date.parse(x.expires_at) > Date.now()).length
+    },
+    businesses,
+    requests
+  });
+}
+
 async function connectMuse(request, env) {
   const body = await request.json();
   const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
@@ -533,6 +607,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
+      if (request.method === "GET" && url.pathname === "/admin/owner/license-inventory") return await ownerLicenseInventory(request, env);
       if (request.method === "POST" && url.pathname === "/muse/connect") return await connectMuse(request, env);
       return json({ ok: false, error: "RUTA_NO_ENCONTRADA" }, 404);
     } catch (error) {
