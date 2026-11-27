@@ -445,7 +445,7 @@ async function connectMuse(request, env) {
 
   if (!env.GUARDIAN_ADMIN_TOKEN || env.GUARDIAN_ADMIN_TOKEN.length < 40)
     return json({ ok: false, error: "MUSE_NO_CONFIGURADO" }, 503);
-  const guardianBase = (env.GUARDIAN_API_URL || "https://sene-guardian-api.nagavs28.workers.dev").replace(/\\/+$/, "");
+  const guardianBase = (env.GUARDIAN_API_URL || "https://sene-guardian-api.nagavs28.workers.dev").replace(/\/+$/, "");
   let response;
   try {
     response = await fetch(guardianBase + "/v1/admin/installations/provision", {
