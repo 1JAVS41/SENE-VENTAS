@@ -103,13 +103,15 @@ object ActivationApi {
             .put("installation_id", installationId(context)))
         if (result.optBoolean("ok")) {
             val token = result.optString("muse_read_token")
+            val ingestToken = result.optString("ingest_token")
             val mcpUrl = result.optString("mcp_url")
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             if (token.isNotBlank() && mcpUrl.isNotBlank()) {
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                    .putString("muse_read_token_enc", encryptIdentity(token))
+                prefs.putString("muse_read_token_enc", encryptIdentity(token))
                     .putString("muse_mcp_url", mcpUrl)
-                    .apply()
             }
+            if (ingestToken.isNotBlank()) prefs.putString("guardian_ingest_token", ingestToken)
+            prefs.apply()
         }
         return result
     }
@@ -123,6 +125,10 @@ object ActivationApi {
     fun savedMuseUrl(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("muse_mcp_url", "").orEmpty()
+
+    fun savedGuardianIngestToken(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("guardian_ingest_token", "").orEmpty()
 
     fun createRequest(
         context: Context,
