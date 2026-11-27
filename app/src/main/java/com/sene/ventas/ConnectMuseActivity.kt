@@ -20,6 +20,7 @@ class ConnectMuseActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var urlValue: TextView
     private lateinit var tokenValue: TextView
+    private lateinit var ingestValue: TextView
 
     private fun label(value: String, bold: Boolean = false) = TextView(this).apply {
         text = value
@@ -65,9 +66,13 @@ class ConnectMuseActivity : Activity() {
         root.addView(label("TOKEN MUSE · CONFIDENCIAL", true))
         tokenValue = label("Aún no disponible")
         root.addView(tokenValue)
-        root.addView(action("COPIAR TOKEN") { copy(ActivationApi.savedMuseToken(this), "Token MUSE") })
+        root.addView(action("COPIAR TOKEN MUSE") { copy(ActivationApi.savedMuseToken(this), "Token MUSE") })
+        root.addView(label("TOKEN PARA SENEADMIN · CONFIGURACIÓN DE GUARDIÁN", true))
+        ingestValue = label("Aún no disponible")
+        root.addView(ingestValue)
+        root.addView(action("COPIAR TOKEN PARA SENEADMIN") { copy(ActivationApi.savedGuardianIngestToken(this), "Token de SeneAdmin") })
         root.addView(label(
-            "PASOS PARA CONECTAR\n1. Abre la configuración de conectores de MUSE.\n2. Crea un conector personalizado.\n3. Pega la URL y el token mostrados aquí.\n4. Guarda y prueba la conexión.\n\nNo compartas el token: permite consultar los datos de este negocio."
+            "PASOS PARA CONECTAR\n1. Abre la configuración de conectores de MUSE.\n2. Crea un conector personalizado.\n3. Pega la URL y el TOKEN MUSE mostrados aquí.\n4. Guarda y prueba la conexión.\n\nPARA QUE MUSE RECIBA LOS DATOS DE SENEADMIN\nEn SeneAdmin abre SENE GUARDIÁN y coloca el mismo identificador de instalación de SENE VENTAS y el TOKEN PARA SENEADMIN. Autoriza el envío y pulsa ENVIAR CAPTURA AHORA.\n\nNo intercambies los dos tokens: cada uno tiene una función distinta."
         ))
         root.addView(action("COMPROBAR LICENCIA Y CONECTAR") { connect() })
         root.addView(action("VOLVER") { finish() })
@@ -81,6 +86,8 @@ class ConnectMuseActivity : Activity() {
         val token = ActivationApi.savedMuseToken(this)
         if (url.isNotBlank()) urlValue.text = url
         if (token.isNotBlank()) tokenValue.text = token
+        val ingest = ActivationApi.savedGuardianIngestToken(this)
+        if (ingest.isNotBlank()) ingestValue.text = ingest
     }
 
     private fun connect() {
