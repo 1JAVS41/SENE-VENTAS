@@ -110,7 +110,7 @@ object ActivationApi {
                 prefs.putString("muse_read_token_enc", encryptIdentity(token))
                     .putString("muse_mcp_url", mcpUrl)
             }
-            if (ingestToken.isNotBlank()) prefs.putString("guardian_ingest_token", ingestToken)
+            if (ingestToken.isNotBlank()) prefs.putString("guardian_ingest_token_enc", encryptIdentity(ingestToken))
             prefs.apply()
         }
         return result
@@ -128,9 +128,11 @@ object ActivationApi {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("muse_mcp_url", "").orEmpty()
 
-    fun savedGuardianIngestToken(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("guardian_ingest_token", "").orEmpty()
+    fun savedGuardianIngestToken(context: Context): String {
+        val encrypted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("guardian_ingest_token_enc", null) ?: return ""
+        return try { decryptIdentity(encrypted) } catch (_: Exception) { "" }
+    }
 
     fun createRequest(
         context: Context,
