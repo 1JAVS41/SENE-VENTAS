@@ -15,8 +15,8 @@ El código del Worker está en `server-sene/worker.js`. Está preparado para el 
    - `TELEGRAM_CHAT_ID`: chat del responsable.
    - `GUARDIAN_ADMIN_TOKEN`: secreto compartido de al menos 40 caracteres, igual al configurado en el Worker `sene-guardian-api`. Permite aprovisionar la instalación MUSE; no lo compartas con clientes.
    - `GUARDIAN_API_URL` (opcional): URL base del Worker GUARDIÁN. Si se omite, se usa `https://sene-guardian-api.nagavs28.workers.dev`.
-4. Conserva los secretos de Telegram existentes. Agrega `GUARDIAN_ADMIN_TOKEN` sin sustituir ni revelar otros secretos.
-5. No publiques ni compartas el token del bot.
+5. Conserva los secretos de Telegram existentes. Agrega `GUARDIAN_ADMIN_TOKEN` sin sustituir ni revelar otros secretos.
+6. No publiques ni compartas el token del bot.
 
 
 ## Integración MUSE
