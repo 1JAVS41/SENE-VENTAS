@@ -98,6 +98,32 @@ object ActivationApi {
         return result
     }
 
+    fun connectMuse(context: Context): JSONObject {
+        val result = post("/muse/connect", JSONObject()
+            .put("installation_id", installationId(context)))
+        if (result.optBoolean("ok")) {
+            val token = result.optString("muse_read_token")
+            val mcpUrl = result.optString("mcp_url")
+            if (token.isNotBlank() && mcpUrl.isNotBlank()) {
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                    .putString("muse_read_token_enc", encryptIdentity(token))
+                    .putString("muse_mcp_url", mcpUrl)
+                    .apply()
+            }
+        }
+        return result
+    }
+
+    fun savedMuseToken(context: Context): String {
+        val encrypted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("muse_read_token_enc", null) ?: return ""
+        return try { decryptIdentity(encrypted) } catch (_: Exception) { "" }
+    }
+
+    fun savedMuseUrl(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("muse_mcp_url", "").orEmpty()
+
     fun createRequest(
         context: Context,
         type: String,
