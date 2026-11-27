@@ -1041,6 +1041,7 @@ class MainActivity:FragmentActivity(){
    Triple("GASTOS A PROVEEDORES","Consultar pagos y salidas de caja",2),
    Triple("VER STOCK","Consultar existencias, precios y alertas",3),
    Triple("PRODUCTOS DAÑADOS","Revisar devoluciones que no pueden volver a venderse",12),
+   Triple("CONECTA TU MUSE","Vincula el MUSE de este negocio mientras la licencia esté activa",13),
    Triple("SOY PATRÓN / ADMINISTRADOR","Administrar inventario y configuración",4),
    Triple("GUARDAR REPORTE TXT","Exportar el reporte organizado",6)
   )
@@ -1059,6 +1060,7 @@ class MainActivity:FragmentActivity(){
     10->showPrinterSetup()
     11->beginTicketCorrection()
     12->showDamagedProducts()
+    13->startActivity(Intent(this,ConnectMuseActivity::class.java))
    }}
   }
   dialog.show()
