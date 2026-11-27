@@ -45,12 +45,36 @@ jobs:
           echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
       - name: Verificar Gradle
         run: gradle --version
+      - name: Preparar firma permanente existente
+        env:
+          SENE_KEYSTORE_BASE64: ${{ secrets.SENE_KEYSTORE_BASE64 }}
+          SENE_STORE_PASSWORD: ${{ secrets.SENE_STORE_PASSWORD }}
+          SENE_KEY_ALIAS: ${{ secrets.SENE_KEY_ALIAS }}
+          SENE_KEY_PASSWORD: ${{ secrets.SENE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$SENE_KEYSTORE_BASE64" ] || [ -z "$SENE_STORE_PASSWORD" ] || [ -z "$SENE_KEY_ALIAS" ] || [ -z "$SENE_KEY_PASSWORD" ]; then
+            echo "::error::No están configurados los secretos de la firma permanente existente."
+            exit 1
+          fi
+          echo "$SENE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/sene-release.jks"
+          test -s "$RUNNER_TEMP/sene-release.jks"
+          chmod 600 "$RUNNER_TEMP/sene-release.jks"
+          echo "SENE_KEYSTORE_PATH=$RUNNER_TEMP/sene-release.jks" >> "$GITHUB_ENV"
+          echo "SENE_STORE_PASSWORD=$SENE_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "SENE_KEY_ALIAS=$SENE_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "SENE_KEY_PASSWORD=$SENE_KEY_PASSWORD" >> "$GITHUB_ENV"
       - name: Compilar APK
         run: gradle --no-daemon assembleDebug
-      - name: Preparar APK con nombre oficial
+      - name: Firmar y verificar APK con la firma permanente
         run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/SENE-VENTAS.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/SENE-VENTAS-unsigned.apk
+          "$APKSIGNER" sign --ks "$SENE_KEYSTORE_PATH" --ks-key-alias "$SENE_KEY_ALIAS" --ks-pass env:SENE_STORE_PASSWORD --key-pass env:SENE_KEY_PASSWORD --out dist/SENE-VENTAS.apk dist/SENE-VENTAS-unsigned.apk
+          "$APKSIGNER" verify --verbose --print-certs dist/SENE-VENTAS.apk
+          sha256sum dist/SENE-VENTAS.apk
       - uses: actions/upload-artifact@v4
         with:
           name: SENE-VENTAS
