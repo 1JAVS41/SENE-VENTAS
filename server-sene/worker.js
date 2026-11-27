@@ -466,6 +466,7 @@ async function connectMuse(request, env) {
     status: "active",
     mcp_url: payload.mcpUrl,
     muse_read_token: payload.museReadToken || null,
+    ingest_token: payload.ingestToken || null,
     shown_once: payload.shownOnce === true,
     already_connected: payload.alreadyProvisioned === true,
     message: payload.museReadToken
