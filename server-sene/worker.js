@@ -429,6 +429,51 @@ async function completeAccountRecovery(request, env) {
       : "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
 }
 
+async function connectMuse(request, env) {
+  const body = await request.json();
+  const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
+  if (!validText(installationId, 20, 100)) return json({ ok: false, error: "INSTALACION_INVALIDA" }, 400);
+
+  // The SENE installation ID is deliberately reused as the GUARDIAN scope ID.
+  // The two services remain separate; this explicit mapping keeps one business in one scope.
+  const business = await env.DB.prepare(
+    "SELECT status,expires_at FROM businesses WHERE installation_id=? LIMIT 1"
+  ).bind(installationId).first();
+  const expiry = business?.expires_at ? new Date(business.expires_at).getTime() : 0;
+  if (!business || business.status !== "active" || !expiry || expiry <= Date.now())
+    return json({ ok: false, error: "LICENCIA_NO_ACTIVA", message: "Activa o renueva tu licencia para conectar MUSE." }, 403);
+
+  if (!env.GUARDIAN_ADMIN_TOKEN || env.GUARDIAN_ADMIN_TOKEN.length < 40)
+    return json({ ok: false, error: "MUSE_NO_CONFIGURADO" }, 503);
+  const guardianBase = (env.GUARDIAN_API_URL || "https://sene-guardian-api.nagavs28.workers.dev").replace(/\\/+$/, "");
+  let response;
+  try {
+    response = await fetch(guardianBase + "/v1/admin/installations/provision", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": "Bearer " + env.GUARDIAN_ADMIN_TOKEN,
+      },
+      body: JSON.stringify({ installationId, seneInstallationId: installationId }),
+    });
+  } catch (_) {
+    return json({ ok: false, error: "MUSE_NO_DISPONIBLE" }, 503);
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) return json({ ok: false, error: "MUSE_NO_DISPONIBLE" }, 503);
+  return json({
+    ok: true,
+    status: "active",
+    mcp_url: payload.mcpUrl,
+    muse_read_token: payload.museReadToken || null,
+    shown_once: payload.shownOnce === true,
+    already_connected: payload.alreadyProvisioned === true,
+    message: payload.museReadToken
+      ? "Conexión MUSE creada. Guarda el token: solo se muestra una vez."
+      : "Esta instalación ya fue conectada. Conserva el token MUSE que recibiste anteriormente.",
+  });
+}
+
 async function subscriptionStatus(request, env) {
   const body = await request.json();
   const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
@@ -487,6 +532,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
+      if (request.method === "POST" && url.pathname === "/muse/connect") return await connectMuse(request, env);
       return json({ ok: false, error: "RUTA_NO_ENCONTRADA" }, 404);
     } catch (error) {
       return json({ ok: false, error: "ERROR_INTERNO" }, 500);
