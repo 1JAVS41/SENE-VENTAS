@@ -116,6 +116,8 @@ object ActivationApi {
         return result
     }
 
+    fun savedInstallationId(context: Context): String = installationId(context)
+
     fun savedMuseToken(context: Context): String {
         val encrypted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("muse_read_token_enc", null) ?: return ""
