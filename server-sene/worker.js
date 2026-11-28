@@ -83,10 +83,27 @@ const b64urlDecode = value => {
   const raw = atob(value.replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, c => c.charCodeAt(0));
 };
+// Diagnóstico de entrega GUARDIÁN (2026-11-28): el aviso fallaba en silencio
+// (solo console.warn, sin registro consultable). Cada intento —éxito o fallo—
+// deja una fila en guardian_delivery_log con el motivo exacto, para leerlo
+// después con una consulta. Nunca rompe el flujo comercial: cualquier error
+// del registro se ignora. No guarda secretos, solo el motivo y la longitud
+// de la dirección (que revela espacios extra sin exponer nada).
+async function logGuardianDelivery(env, event, step, detail) {
+  try {
+    await env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS guardian_delivery_log (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, event_type TEXT, folio TEXT, step TEXT, detail TEXT)"
+    ).run();
+    await env.DB.prepare(
+      "INSERT INTO guardian_delivery_log (created_at, event_type, folio, step, detail) VALUES (?,?,?,?,?)"
+    ).bind(new Date().toISOString(), event.event_type, event.folio || "", step, String(detail || "").slice(0, 500)).run();
+  } catch {}
+}
 async function notifyGuardianOwner(env, event) {
   try {
     if (!env.GUARDIAN_DELIVERY_ENC_KEY || !env.GUARDIAN_DELIVERY_HMAC_KEY) {
       console.warn("guardian: delivery no configurado, evento no enviado (" + event.event_type + ")");
+      await logGuardianDelivery(env, event, "missing_keys", "ENC=" + !!env.GUARDIAN_DELIVERY_ENC_KEY + " HMAC=" + !!env.GUARDIAN_DELIVERY_HMAC_KEY);
       return false;
     }
     const encRaw = b64urlDecode(env.GUARDIAN_DELIVERY_ENC_KEY);
@@ -107,7 +124,8 @@ async function notifyGuardianOwner(env, event) {
     const canonical = [timestamp, eventId, ivB64, ctB64].join(".");
     const signature = b64urlEncode(new Uint8Array(await crypto.subtle.sign(
       "HMAC", hmacKey, new TextEncoder().encode(canonical))));
-    const response = await fetch(env.GUARDIAN_OWNER_EVENTS_URL || GUARDIAN_OWNER_EVENTS_URL, {
+    const url = env.GUARDIAN_OWNER_EVENTS_URL || GUARDIAN_OWNER_EVENTS_URL;
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -120,12 +138,15 @@ async function notifyGuardianOwner(env, event) {
     });
     if (!response.ok) {
       console.warn("guardian: evento rechazado (" + event.event_type + "): HTTP " + response.status);
+      await logGuardianDelivery(env, event, "fetch_rejected", "HTTP " + response.status + " url_len=" + url.length);
       return false;
     }
+    await logGuardianDelivery(env, event, "sent", "HTTP " + response.status + " url_len=" + url.length);
     return true;
   } catch (error) {
     // Best-effort: un fallo del productor nunca rompe el flujo comercial.
     console.warn("guardian: no se pudo enviar evento (" + event.event_type + "): " + (error?.message || error));
+    await logGuardianDelivery(env, event, "error", (error?.message || error) + " url_len=" + String((env.GUARDIAN_OWNER_EVENTS_URL || GUARDIAN_OWNER_EVENTS_URL).length));
     return false;
   }
 }
