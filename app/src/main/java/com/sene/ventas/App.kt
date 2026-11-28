@@ -489,7 +489,7 @@ class InicioTurnoActivity:FragmentActivity(){
   internet="Consultando hora de Internet…"
   if(::internetLabel.isInitialized)internetLabel.text="Internet: "+internet
   Thread{
-   val onlineMillis=internetTimeMillis()
+   val onlineMillis=InternetTimeCache.currentTimeMillis(this){internetTimeMillis()}
    runOnUiThread{
     if(onlineMillis!=null){
      internetBaseMillis=onlineMillis
@@ -685,7 +685,7 @@ class MainActivity:FragmentActivity(){
   salesInternetText="Consultando…"
   if(::salesInternetClock.isInitialized)salesInternetClock.text="Hora de Internet: "+salesInternetText
   Thread{
-   val value=internetTimeMillis()
+   val value=InternetTimeCache.currentTimeMillis(this){internetTimeMillis()}
    runOnUiThread{
     if(value!=null){
      salesInternetBaseMillis=value
@@ -1406,8 +1406,8 @@ class AgregarInventarioActivity:Activity(){
  private lateinit var deviceClock:TextView;private lateinit var internetClock:TextView;private val clockHandler=Handler(Looper.getMainLooper());private val clockTick=object:Runnable{override fun run(){if(::deviceClock.isInitialized)deviceClock.text="Hora del celular: "+stamp();clockHandler.postDelayed(this,1000)}}
  override fun onResume(){super.onResume();if(::deviceClock.isInitialized)clockHandler.post(clockTick)}
  override fun onPause(){clockHandler.removeCallbacks(clockTick);super.onPause()}
- private fun consultProviderInternetTime(){internetClock.text="Hora de Internet: consultando…";Thread{val value=internetTimeMillis();val text=value?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible";runOnUiThread{if(::internetClock.isInitialized)internetClock.text="Hora de Internet: "+text}}.start()}
- private fun draw(){val v=page("Agregar Inventario - Llegó proveedor");deviceClock=txt("Hora del celular: "+stamp(),14f);internetClock=txt("Hora de Internet: consultando…",14f);v.addView(deviceClock);v.addView(internetClock);v.addView(txt("CAJA DISPONIBLE: "+Store.money(Store.cashBalance(this)),17f));v.addView(button("ACTUALIZAR HORA DE INTERNET",false){consultProviderInternetTime()});code=input("Escanea o escribe código");name=input("Descripción del producto");price=input("Precio de venta $",true);qty=input("¿Cuántos llegaron del proveedor?",true);providerPayment=input("¿Cuánto pagarás al proveedor? $",true);v.addView(code);v.addView(button("ESCANEAR CÓDIGO"){openScanner()});v.addView(button("Buscar producto",false){find()});v.addView(name);v.addView(price);v.addView(qty);v.addView(providerPayment);v.addView(txt("El pago se descontará de la caja al guardar. Si no pagarás ahora, escribe 0.",13f));v.addView(button("Continuar y confirmar"){confirm()});v.addView(button("Volver",false){finish()});display(v);consultProviderInternetTime()}
+ private fun consultProviderInternetTime(forceRefresh:Boolean=false){internetClock.text="Hora de Internet: consultando…";Thread{val value=if(forceRefresh)InternetTimeCache.refreshNow(this){internetTimeMillis()}else InternetTimeCache.currentTimeMillis(this){internetTimeMillis()};val text=value?.let{SimpleDateFormat("dd/MM/yyyy HH:mm:ss",Locale("es","MX")).format(Date(it))}?: "No disponible";runOnUiThread{if(::internetClock.isInitialized)internetClock.text="Hora de Internet: "+text}}.start()}
+ private fun draw(){val v=page("Agregar Inventario - Llegó proveedor");deviceClock=txt("Hora del celular: "+stamp(),14f);internetClock=txt("Hora de Internet: consultando…",14f);v.addView(deviceClock);v.addView(internetClock);v.addView(txt("CAJA DISPONIBLE: "+Store.money(Store.cashBalance(this)),17f));v.addView(button("ACTUALIZAR HORA DE INTERNET",false){consultProviderInternetTime(true)});code=input("Escanea o escribe código");name=input("Descripción del producto");price=input("Precio de venta $",true);qty=input("¿Cuántos llegaron del proveedor?",true);providerPayment=input("¿Cuánto pagarás al proveedor? $",true);v.addView(code);v.addView(button("ESCANEAR CÓDIGO"){openScanner()});v.addView(button("Buscar producto",false){find()});v.addView(name);v.addView(price);v.addView(qty);v.addView(providerPayment);v.addView(txt("El pago se descontará de la caja al guardar. Si no pagarás ahora, escribe 0.",13f));v.addView(button("Continuar y confirmar"){confirm()});v.addView(button("Volver",false){finish()});display(v);consultProviderInternetTime()}
  private fun find(){existing=null;val p=Store.products(this);for(i in 0 until p.length()){val x=p.optJSONObject(i)?:continue;if(x.optString("code")==code.text.toString())existing=x};if(existing!=null){name.setText(existing!!.optString("name"));price.setText(existing!!.optDouble("price").toString());price.isEnabled=false;msg("Producto existente. El precio no se puede cambiar.")}else{price.isEnabled=true;name.setText("");price.setText("");msg("Producto nuevo. Captura descripción y precio.")}}
  private fun confirm(){val q=qty.text.toString().toIntOrNull();val payment=if(providerPayment.text.isBlank())0.0 else parseAmount(providerPayment.text.toString());val cash=Store.cashBalance(this);if(code.text.isBlank()||q==null||q<1){msg("Revisa código y cantidad");return};if(payment==null||payment<0){msg("Captura un pago válido");return};if(payment>cash){msg("El pago supera la caja disponible ("+Store.money(cash)+"). No se puede registrar.");return};if(existing==null&&(name.text.isBlank()||parseAmount(price.text.toString())==null)){msg("Captura descripción y precio");return};val old=existing?.optInt("stock")?:0;val summary="Código: "+code.text+"\nDescripción: "+name.text+"\nPrecio: "+price.text+"\nStock actual: "+old+"\nCantidad que llegó: "+q+"\nStock nuevo: "+(old+q)+"\n\nPago al proveedor: "+Store.money(payment)+"\nCaja antes del pago: "+Store.money(cash)+"\nCaja después del pago: "+Store.money(cash-payment)+"\n\nASEGÚRATE DE QUE LA CANTIDAD Y EL PAGO SEAN CORRECTOS. ESTA ACCIÓN NO SE PUEDE DESHACER."
  AlertDialog.Builder(this).setTitle("Confirmación 1 de 2").setMessage(summary).setPositiveButton("Sí, la cantidad es correcta"){_,_->AlertDialog.Builder(this).setTitle("¿Estás 100% seguro?").setMessage("Última oportunidad para revisar. Si guardas, ya no se puede deshacer.").setPositiveButton("SÍ, GUARDAR - YA REVISÉ"){_,_->save(q,payment)}.setNegativeButton("NO, ME EQUIVOQUÉ - REVISAR",null).show()}.setNegativeButton("No, revisar cantidad",null).show()}
@@ -1731,24 +1731,15 @@ private const val IMPORT_FILE_REQUEST=7418
 private const val START_INVENTORY_TREE_REQUEST=7416
 private const val INVENTORY_TREE_REQUEST=7417
 private const val SCAN_CODES="scan_codes"
-private fun parseLicenseExpiry(raw:String):Long {
- val patterns=listOf("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'","yyyy-MM-dd'T'HH:mm:ss'Z'")
- for(pattern in patterns)try{
-  val parser=SimpleDateFormat(pattern,Locale.US).apply{timeZone=TimeZone.getTimeZone("UTC")}
-  val parsed=parser.parse(raw)
-  if(parsed!=null)return parsed.time
- }catch(_:Exception){}
- return 0L
-}
 private fun enforceLicenseGate(activity:Activity,onAllowed:()->Unit){
  Thread{
-  val status=try{ActivationApi.subscriptionStatus(activity)}catch(_:Exception){null}
+  val status=try{ActivationApi.licenseStatus(activity)}catch(_:Exception){null}
   val serverActive=status?.optBoolean("active")==true
   val serverExpiry=status?.optString("expires_at").orEmpty()
-  val serverExpiryMillis=parseLicenseExpiry(serverExpiry)
+  val serverExpiryMillis=ActivationApi.parseLicenseExpiryMillis(serverExpiry)
   val serverExpired=status?.optBoolean("expired")==true||(!serverActive&&serverExpiryMillis>0L&&serverExpiryMillis<=System.currentTimeMillis())
   val cachedExpiry=ActivationApi.savedLicenseExpiry(activity)
-  val cachedExpiryMillis=parseLicenseExpiry(cachedExpiry)
+  val cachedExpiryMillis=ActivationApi.parseLicenseExpiryMillis(cachedExpiry)
   val cachedExpired=cachedExpiryMillis>0L&&cachedExpiryMillis<=System.currentTimeMillis()
   val expired=serverExpired||(!serverActive&&cachedExpired)
   val business=status?.optString("business_name").orEmpty().ifBlank{ActivationApi.savedLicenseBusiness(activity)}
@@ -1766,14 +1757,14 @@ private fun enforceLicenseGate(activity:Activity,onAllowed:()->Unit){
 }
 private fun hideLinkButtonWhenActive(activity:Activity,button:Button){
  Thread{
-  val active=try{ActivationApi.subscriptionStatus(activity).optBoolean("active",false)}catch(_:Exception){false}
+  val active=try{ActivationApi.licenseStatus(activity).optBoolean("active",false)}catch(_:Exception){false}
   activity.runOnUiThread{if(!activity.isFinishing&&!activity.isDestroyed&&active)button.visibility=View.GONE}
  }.start()
 }
 private fun Activity.openScanner(){
  val host=this
  Thread{
-  val status=try{ActivationApi.subscriptionStatus(host)}catch(_:Exception){org.json.JSONObject().put("ok",false).put("message","No se pudo conectar con SERVER-SENE. Revisa tu conexión.")}
+  val status=try{ActivationApi.licenseStatus(host)}catch(_:Exception){org.json.JSONObject().put("ok",false).put("message","No se pudo conectar con SERVER-SENE. Revisa tu conexión.")}
   host.runOnUiThread{
    if(host.isFinishing || host.isDestroyed)return@runOnUiThread
    if(status.optBoolean("active")){
@@ -2004,7 +1995,7 @@ class WelcomeActivity:Activity(){
   if(checking)return
   checking=true
   Thread{
-   val active=try{ActivationApi.subscriptionStatus(this).optBoolean("active",false)}catch(_:Exception){false}
+   val active=try{ActivationApi.licenseStatus(this).optBoolean("active",false)}catch(_:Exception){false}
    runOnUiThread{
     checking=false
     if(isFinishing||isDestroyed)return@runOnUiThread

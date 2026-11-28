@@ -122,7 +122,7 @@ class AccountLoginActivity : Activity() {
 
     private fun checkCurrentSession() {
         Thread {
-            val status = try { ActivationApi.subscriptionStatus(this) } catch (_: Exception) { null }
+            val status = try { ActivationApi.licenseStatus(this) } catch (_: Exception) { null }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (status?.optBoolean("active") == true) {
@@ -173,6 +173,8 @@ class AccountLoginActivity : Activity() {
         Thread {
             val result = try { ActivationApi.transferAccountDevice(this, folioValue, codeValue) }
             catch (_: Exception) { org.json.JSONObject().put("ok", false).put("message", "No se pudo conectar con SERVER-SENE. Revisa tu conexión.") }
+            // Después de transferir el dispositivo hay que confirmar con el servidor;
+            // aquí sí se pregunta siempre, no se usa la fecha guardada.
             val status = if (result.optBoolean("ok")) try { ActivationApi.subscriptionStatus(this) } catch (_: Exception) { null } else null
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
