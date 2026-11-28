@@ -47,6 +47,14 @@ const validText = (v, min, max) => typeof v === "string" && v.trim().length >= m
  *   POST /redeem, después de guardar la suscripción en D1. payment_status
  *   "paid", valid_from / valid_until (30 días).
  *
+ * FLUJO EN UN SOLO SENTIDO (regla del propietario): SENE VENTAS solo envía
+ * avisos hacia GUARDIÁN; el administrador solo recibe a través de su Muse.
+ * Nunca hay flujo del administrador ni del Muse del propietario hacia SENE
+ * VENTAS. Este productor hace una única llamada saliente (POST a
+ * /v1/guardian/owner-events) y no añade ninguna ruta entrante, ninguna
+ * escritura en D1 ni ninguna aprobación, activación o envío de códigos
+ * hacia SENE VENTAS.
+ *
  * Claves: GUARDIAN_DELIVERY_ENC_KEY y GUARDIAN_DELIVERY_HMAC_KEY son secretos
  * del Worker (base64url, nunca en código). Deben tener EXACTAMENTE los mismos
  * valores que los secretos del mismo nombre en el Worker sene-guardian-api;

@@ -61,6 +61,7 @@ Campos comunes en todos los eventos: `event_id` (UUID), `installation_id`, `foli
 
 Reglas:
 
+- **Flujo en un solo sentido (regla del propietario).** SENE VENTAS solo ENVÍA avisos hacia GUARDIÁN; el administrador (Blowback) solo RECIBE a través de su Muse. Nunca hay flujo del administrador ni del Muse del propietario hacia SENE VENTAS: GUARDIÁN no escribe en server-sene ni en D1, no aprueba, no activa, no envía códigos ni decisiones a SENE VENTAS. Este productor hace exactamente una llamada saliente (`POST` a `/v1/guardian/owner-events`) y no añade ninguna ruta entrante, ninguna escritura en D1 ni ninguna aprobación. El código comercial sigue decidiendo solo, con sus datos, como antes.
 - **Best-effort, sin tocar el flujo comercial.** Si las claves GUARDIÁN no están configuradas, si GUARDIÁN no responde en 5 segundos o si rechaza el evento, el productor solo registra el fallo con `console.warn` y la solicitud/activación sigue su curso normal. La única notificación que puede cancelar una solicitud sigue siendo Telegram (comportamiento previo, sin cambios).
 - **Sin reintentos ni cola.** Un evento que falla no se reintenta: la solicitud pendiente sigue visible en D1 y la licencia completada sigue en `subscriptions`; el propietario puede consultarlas directamente en D1.
 - **Sin códigos a clientes.** El código solo viaja cifrado al canal del propietario; ningún evento se envía al MCP de una instalación.
