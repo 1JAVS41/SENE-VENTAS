@@ -12,6 +12,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 object ActivationApi {
@@ -19,6 +22,12 @@ object ActivationApi {
     private const val PREFS = "sene_server_link"
     private const val KEY_ALIAS = "SENE_SERVER_INSTALLATION_ID"
     private const val IV_SIZE = 12
+
+    // Ahorro de solicitudes: la fecha de vencimiento guardada vale sin preguntar al servidor.
+    // Se vuelve a preguntar solo si no hay fecha, si vence en menos de 2 días,
+    // o si pasaron más de 24 horas desde la última consulta.
+    const val LICENSE_CHECK_INTERVAL_MILLIS = 24L * 60L * 60L * 1000L // 24 horas
+    const val LICENSE_NEAR_EXPIRY_MILLIS = 2L * 24L * 60L * 60L * 1000L // 2 días
 
     private fun identityKey(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -89,13 +98,79 @@ object ActivationApi {
     fun subscriptionStatus(context: Context): JSONObject {
         val result = post("/subscription/status", JSONObject().put("installation_id", installationId(context)))
         val expiry = result.optString("expires_at")
-        if (expiry.isNotBlank()) {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString("saved_license_expires_at", expiry)
-                .putString("saved_license_business_name", result.optString("business_name"))
-                .apply()
+        if (expiry.isNotBlank() || result.has("active")) {
+            // Se guarda también cuándo se preguntó, para no volver a preguntar tan seguido.
+            // La fecha guardada solo se cambia si el servidor trae una nueva: una respuesta
+            // sin fecha nunca debe borrar la fecha que ya estaba guardada.
+            val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            if (expiry.isNotBlank()) {
+                editor.putString("saved_license_expires_at", expiry)
+                editor.putString("saved_license_business_name", result.optString("business_name"))
+            }
+            editor.putLong("saved_license_checked_at", System.currentTimeMillis())
+            editor.apply()
         }
         return result
+    }
+
+    // Convierte la fecha de vencimiento del servidor ("2026-12-16T00:00:00.000Z") a milisegundos.
+    // Devuelve 0 si está vacía o no se entiende. No toca ninguna fecha: solo la lee.
+    fun parseLicenseExpiryMillis(raw: String): Long {
+        if (raw.isBlank()) return 0L
+        val patterns = listOf("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'")
+        for (pattern in patterns) try {
+            val parser = SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+            val parsed = parser.parse(raw)
+            if (parsed != null) return parsed.time
+        } catch (_: Exception) { }
+        return 0L
+    }
+
+    // Decisión pura (sin teléfono ni red): ¿hay que preguntar al servidor por la licencia?
+    // Solo se pregunta si: no hay fecha guardada, la fecha vence en menos de 2 días,
+    // nunca se ha preguntado, el reloj del teléfono retrocedió, o pasaron más de 24 horas.
+    fun shouldRefreshLicenseStatus(expiryMillis: Long, checkedAtMillis: Long, nowMillis: Long): Boolean {
+        if (expiryMillis <= 0L) return true
+        if (expiryMillis - nowMillis < LICENSE_NEAR_EXPIRY_MILLIS) return true
+        if (checkedAtMillis <= 0L) return true
+        if (nowMillis < checkedAtMillis) return true
+        return nowMillis - checkedAtMillis > LICENSE_CHECK_INTERVAL_MILLIS
+    }
+
+    // Cuándo se preguntó por última vez al servidor (milisegundos). 0 si nunca se preguntó.
+    fun savedLicenseCheckedAt(context: Context): Long =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("saved_license_checked_at", 0L)
+
+    // Estado de licencia armado solo con lo guardado en el teléfono, sin llamar al servidor.
+    // Devuelve null si no hay ninguna fecha guardada. La fecha de vencimiento no cambia.
+    fun cachedLicenseStatus(context: Context): JSONObject? {
+        val expiry = savedLicenseExpiry(context)
+        val expiryMillis = parseLicenseExpiryMillis(expiry)
+        if (expiry.isBlank() || expiryMillis <= 0L) return null
+        val expired = expiryMillis <= System.currentTimeMillis()
+        return JSONObject()
+            .put("ok", true)
+            .put("active", !expired)
+            .put("expired", expired)
+            .put("expires_at", expiry)
+            .put("business_name", savedLicenseBusiness(context))
+    }
+
+    // Estado de la licencia ahorrando solicitudes: usa la fecha guardada y solo pregunta
+    // al servidor cuando hace falta (ver shouldRefreshLicenseStatus). Si el servidor no
+    // responde y hay fecha guardada, se sigue con esa fecha, como hacía la app hasta ahora.
+    // Solo lanza excepción si no hay fecha guardada y el servidor tampoco responde.
+    fun licenseStatus(context: Context): JSONObject {
+        val now = System.currentTimeMillis()
+        val expiryMillis = parseLicenseExpiryMillis(savedLicenseExpiry(context))
+        if (!shouldRefreshLicenseStatus(expiryMillis, savedLicenseCheckedAt(context), now)) {
+            cachedLicenseStatus(context)?.let { return it }
+        }
+        return try {
+            subscriptionStatus(context)
+        } catch (e: Exception) {
+            cachedLicenseStatus(context) ?: throw e
+        }
     }
 
     fun createRequest(
@@ -178,6 +253,7 @@ object ActivationApi {
             .putString("saved_activation_folio", folio.trim().uppercase())
             .putString("saved_activation_code_enc", encryptedCode)
             .putString("saved_license_expires_at", expiresAt)
+            .putLong("saved_license_checked_at", System.currentTimeMillis())
             .apply()
     }
 
