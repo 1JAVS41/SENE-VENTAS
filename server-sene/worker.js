@@ -138,7 +138,9 @@ async function notifyGuardianOwner(env, event) {
     });
     if (!response.ok) {
       console.warn("guardian: evento rechazado (" + event.event_type + "): HTTP " + response.status);
-      await logGuardianDelivery(env, event, "fetch_rejected", "HTTP " + response.status + " url_len=" + url.length);
+      let bodySnippet = "";
+      try { bodySnippet = (await response.text()).slice(0, 200); } catch {}
+      await logGuardianDelivery(env, event, "fetch_rejected", "HTTP " + response.status + " url=" + url + " body=" + bodySnippet);
       return false;
     }
     await logGuardianDelivery(env, event, "sent", "HTTP " + response.status + " url_len=" + url.length);
@@ -146,7 +148,7 @@ async function notifyGuardianOwner(env, event) {
   } catch (error) {
     // Best-effort: un fallo del productor nunca rompe el flujo comercial.
     console.warn("guardian: no se pudo enviar evento (" + event.event_type + "): " + (error?.message || error));
-    await logGuardianDelivery(env, event, "error", (error?.message || error) + " url_len=" + String((env.GUARDIAN_OWNER_EVENTS_URL || GUARDIAN_OWNER_EVENTS_URL).length));
+    await logGuardianDelivery(env, event, "error", (error?.message || error) + " url=" + (env.GUARDIAN_OWNER_EVENTS_URL || GUARDIAN_OWNER_EVENTS_URL));
     return false;
   }
 }
