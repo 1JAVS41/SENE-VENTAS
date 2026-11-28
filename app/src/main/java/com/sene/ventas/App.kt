@@ -1485,6 +1485,7 @@ class PatronActivity:FragmentActivity(){
   v.addView(adminTag("AGREGAR O MODIFICAR PRODUCTO","Editar productos y existencias"){product()})
   v.addView(adminTag("CAMBIAR NÚMERO DE WHATSAPP","Número para recibir reportes"){val e=input("Número con código de país");e.setText(Store.phone(this));AlertDialog.Builder(this).setTitle("WhatsApp para reportes").setView(e).setPositiveButton("Guardar"){_,_->Store.setPhone(this,e.text.toString().filter{it.isDigit()});msg("Número guardado")}.setNegativeButton("Cancelar",null).show()})
   v.addView(adminTag("CAMBIAR CLAVE DE CIFRADO","Clave compartida con SENE ADMIN"){ReportKeySetup.change(this){msg("Clave de cifrado actualizada. Conserva también la clave anterior para los reportes históricos.");draw()}})
+  v.addView(adminTag("CONECTAR MI MUSE","Tu asistente con tus datos"){startActivity(Intent(this,MuseConnectActivity::class.java))})
   v.addView(adminTag("CONSULTAR NÓMINA","Revisar nóminas de los trabajadores"){startActivity(Intent(this,PayrollAdminActivity::class.java))})
   v.addView(adminTag("VER INVENTARIO ACTUAL","Consultar productos, precios y existencias"){inventory()})
   v.addView(adminTag("GUARDAR TXT DEL STOCK","Crear respaldo del inventario",0xFF25845A.toInt()){export()})

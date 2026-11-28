@@ -187,6 +187,22 @@ object ActivationApi {
         return try { decryptIdentity(encrypted) } catch (_: Exception) { "" }
     }
 
+    fun saveMuseToken(context: Context, token: String) {
+        val encryptedToken = encryptIdentity(token.trim())
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("saved_muse_token_enc", encryptedToken)
+            .apply()
+    }
+
+    fun savedMuseToken(context: Context): String {
+        val encrypted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("saved_muse_token_enc", null) ?: return ""
+        return try { decryptIdentity(encrypted) } catch (_: Exception) { "" }
+    }
+
+    fun museEndpoint(context: Context): String =
+        "https://sene-guardian-api.nagavs28.workers.dev/v1/muse/${installationId(context)}/mcp"
+
     fun savedActivationFolio(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("saved_activation_folio", "").orEmpty()
