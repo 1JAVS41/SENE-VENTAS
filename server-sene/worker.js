@@ -2,6 +2,8 @@
  * SERVER-SENE Worker API
  * Cloudflare Worker + D1 binding DB.
  * Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+ * Secretos del productor GUARDIÁN (canal del propietario, ver abajo):
+ * GUARDIAN_DELIVERY_ENC_KEY, GUARDIAN_DELIVERY_HMAC_KEY.
  * Public settings: amount_cents in app_settings.
  */
 const cors = {
@@ -25,6 +27,105 @@ const sha256 = async value => {
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
 };
 const validText = (v, min, max) => typeof v === "string" && v.trim().length >= min && v.trim().length <= max;
+
+/**
+ * Productor de eventos de licencia para SENE GUARDIÁN (canal del propietario).
+ *
+ * Destino: POST https://sene-guardian-api.nagavs28.workers.dev/v1/guardian/owner-events
+ * Contrato (definido por guardian-worker/src/owner-delivery.ts en SeneAdmin):
+ * el evento viaja cifrado con AES-GCM (clave de 32 bytes) y firmado con
+ * HMAC-SHA-256. Encabezados: x-sene-timestamp (segundos unix, 10 dígitos),
+ * x-sene-event-id (UUID) y x-sene-signature (HMAC base64url de
+ * "timestamp.eventId.iv.ciphertext"). Cuerpo JSON: { event_id, iv, ciphertext }
+ * (todo base64url). El AES-GCM usa el event_id como additionalData.
+ *
+ * Eventos enviados (solo al canal del propietario; NUNCA a un Muse de cliente):
+ * - "activation.requested" / "renewal.requested": al crear la solicitud en
+ *   POST /requests, después de avisar por Telegram. payment_status "pending"
+ *   y expires_at (48 h).
+ * - "activation.completed" / "renewal.completed": al canjear el código en
+ *   POST /redeem, después de guardar la suscripción en D1. payment_status
+ *   "paid", valid_from / valid_until (30 días).
+ *
+ * FLUJO EN UN SOLO SENTIDO (regla del propietario): SENE VENTAS solo envía
+ * avisos hacia GUARDIÁN; el administrador solo recibe a través de su Muse.
+ * Nunca hay flujo del administrador ni del Muse del propietario hacia SENE
+ * VENTAS. Este productor hace una única llamada saliente (POST a
+ * /v1/guardian/owner-events) y no añade ninguna ruta entrante, ninguna
+ * escritura en D1 ni ninguna aprobación, activación o envío de códigos
+ * hacia SENE VENTAS.
+ *
+ * Claves: GUARDIAN_DELIVERY_ENC_KEY y GUARDIAN_DELIVERY_HMAC_KEY son secretos
+ * del Worker (base64url, nunca en código). Deben tener EXACTAMENTE los mismos
+ * valores que los secretos del mismo nombre en el Worker sene-guardian-api;
+ * si no coinciden, GUARDIÁN rechaza el evento y el propietario no lo ve.
+ *
+ * BEST-EFFORT: si las claves no están configuradas, si GUARDIÁN no responde
+ * o si rechaza el evento, esto NUNCA rompe la activación ni la renovación:
+ * el envío se registra con console.warn y el flujo comercial sigue igual.
+ * La única notificación que sí puede cancelar una solicitud es Telegram
+ * (comportamiento previo, sin cambios).
+ */
+const GUARDIAN_OWNER_EVENTS_URL = "https://sene-guardian-api.nagavs28.workers.dev/v1/guardian/owner-events";
+const b64urlEncode = bytes => {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+};
+const b64urlDecode = value => {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("invalid_base64url");
+  const raw = atob(value.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+};
+async function notifyGuardianOwner(env, event) {
+  try {
+    if (!env.GUARDIAN_DELIVERY_ENC_KEY || !env.GUARDIAN_DELIVERY_HMAC_KEY) {
+      console.warn("guardian: delivery no configurado, evento no enviado (" + event.event_type + ")");
+      return false;
+    }
+    const encRaw = b64urlDecode(env.GUARDIAN_DELIVERY_ENC_KEY);
+    if (encRaw.byteLength !== 32) throw new Error("invalid_enc_key");
+    const hmacRaw = b64urlDecode(env.GUARDIAN_DELIVERY_HMAC_KEY);
+    if (hmacRaw.byteLength < 32) throw new Error("invalid_hmac_key");
+    const aesKey = await crypto.subtle.importKey("raw", encRaw, "AES-GCM", false, ["encrypt"]);
+    const hmacKey = await crypto.subtle.importKey("raw", hmacRaw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const eventId = crypto.randomUUID();
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const plaintext = new TextEncoder().encode(JSON.stringify({ ...event, event_id: eventId }));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(eventId), tagLength: 128 },
+      aesKey, plaintext));
+    const ivB64 = b64urlEncode(iv);
+    const ctB64 = b64urlEncode(ciphertext);
+    const canonical = [timestamp, eventId, ivB64, ctB64].join(".");
+    const signature = b64urlEncode(new Uint8Array(await crypto.subtle.sign(
+      "HMAC", hmacKey, new TextEncoder().encode(canonical))));
+    const response = await fetch(env.GUARDIAN_OWNER_EVENTS_URL || GUARDIAN_OWNER_EVENTS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-sene-timestamp": timestamp,
+        "x-sene-event-id": eventId,
+        "x-sene-signature": signature
+      },
+      body: JSON.stringify({ event_id: eventId, iv: ivB64, ciphertext: ctB64 }),
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!response.ok) {
+      console.warn("guardian: evento rechazado (" + event.event_type + "): HTTP " + response.status);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    // Best-effort: un fallo del productor nunca rompe el flujo comercial.
+    console.warn("guardian: no se pudo enviar evento (" + event.event_type + "): " + (error?.message || error));
+    return false;
+  }
+}
 
 async function telegram(env, message) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) throw new Error("Telegram secrets missing");
@@ -175,6 +276,24 @@ async function createRequest(request, env) {
     return json({ ok: false, error: "NOTIFICACION_TELEGRAM_FALLO", message: "No se pudo avisar al responsable por Telegram. Puedes volver a enviar la solicitud.", folio }, 503);
   }
 
+  // Productor GUARDIÁN (best-effort): avisa al Muse del propietario de la
+  // solicitud pendiente. Si falla, la solicitud sigue creada y vigente.
+  await notifyGuardianOwner(env, {
+    event_type: type + ".requested",
+    installation_id: installationId,
+    folio,
+    request_type: type,
+    created_at: createdAt,
+    amount_cents: amount,
+    currency: "MXN",
+    business_name: businessName,
+    holder_name: holder,
+    whatsapp: phone,
+    code,
+    payment_status: "pending",
+    expires_at: expiresAt
+  });
+
   return json({
     ok: true,
     folio,
@@ -199,7 +318,9 @@ async function redeemCode(request, env) {
   const row = await db.prepare(`
     SELECT ac.id AS code_id, ac.code_hash, ac.consumed_at, ac.invalidated_at,
            ac.attempt_count, ac.locked_at, ar.id AS request_id, ar.business_id,
-           ar.request_type, ar.status AS request_status, ar.expires_at AS request_expires, b.installation_id,
+           ar.request_type, ar.status AS request_status, ar.expires_at AS request_expires,
+           ar.amount_cents, ar.created_at, b.installation_id,
+           b.business_name, b.holder_name, b.whatsapp,
            b.status AS business_status, b.expires_at AS business_expires
     FROM activation_requests ar
     JOIN activation_codes ac ON ac.request_id=ar.id
@@ -258,6 +379,27 @@ async function redeemCode(request, env) {
   } catch (_) {
     return json({ ok: false, error: "NO_SE_PUDO_ACTIVAR" }, 500);
   }
+
+  // Productor GUARDIÁN (best-effort): avisa al Muse del propietario de la
+  // licencia activada/renovada. Si falla, la activación ya quedó guardada
+  // en D1 y la respuesta al cliente no cambia.
+  await notifyGuardianOwner(env, {
+    event_type: row.request_type + ".completed",
+    installation_id: row.installation_id,
+    folio: row.folio,
+    request_type: row.request_type,
+    created_at: row.created_at,
+    amount_cents: row.amount_cents,
+    currency: "MXN",
+    business_name: row.business_name,
+    holder_name: row.holder_name,
+    whatsapp: String(row.whatsapp || "").replace(/\D/g, ""),
+    code,
+    payment_status: "paid",
+    valid_from: starts.toISOString(),
+    valid_until: expiresAt
+  });
+
   return json({ ok: true, status: "active", activated_at: activatedAt, expires_at: expiresAt });
 }
 
@@ -493,3 +635,4 @@ export default {
     }
   }
 };
+
