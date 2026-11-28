@@ -46,6 +46,9 @@ const validText = (v, min, max) => typeof v === "string" && v.trim().length >= m
  * - "activation.completed" / "renewal.completed": al canjear el código en
  *   POST /redeem, después de guardar la suscripción en D1. payment_status
  *   "paid", valid_from / valid_until (30 días).
+ * - "transfer.completed": al transferir la cuenta a otro dispositivo en
+ *   POST /account/device/transfer, después de mover businesses.installation_id.
+ *   Sin código ni monto: solo folio, negocio, titular, WhatsApp y vigencia.
  *
  * FLUJO EN UN SOLO SENTIDO (regla del propietario): SENE VENTAS solo envía
  * avisos hacia GUARDIÁN; el administrador solo recibe a través de su Muse.
@@ -571,6 +574,113 @@ async function completeAccountRecovery(request, env) {
       : "Dispositivo autorizado. La suscripción y su fecha de vencimiento se conservaron." });
 }
 
+/**
+ * Traspaso de cuenta por inicio de sesión ("YA SOY CLIENTE SENE").
+ *
+ * La app ya llama a este endpoint con el folio y el código de activación
+ * ORIGINALES y el installation_id del teléfono nuevo. El código original
+ * es de un solo uso y está atado al primer teléfono, así que aquí NO se
+ * exige solicitud pendiente ni código sin consumir: la autorización es el
+ * folio + el hash del código original, aunque ya esté consumido.
+ *
+ * Espejo de completeAccountRecovery, sin Telegram y sin tabla nueva:
+ * mueve businesses.installation_id al dispositivo nuevo y conserva el
+ * estado y la fecha de vencimiento tal cual. Si el negocio nunca se
+ * activó (status "pending"), el traspaso solo rebindea la activación
+ * pendiente al dispositivo nuevo.
+ */
+async function transferAccountDevice(request, env) {
+  const body = await request.json();
+  const folio = typeof body.folio === "string" ? body.folio.trim() : "";
+  const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
+  const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
+  if (!validText(folio, 8, 50) || !/^[A-HJ-NP-Z2-9]{10}$/.test(code) ||
+      !validText(installationId, 20, 100)) {
+    return json({ ok: false, error: "DATOS_INVALIDOS" }, 400);
+  }
+
+  const db = env.DB;
+  const row = await db.prepare(`
+    SELECT ac.id AS code_id, ac.code_hash, ac.consumed_at, ac.invalidated_at,
+           ac.attempt_count, ac.locked_at, ar.id AS request_id, ar.business_id,
+           ar.request_type, ar.status AS request_status, ar.expires_at AS request_expires,
+           ar.amount_cents, ar.created_at, b.installation_id,
+           b.business_name, b.holder_name, b.whatsapp,
+           b.status AS business_status, b.expires_at AS business_expires
+    FROM activation_requests ar
+    JOIN activation_codes ac ON ac.request_id=ar.id
+    JOIN businesses b ON b.id=ar.business_id
+    WHERE ar.folio=?
+  `).bind(folio).first();
+
+  if (!row) return json({ ok: false, error: "FOLIO_NO_ENCONTRADO" }, 404);
+  if (row.business_status === "blocked") {
+    return json({ ok: false, error: "NEGOCIO_BLOQUEADO" }, 403);
+  }
+  if (row.invalidated_at) return json({ ok: false, error: "CODIGO_INVALIDADO" }, 409);
+  if (row.locked_at || row.attempt_count >= 5) return json({ ok: false, error: "CODIGO_BLOQUEADO" }, 429);
+
+  // El código original autoriza el traspaso aunque ya esté consumido:
+  // se verifica su hash sin exigir solicitud pendiente ni código sin usar.
+  const suppliedHash = await sha256(code);
+  if (suppliedHash !== row.code_hash) {
+    await db.prepare("UPDATE activation_codes SET attempt_count=attempt_count+1, locked_at=CASE WHEN attempt_count+1>=5 THEN ? ELSE locked_at END WHERE id=?")
+      .bind(nowIso(), row.code_id).run();
+    return json({ ok: false, error: "CODIGO_INCORRECTO" }, 401);
+  }
+
+  const oldInstallationId = row.installation_id;
+  if (installationId === oldInstallationId) {
+    return json({ ok: true, status: "already_linked",
+      business_name: row.business_name, expires_at: row.business_expires || null });
+  }
+
+  const deviceOwner = await db.prepare(
+    "SELECT business_name FROM businesses WHERE installation_id=? AND id<>? LIMIT 1"
+  ).bind(installationId, row.business_id).first();
+  if (deviceOwner) {
+    return json({ ok: false, error: "DISPOSITIVO_OCUPADO", message: "Este dispositivo ya está vinculado a otro negocio." }, 409);
+  }
+
+  const transferredAt = nowIso();
+  let result;
+  try {
+    result = await db.prepare(
+      "UPDATE businesses SET installation_id=?,updated_at=? WHERE id=? AND installation_id=?"
+    ).bind(installationId, transferredAt, row.business_id, oldInstallationId).run();
+  } catch (_) {
+    return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR" }, 409);
+  }
+  if (!result?.meta || result.meta.changes !== 1) {
+    return json({ ok: false, error: "NO_SE_PUDO_TRANSFERIR" }, 409);
+  }
+
+  // Productor GUARDIÁN (best-effort): avisa al Muse del propietario del
+  // traspaso. Sin código ni monto. Si falla, el traspaso ya quedó guardado
+  // en D1 y la respuesta al cliente no cambia.
+  await notifyGuardianOwner(env, {
+    event_type: "transfer.completed",
+    installation_id: installationId,
+    old_installation_id: oldInstallationId,
+    folio,
+    business_name: row.business_name,
+    holder_name: row.holder_name,
+    whatsapp: String(row.whatsapp || "").replace(/\D/g, ""),
+    created_at: transferredAt,
+    valid_until: row.business_expires || null
+  });
+
+  if (row.business_status === "pending") {
+    const pendingActivation = await db.prepare(
+      "SELECT folio FROM activation_requests WHERE business_id=? AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 1"
+    ).bind(row.business_id, nowIso()).first();
+    return json({ ok: true, status: "activation_device_rebound",
+      activation_folio: pendingActivation?.folio || null });
+  }
+  return json({ ok: true, status: "transferred",
+    business_name: row.business_name, expires_at: row.business_expires || null });
+}
+
 async function subscriptionStatus(request, env) {
   const body = await request.json();
   const installationId = typeof body.installation_id === "string" ? body.installation_id.trim() : "";
@@ -628,6 +738,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/redeem") return await redeemCode(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/request") return await requestAccountRecovery(request, env);
       if (request.method === "POST" && url.pathname === "/account/recovery/complete") return await completeAccountRecovery(request, env);
+      if (request.method === "POST" && url.pathname === "/account/device/transfer") return await transferAccountDevice(request, env);
       if (request.method === "POST" && url.pathname === "/subscription/status") return await subscriptionStatus(request, env);
       return json({ ok: false, error: "RUTA_NO_ENCONTRADA" }, 404);
     } catch (error) {
