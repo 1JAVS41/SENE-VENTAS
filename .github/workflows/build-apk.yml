@@ -18,6 +18,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Preparar firma permanente (si está configurada)
+        env:
+          VENTAS_KEYSTORE_BASE64: ${{ secrets.VENTAS_KEYSTORE_BASE64 }}
+          VENTAS_STORE_PASSWORD: ${{ secrets.VENTAS_STORE_PASSWORD }}
+          VENTAS_KEY_ALIAS: ${{ secrets.VENTAS_KEY_ALIAS }}
+          VENTAS_KEY_PASSWORD: ${{ secrets.VENTAS_KEY_PASSWORD }}
+        run: |
+          if [ -n "$VENTAS_KEYSTORE_BASE64" ] && [ -n "$VENTAS_STORE_PASSWORD" ] && [ -n "$VENTAS_KEY_ALIAS" ] && [ -n "$VENTAS_KEY_PASSWORD" ]; then
+            echo "$VENTAS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/sene-ventas-signing.jks"
+            test -s "$RUNNER_TEMP/sene-ventas-signing.jks"
+            chmod 600 "$RUNNER_TEMP/sene-ventas-signing.jks"
+            printf '%s' "$VENTAS_STORE_PASSWORD" > "$RUNNER_TEMP/ventas-store.pass"
+            printf '%s' "$VENTAS_KEY_PASSWORD" > "$RUNNER_TEMP/ventas-key.pass"
+            chmod 600 "$RUNNER_TEMP/ventas-store.pass" "$RUNNER_TEMP/ventas-key.pass"
+            echo "VENTAS_KEYSTORE_PATH=$RUNNER_TEMP/sene-ventas-signing.jks" >> "$GITHUB_ENV"
+            echo "VENTAS_STORE_PASS_FILE=$RUNNER_TEMP/ventas-store.pass" >> "$GITHUB_ENV"
+            echo "VENTAS_KEY_PASS_FILE=$RUNNER_TEMP/ventas-key.pass" >> "$GITHUB_ENV"
+            echo "VENTAS_KEY_ALIAS=$VENTAS_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "VENTAS_STABLE_SIGNING=true" >> "$GITHUB_ENV"
+            echo "Firma permanente configurada."
+          else
+            echo "VENTAS_STABLE_SIGNING=false" >> "$GITHUB_ENV"
+            echo "::warning::No hay firma permanente. La APK resultante es SOLO de compilación y NO debe instalarse."
+          fi
       - name: Localizar Android SDK y sdkmanager
         run: |
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
@@ -51,6 +75,21 @@ jobs:
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/SENE-VENTAS.apk
+          test -s dist/SENE-VENTAS.apk
+          unzip -t dist/SENE-VENTAS.apk >/dev/null
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/apksigner"
+          if [ "$VENTAS_STABLE_SIGNING" = "true" ]; then
+            "$BUILD_TOOLS/apksigner" sign --ks "$VENTAS_KEYSTORE_PATH" --ks-key-alias "$VENTAS_KEY_ALIAS" --ks-pass file:"$VENTAS_STORE_PASS_FILE" --key-pass file:"$VENTAS_KEY_PASS_FILE" --out dist/SENE-VENTAS-signed.apk dist/SENE-VENTAS.apk
+            mv dist/SENE-VENTAS-signed.apk dist/SENE-VENTAS.apk
+          fi
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs dist/SENE-VENTAS.apk
+          if [ "$VENTAS_STABLE_SIGNING" = "true" ]; then
+            echo "APK firmada con la llave permanente configurada."
+          else
+            echo "::warning::APK con firma temporal de depuración; NO instalar ni distribuir."
+          fi
+          sha256sum dist/SENE-VENTAS.apk
       - uses: actions/upload-artifact@v4
         with:
           name: SENE-VENTAS
