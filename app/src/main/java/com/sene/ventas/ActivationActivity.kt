@@ -228,7 +228,7 @@ class ActivationActivity : Activity() {
                     val amountText = String.format(java.util.Locale.US, "%.2f", amount / 100.0)
                     AlertDialog.Builder(this)
                         .setTitle("SOLICITUD REGISTRADA")
-                        .setMessage("Folio: $folio\nImporte: " + "$" + amountText + " MXN\n\nTienes 48 horas para realizar el pago y enviar el comprobante. El código de activación llegará al responsable.")
+                        .setMessage("Folio: $folio\nImporte: " + "$" + amountText + " MXN\n\nTienes 48 horas para realizar el pago y enviar el comprobante. La administración SENE te hará llegar tus datos de acceso por WhatsApp una vez que envíes el comprobante de pago.")
                         .setPositiveButton("CONTINUAR AL PAGO") { _, _ -> openPayment() }
                         .setNegativeButton("MÁS TARDE", null)
                         .show()
