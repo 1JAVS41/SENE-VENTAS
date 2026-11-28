@@ -142,9 +142,18 @@ async function telegram(env, message) {
   if (!result.ok) throw new Error("Telegram notification rejected");
 }
 
-async function getAmount(db) {
-  const row = await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='amount_cents'").first();
-  const amount = Number(row?.setting_value);
+// Precio por tipo (regla del propietario, 2026-11-28): la activacion
+// cuesta $299 (incluye la primera mensualidad) y la renovacion/mensualidad
+// $100. Se lee la llave segun el tipo; si falta, se usa la llave unica
+// anterior (amount_cents) para no romper solicitudes viejas.
+async function getAmount(db, type) {
+  const key = type === "renewal" ? "amount_cents_renewal" : "amount_cents_activation";
+  const row = await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key=?").bind(key).first();
+  let amount = Number(row?.setting_value);
+  if (!Number.isSafeInteger(amount) || amount < 1) {
+    const legacy = await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='amount_cents'").first();
+    amount = Number(legacy?.setting_value);
+  }
   if (!Number.isSafeInteger(amount) || amount < 1) throw new Error("amount_cents is not configured");
   return amount;
 }
@@ -212,7 +221,7 @@ async function createRequest(request, env) {
     ]);
   }
 
-  const amount = await getAmount(db);
+  const amount = await getAmount(db, type);
   const requestId = crypto.randomUUID();
   const folio = "SENE-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + crypto.randomUUID().slice(0, 6).toUpperCase();
   const code = randomCode();
